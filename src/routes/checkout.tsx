@@ -1,0 +1,119 @@
+import { createFileRoute, Link } from '@tanstack/react-router';
+import { CartBadge } from '@/components/customer/CartBadge';
+
+export const Route = createFileRoute('/checkout')({
+  component: CheckoutPage,
+});
+
+function CheckoutPage() {
+  return (
+    <div className="min-h-screen" style={{ backgroundColor: '#fcfbf8' }}>
+      {/* Header */}
+      <header
+        className="sticky top-0 z-50 w-full border-b shadow-sm"
+        style={{ backgroundColor: '#ffffff', borderColor: '#e5e5e5' }}
+      >
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          <Link to="/" className="flex items-center gap-2 no-underline">
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center"
+              style={{ backgroundColor: '#FF6B00' }}
+            >
+              <svg
+                className="w-5 h-5 text-white"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+                />
+              </svg>
+            </div>
+            <span className="font-bold text-lg" style={{ color: '#1a1a1a' }}>
+              SaturnoEmbalagens
+            </span>
+          </Link>
+          <CartBadge />
+        </div>
+      </header>
+
+      {/* Content */}
+      <div className="max-w-2xl mx-auto px-4 py-16">
+        <div className="text-center">
+          <div
+            className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"
+            style={{ backgroundColor: '#fff7ed' }}
+          >
+            <svg
+              className="w-10 h-10"
+              style={{ color: '#FF6B00' }}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
+            </svg>
+          </div>
+
+          <h1 className="text-2xl md:text-3xl font-bold mb-3" style={{ color: '#1a1a1a' }}>
+            Checkout em desenvolvimento
+          </h1>
+
+          <p className="text-base mb-8" style={{ color: '#666666' }}>
+            A funcionalidade de checkout será implementada na próxima fase.
+            <br />
+            Você poderá finalizar suas compras com segurança e praticidade.
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Link
+              to="/cart"
+              className="inline-flex items-center justify-center py-2.5 px-6 rounded-xl font-semibold text-white transition-all hover:opacity-90"
+              style={{ backgroundColor: '#FF6B00' }}
+            >
+              <svg
+                className="w-4 h-4 mr-2"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+              Voltar ao carrinho
+            </Link>
+
+            <Link
+              to="/catalog"
+              className="inline-flex items-center justify-center py-2.5 px-6 rounded-xl font-medium transition-all hover:opacity-80"
+              style={{ backgroundColor: '#f5f5f5', color: '#1a1a1a' }}
+            >
+              Continuar comprando
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <footer
+        className="border-t"
+        style={{ backgroundColor: '#ffffff', borderColor: '#e5e5e5' }}
+      >
+        <div className="max-w-5xl mx-auto px-4 py-8 text-center">
+          <p className="text-xs" style={{ color: '#999999' }}>
+            © 2025 SaturnoEmbalagens. Todos os direitos reservados.
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}

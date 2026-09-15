@@ -1,6 +1,10 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useCart } from '@/hooks/useCart';
+import { useAuth } from '@/hooks/useAuth';
+import { CartBadge } from '@/components/customer/CartBadge';
+import { toast } from 'sonner';
 
 interface ProductDetail {
   id: string;
@@ -28,6 +32,11 @@ function ProductDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [quantity, setQuantity] = useState(1);
+  const [addingToCart, setAddingToCart] = useState(false);
+
+  const { user } = useAuth();
+  const { addToCart } = useCart();
 
   useEffect(() => {
     setLoading(true);
@@ -39,7 +48,7 @@ function ProductDetailPage() {
       .eq('slug', productSlug)
       .eq('is_active', true)
       .single()
-      .then(({ data, error: fetchError }) => {
+      .then(({ data, fetchError }) => {
         if (fetchError || !data) {
           setError('Produto não encontrado.');
           setLoading(false);
@@ -51,6 +60,38 @@ function ProductDetailPage() {
         setLoading(false);
       });
   }, [productSlug]);
+
+  const handleAddToCart = async () => {
+    if (!user) {
+      toast.error('Faça login para adicionar itens ao carrinho');
+      return;
+    }
+
+    if (!product || product.stock_quantity === 0) {
+      toast.error('Produto não disponível');
+      return;
+    }
+
+    setAddingToCart(true);
+
+    const result = await addToCart(product.id, quantity);
+
+    setAddingToCart(false);
+
+    if (result.success) {
+      setQuantity(1);
+    }
+  };
+
+  const handleQuantityChange = (newQty: number) => {
+    if (!product) return;
+    if (newQty < 1) return;
+    if (newQty > product.stock_quantity) {
+      toast.error(`Quantidade máxima disponível: ${product.stock_quantity}`);
+      return;
+    }
+    setQuantity(newQty);
+  };
 
   const allImages = product?.images?.length
     ? product.images
@@ -117,14 +158,24 @@ function ProductDetailPage() {
             <span className="font-bold text-lg" style={{ color: '#1a1a1a' }}>SaturnoEmbalagens</span>
           </Link>
           <div className="flex items-center gap-3">
-            <Link to="/cart" className="relative p-2 rounded-lg transition-colors hover:bg-gray-100">
-              <svg className="w-5 h-5" style={{ color: '#1a1a1a' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
-            </Link>
-            <Link to="/login" className="text-sm font-medium px-4 py-2 rounded-lg no-underline transition-colors hover:opacity-90" style={{ backgroundColor: '#FF6B00', color: '#ffffff' }}>
-              Entrar
-            </Link>
+            <CartBadge />
+            {user ? (
+              <Link
+                to="/account"
+                className="text-sm font-medium px-4 py-2 rounded-lg no-underline transition-colors hover:opacity-90"
+                style={{ backgroundColor: '#f5f5f5', color: '#1a1a1a' }}
+              >
+                Minha conta
+              </Link>
+            ) : (
+              <Link
+                to="/login"
+                className="text-sm font-medium px-4 py-2 rounded-lg no-underline transition-colors hover:opacity-90"
+                style={{ backgroundColor: '#FF6B00', color: '#ffffff' }}
+              >
+                Entrar
+              </Link>
+            )}
           </div>
         </div>
       </header>
@@ -236,17 +287,52 @@ function ProductDetailPage() {
               <p className="text-xs mb-6" style={{ color: '#999999' }}>SKU: {product.sku}</p>
             )}
 
+            {/* Quantity Selector */}
+            {isAvailable && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-2" style={{ color: '#1a1a1a' }}>Quantidade</label>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => handleQuantityChange(quantity - 1)}
+                    disabled={quantity <= 1}
+                    className="w-10 h-10 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ backgroundColor: '#f5f5f5', color: '#1a1a1a' }}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
+                    </svg>
+                  </button>
+                  <input
+                    type="number"
+                    value={quantity}
+                    onChange={(e) => handleQuantityChange(parseInt(e.target.value) || 1)}
+                    min={1}
+                    max={product.stock_quantity}
+                    className="w-16 h-10 rounded-lg border text-center text-sm font-medium"
+                    style={{ borderColor: '#d1d5db', backgroundColor: '#ffffff', color: '#1a1a1a' }}
+                  />
+                  <button
+                    onClick={() => handleQuantityChange(quantity + 1)}
+                    disabled={quantity >= product.stock_quantity}
+                    className="w-10 h-10 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ backgroundColor: '#f5f5f5', color: '#1a1a1a' }}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Add to Cart Button */}
             <button
-              disabled={!isAvailable}
+              disabled={!isAvailable || addingToCart}
+              onClick={handleAddToCart}
               className="w-full rounded-xl py-3.5 text-base font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ backgroundColor: '#FF6B00' }}
-              onClick={() => {
-                // Prepared for future cart implementation
-                alert('Carrinho será implementado na próxima fase.');
-              }}
             >
-              {isAvailable ? 'Adicionar ao carrinho' : 'Produto esgotado'}
+              {addingToCart ? 'Adicionando...' : isAvailable ? 'Adicionar ao carrinho' : 'Produto esgotado'}
             </button>
 
             {/* Pickup Info */}
