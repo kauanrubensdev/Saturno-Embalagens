@@ -1,12 +1,13 @@
 import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-router';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { signIn } from '@/lib/auth';
+import { getCurrentUser, signIn } from '@/lib/auth';
 import { toast } from 'sonner';
 
 export const Route = createFileRoute('/login')({
   beforeLoad: async ({ context }) => {
-    if (context.user) {
+    const { user } = context as { user?: { id: string } | null };
+    if (user) {
       throw redirect({ to: '/account' });
     }
   },
@@ -14,7 +15,7 @@ export const Route = createFileRoute('/login')({
 });
 
 function LoginPage() {
-  const { refreshAuth } = useAuth();
+  const { refreshProfile } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,9 +29,9 @@ function LoginPage() {
       if (result.error) {
         toast.error(result.error);
       } else {
-        await refreshAuth();
-        const { profile } = useAuth.getState?.() || {};
-        if (profile?.role === 'admin') {
+        await refreshProfile();
+        const currentUser = await getCurrentUser();
+        if (currentUser?.role === 'admin') {
           navigate({ to: '/admin' });
         } else {
           navigate({ to: '/' });
@@ -95,7 +96,7 @@ function LoginPage() {
                 required
                 placeholder="seu@email.com"
                 className="w-full h-11 px-4 rounded-xl border text-sm transition-colors focus:outline-none focus:ring-2"
-                style={{ borderColor: '#d1d5db', backgroundColor: '#ffffff', color: '#1a1a1a', ['--tw-ring_color']: '#FF6B00' }}
+                style={{ borderColor: '#d1d5db', backgroundColor: '#ffffff', color: '#1a1a1a' }}
               />
             </div>
 
@@ -117,6 +118,7 @@ function LoginPage() {
             <div className="flex justify-end">
               <Link
                 to="/forgot-password"
+                search={{}}
                 className="text-sm font-medium no-underline transition-colors"
                 style={{ color: '#FF6B00' }}
               >

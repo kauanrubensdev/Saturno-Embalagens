@@ -1,9 +1,11 @@
 import { createFileRoute, Link, redirect } from '@tanstack/react-router';
-import { useAuth } from '@/hooks/useAuth';
 
 export const Route = createFileRoute('/admin')({
   beforeLoad: async ({ context }) => {
-    const { user, profile } = context;
+    const { user, profile } = context as {
+      user?: { id: string } | null;
+      profile?: { role: 'customer' | 'admin' } | null;
+    };
     if (!user) {
       throw redirect({ to: '/login' });
     }

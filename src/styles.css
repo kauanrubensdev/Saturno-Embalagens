@@ -2,11 +2,41 @@
    SATURNO EMBALAGENS - DESIGN SYSTEM TOKENS
    ============================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind v4: expose the semantic system without duplicating color sources. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-ring: var(--ring);
+  --font-sans: var(--font-family);
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+}
 
 /* ===== LIGHT THEME (DEFAULT) ===== */
 :root {
@@ -38,12 +68,20 @@
   --warning-foreground: #001621;
   --ring: #FE5516;
 
+  /* Main responsive spacing */
+  --space-page-x: 1rem;
+  --space-section-y: 3rem;
+  --space-content: 1.5rem;
+
   /* Spacing */
   --container-sm: 640px;
   --container-md: 768px;
   --container-lg: 1024px;
   --container-xl: 1280px;
   --container-2xl: 1536px;
+  --container: 1200px;
+  --container-wide: 1440px;
+  --container-narrow: 760px;
 
   /* Border Radius */
   --radius-xs: 4px;
@@ -53,12 +91,14 @@
   --radius-xl: 16px;
   --radius-2xl: 20px;
   --radius-full: 9999px;
+  --radius: var(--radius-md);
 
   /* Shadows */
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-focus: 0 0 0 3px rgba(254, 85, 22, 0.16);
 
   /* Typography Scale */
   --font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -108,6 +148,7 @@
   --warning: #eab308;
   --warning-foreground: #001621;
   --ring: #FF4103;
+  --shadow-focus: 0 0 0 3px rgba(255, 65, 3, 0.22);
 }
 
 /* ===== BASE STYLES ===== */
@@ -120,11 +161,39 @@ body {
 
 /* ===== CONTAINER UTILITIES ===== */
 @layer utilities {
+  .container,
+  .container-wide,
+  .container-narrow {
+    width: 100%;
+    margin-inline: auto;
+    padding-inline: var(--space-page-x);
+  }
+
+  .container { max-width: var(--container); }
+  .container-wide { max-width: var(--container-wide); }
+  .container-narrow { max-width: var(--container-narrow); }
+
   .container-sm { max-width: var(--container-sm); }
   .container-md { max-width: var(--container-md); }
   .container-lg { max-width: var(--container-lg); }
   .container-xl { max-width: var(--container-xl); }
   .container-2xl { max-width: var(--container-2xl); }
+
+  @media (min-width: 640px) {
+    .container,
+    .container-wide,
+    .container-narrow {
+      padding-inline: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container,
+    .container-wide,
+    .container-narrow {
+      padding-inline: 2rem;
+    }
+  }
 }
 
 /* ===== BUTTON BASE STYLES ===== */
@@ -278,13 +347,34 @@ body {
   .input:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(254, 85, 22, 0.1);
+    box-shadow: var(--shadow-focus);
   }
   .input:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
   .input.error { border-color: var(--destructive); }
+
+  .select {
+    width: 100%;
+    padding: 0.625rem 2.5rem 0.625rem 1rem;
+    font-size: var(--font-size-sm);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background-color: var(--card);
+    color: var(--card-foreground);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: var(--shadow-focus);
+  }
+  .select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .select.error { border-color: var(--destructive); }
 
   .label {
     display: block;
@@ -315,15 +405,20 @@ body {
   .textarea:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(254, 85, 22, 0.1);
+    box-shadow: var(--shadow-focus);
   }
+  .textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .textarea.error { border-color: var(--destructive); }
 
   /* ===== TYPOGRAPHY ===== */
   .text-h1 {
     font-size: var(--font-size-4xl);
     font-weight: var(--font-weight-extrabold);
     line-height: 1.1;
-    letter-spacing: -0.02em;
+    letter-spacing: 0;
     color: var(--foreground);
   }
 
@@ -331,7 +426,7 @@ body {
     font-size: var(--font-size-3xl);
     font-weight: var(--font-weight-bold);
     line-height: 1.2;
-    letter-spacing: -0.01em;
+    letter-spacing: 0;
     color: var(--foreground);
   }
 
@@ -374,6 +469,12 @@ body {
     z-index: var(--z-sticky);
     background-color: var(--card);
     border-bottom: 1px solid var(--border);
+  }
+
+  .nav {
+    display: flex;
+    align-items: center;
+    gap: var(--space-content);
   }
 
   .nav-link {

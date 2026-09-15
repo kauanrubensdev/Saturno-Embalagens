@@ -1,16 +1,12 @@
-import { createFileRoute, Link, redirect } from '@tanstack/react-router';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { updateProfile } from '@/lib/auth';
 import { toast } from 'sonner';
 
-interface LoaderData {
-  user: { id: string; email: string; name: string; phone?: string } | null;
-}
-
 export const Route = createFileRoute('/account')({
   beforeLoad: async ({ context }) => {
-    const { user } = context;
+    const { user } = context as { user?: { id: string } | null };
     if (!user) {
       throw redirect({ to: '/login' });
     }
@@ -20,7 +16,7 @@ export const Route = createFileRoute('/account')({
 });
 
 function AccountPage() {
-  const { profile, refreshAuth } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [saving, setSaving] = useState(false);
@@ -36,12 +32,12 @@ function AccountPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      const result = await updateProfile({ name, phone: phone || undefined });
+      const result = await updateProfile({ name, phone });
       if (result.error) {
         toast.error(result.error);
       } else {
         toast.success('Perfil atualizado com sucesso!');
-        await refreshAuth();
+        await refreshProfile();
       }
     } finally {
       setSaving(false);
@@ -98,7 +94,7 @@ function AccountPage() {
             </label>
             <input
               type="email"
-              value={profile?.email || ''}
+              value={user?.email || ''}
               disabled
               className="w-full h-11 px-4 rounded-xl border text-sm cursor-not-allowed"
               style={{

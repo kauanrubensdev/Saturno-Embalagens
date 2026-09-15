@@ -47,8 +47,9 @@ function CategoryPage() {
         const productsData = (data as CategoryProduct[]) || [];
         setProducts(productsData);
 
-        if (productsData.length > 0 && productsData[0].category) {
-          setCategoryName(productsData[0].category.name);
+        const firstProduct = productsData[0];
+        if (firstProduct?.category) {
+          setCategoryName(firstProduct.category.name);
         } else {
           // Try to get category name directly
           supabase

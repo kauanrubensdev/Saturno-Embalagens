@@ -82,8 +82,10 @@ export function useCart() {
       setCart({
         id: cartId,
         user_id: user.id,
-        items: (items || []).map((item: Record<string, unknown>) => ({
-          ...item,
+        items: (items || []).map((item) => ({
+          id: item.id,
+          product_id: item.product_id,
+          quantity: item.quantity,
           product: item.product as CartItem['product'],
         })),
       });
