@@ -32,8 +32,8 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     id: user.id,
     email: user.email ?? '',
     name: profile.name,
-    phone: profile.phone ?? undefined,
     role: profile.role as 'customer' | 'admin',
+    ...(profile.phone ? { phone: profile.phone } : {}),
   };
 }
 
@@ -89,9 +89,14 @@ export async function updateProfile(updates: { name?: string; phone?: string }):
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Usuário não autenticado' };
 
+  const profileUpdates = {
+    ...(updates.name !== undefined ? { name: updates.name } : {}),
+    ...(updates.phone !== undefined ? { phone: updates.phone } : {}),
+  };
+
   const { error } = await supabase
     .from('profiles')
-    .update({ name: updates.name, phone: updates.phone })
+    .update(profileUpdates)
     .eq('id', user.id);
 
   if (error) return { error: error.message };

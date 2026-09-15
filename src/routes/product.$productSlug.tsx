@@ -48,7 +48,7 @@ function ProductDetailPage() {
       .eq('slug', productSlug)
       .eq('is_active', true)
       .single()
-      .then(({ data, fetchError }) => {
+      .then(({ data, error: fetchError }) => {
         if (fetchError || !data) {
           setError('Produto não encontrado.');
           setLoading(false);
@@ -189,7 +189,12 @@ function ProductDetailPage() {
           {product.category && (
             <>
               <span>/</span>
-              <Link to={`/catalog/${product.category.slug}`} className="no-underline transition-colors" style={{ color: '#999999' }}>
+              <Link
+                to="/catalog/$categorySlug"
+                params={{ categorySlug: product.category.slug }}
+                className="no-underline transition-colors"
+                style={{ color: '#999999' }}
+              >
                 {product.category.name}
               </Link>
             </>
