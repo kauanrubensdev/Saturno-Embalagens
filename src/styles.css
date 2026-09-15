@@ -4,20 +4,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/*
- * Design system definition.
- *
- * The @theme inline block maps CSS custom properties to Tailwind utility
- * classes (e.g. --color-primary -> bg-primary, text-primary).
- *
- * The :root and .dark blocks define the actual color values using oklch.
- * All colors MUST use oklch format.
- *
- * To add a new semantic color:
- * 1. Add the variable to :root (light value) and .dark (dark value)
- * 2. Register it in @theme inline as --color-<name>: var(--<name>)
- */
-
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -63,73 +49,75 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.129 0.042 264.695);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.129 0.042 264.695);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.129 0.042 264.695);
-  --primary: oklch(0.208 0.042 265.755);
-  --primary-foreground: oklch(0.984 0.003 247.858);
-  --secondary: oklch(0.968 0.007 247.896);
-  --secondary-foreground: oklch(0.208 0.042 265.755);
-  --muted: oklch(0.968 0.007 247.896);
-  --muted-foreground: oklch(0.554 0.046 257.417);
-  --accent: oklch(0.968 0.007 247.896);
-  --accent-foreground: oklch(0.208 0.042 265.755);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(0.929 0.013 255.508);
-  --input: oklch(0.929 0.013 255.508);
-  --ring: oklch(0.704 0.04 256.788);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.984 0.003 247.858);
-  --sidebar-foreground: oklch(0.129 0.042 264.695);
-  --sidebar-primary: oklch(0.208 0.042 265.755);
-  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-accent: oklch(0.968 0.007 247.896);
-  --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
-  --sidebar-border: oklch(0.929 0.013 255.508);
-  --sidebar-ring: oklch(0.704 0.04 256.788);
+  /* Tema Claro - SaturnoEmbalagens */
+  --background: #F5F5DC;
+  --foreground: #001621;
+  --card: #ffffff;
+  --card-foreground: #001621;
+  --popover: #ffffff;
+  --popover-foreground: #001621;
+  --primary: #FE5516;
+  --primary-foreground: #ffffff;
+  --secondary: #E8D9BB;
+  --secondary-foreground: #001621;
+  --muted: #E8D9BB;
+  --muted-foreground: #001621;
+  --accent: #E8D9BB;
+  --accent-foreground: #001621;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #d4c9a8;
+  --input: #d4c9a8;
+  --ring: #FE5516;
+  --chart-1: #001621;
+  --chart-2: #FE5516;
+  --chart-3: #E8D9BB;
+  --chart-4: #FE5516;
+  --chart-5: #001621;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #001621;
+  --sidebar-primary: #FE5516;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #E8D9BB;
+  --sidebar-accent-foreground: #001621;
+  --sidebar-border: #d4c9a8;
+  --sidebar-ring: #FE5516;
 }
 
 .dark {
-  --background: oklch(0.129 0.042 264.695);
-  --foreground: oklch(0.984 0.003 247.858);
-  --card: oklch(0.208 0.042 265.755);
-  --card-foreground: oklch(0.984 0.003 247.858);
-  --popover: oklch(0.208 0.042 265.755);
-  --popover-foreground: oklch(0.984 0.003 247.858);
-  --primary: oklch(0.929 0.013 255.508);
-  --primary-foreground: oklch(0.208 0.042 265.755);
-  --secondary: oklch(0.279 0.041 260.031);
-  --secondary-foreground: oklch(0.984 0.003 247.858);
-  --muted: oklch(0.279 0.041 260.031);
-  --muted-foreground: oklch(0.704 0.04 256.788);
-  --accent: oklch(0.279 0.041 260.031);
-  --accent-foreground: oklch(0.984 0.003 247.858);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.551 0.027 264.364);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.208 0.042 265.755);
-  --sidebar-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-accent: oklch(0.279 0.041 260.031);
-  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.551 0.027 264.364);
+  /* Tema Escuro - SaturnoEmbalagens */
+  --background: #001621;
+  --foreground: #F5F5DC;
+  --card: #002d3d;
+  --card-foreground: #F5F5DC;
+  --popover: #002d3d;
+  --popover-foreground: #F5F5DC;
+  --primary: #FF4103;
+  --primary-foreground: #001621;
+  --secondary: #003344;
+  --secondary-foreground: #F5F5DC;
+  --muted: #003344;
+  --muted-foreground: #d4c9a8;
+  --accent: #003344;
+  --accent-foreground: #F5F5DC;
+  --destructive: #ff4444;
+  --destructive-foreground: #001621;
+  --border: #004455;
+  --input: #004455;
+  --ring: #FF4103;
+  --chart-1: #FF4103;
+  --chart-2: #F5F5DC;
+  --chart-3: #E8D9BB;
+  --chart-4: #FF4103;
+  --chart-5: #F5F5DC;
+  --sidebar: #002d3d;
+  --sidebar-foreground: #F5F5DC;
+  --sidebar-primary: #FF4103;
+  --sidebar-primary-foreground: #001621;
+  --sidebar-accent: #003344;
+  --sidebar-accent-foreground: #F5F5DC;
+  --sidebar-border: #004455;
+  --sidebar-ring: #FF4103;
 }
 
 @layer base {
