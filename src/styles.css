@@ -126,8 +126,9 @@
   --z-tooltip: 500;
 }
 
-/* ===== DARK THEME ===== */
-[data-theme="dark"] {
+/* ===== DARK THEME (padrão quando não há preferência salva) ===== */
+[data-theme="dark"],
+html:not([data-theme]) {
   --background: #001621;
   --foreground: #F5F5DC;
   --primary: #FF4103;
