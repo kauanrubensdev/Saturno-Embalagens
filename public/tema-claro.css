@@ -1,0 +1,48 @@
+/* ============================================
+   TEMA CLARO — SaturnoEmbalagens
+   Aplicado via [data-theme="light"] no <html>
+   ============================================ */
+
+[data-theme="light"] {
+  --background: #F5F5DC;
+  --foreground: #001621;
+  --primary: #FE5516;
+  --primary-foreground: #ffffff;
+  --secondary: #001621;
+  --secondary-foreground: #F5F5DC;
+  --muted: #E8D9BB;
+  --muted-foreground: #666666;
+  --accent: #E8D9BB;
+  --accent-foreground: #001621;
+  --border: #c8b896;
+  --card: #ffffff;
+  --card-foreground: #001621;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --success: #16a34a;
+  --success-foreground: #ffffff;
+  --warning: #f59e0b;
+  --warning-foreground: #001621;
+  --ring: #FE5516;
+  --shadow-focus: 0 0 0 3px rgba(254, 85, 22, 0.2);
+  --bg-main: #F5F5DC;
+  --bg-section: #E8D9BB;
+  --bg-card: #ffffff;
+  --bg-card-alt: #E8D9BB;
+  --text-primary: #001621;
+  --text-secondary: #666666;
+  --text-muted: #999999;
+  --accent-color: #FE5516;
+  --accent-hover: #e04a10;
+  --border-color: #c8b896;
+}
+
+/* Transições suaves entre temas */
+[data-theme="light"] body,
+[data-theme="light"] * {
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
