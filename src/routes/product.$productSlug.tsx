@@ -229,7 +229,7 @@ function ProductDetailPage() {
                     style={{
                       width: '72px',
                       height: '72px',
-                      borderColor: selectedImage === img ? '#FF6B00' : '#e5e5e5',
+                      borderColor: selectedImage === img ? 'var(--primary)' : 'var(--border)',
                     }}
                   >
                     <img src={img} alt={`${product.name} ${index + 1}`} className="w-full h-full object-cover" />

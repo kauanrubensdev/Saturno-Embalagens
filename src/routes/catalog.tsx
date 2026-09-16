@@ -120,8 +120,8 @@ function CatalogPage() {
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-all"
               style={{ borderColor: var(--border), backgroundColor: var(--card) }}
-              onFocus={(e) => { e.target.style.borderColor = '#FF6B00'; e.target.style.boxShadow = '0 0 0 3px rgba(255,107,0,0.1)'; }}
-              onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; }}
+              onFocus={(e) => { e.target.style.borderColor = 'var(--primary)'; e.target.style.boxShadow = 'var(--shadow-focus)'; }}
+              onBlur={(e) => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }}
             />
           </div>
 
@@ -130,9 +130,9 @@ function CatalogPage() {
               onClick={() => setSelectedCategory(null)}
               className="px-4 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer"
               style={{
-                backgroundColor: !selectedCategory ? '#FF6B00' : '#ffffff',
-                color: !selectedCategory ? '#ffffff' : '#666666',
-                border: '1px solid ' + (!selectedCategory ? '#FF6B00' : '#d1d5db'),
+                backgroundColor: !selectedCategory ? 'var(--primary)' : 'var(--card)',
+                color: !selectedCategory ? 'var(--primary-foreground)' : 'var(--muted-foreground)',
+                border: '1px solid ' + (!selectedCategory ? 'var(--primary)' : 'var(--border)'),
               }}
             >
               Todos
@@ -143,9 +143,9 @@ function CatalogPage() {
                 onClick={() => setSelectedCategory(selectedCategory === cat.slug ? null : cat.slug)}
                 className="px-4 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer"
                 style={{
-                  backgroundColor: selectedCategory === cat.slug ? '#FF6B00' : '#ffffff',
-                  color: selectedCategory === cat.slug ? '#ffffff' : '#666666',
-                  border: '1px solid ' + (selectedCategory === cat.slug ? '#FF6B00' : '#d1d5db'),
+                  backgroundColor: selectedCategory === cat.slug ? 'var(--primary)' : 'var(--card)',
+                  color: selectedCategory === cat.slug ? 'var(--primary-foreground)' : 'var(--muted-foreground)',
+                  border: '1px solid ' + (selectedCategory === cat.slug ? 'var(--primary)' : 'var(--border)'),
                 }}
               >
                 {cat.name}

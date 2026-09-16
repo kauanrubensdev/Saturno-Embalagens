@@ -68,7 +68,7 @@ export function ProductCard({ product }: ProductCardProps) {
           <span className="font-bold text-base" style={{ color: var(--primary) }}>
             {formattedPrice}
           </span>
-          <span className="text-xs" style={{ color: isAvailable ? '#22c55e' : '#ef4444' }}>
+          <span className="text-xs" style={{ color: isAvailable ? 'var(--success)' : 'var(--destructive)' }}>
             {isAvailable ? 'Disponível' : 'Esgotado'}
           </span>
         </div>
