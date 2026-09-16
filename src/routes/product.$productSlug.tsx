@@ -107,16 +107,16 @@ function ProductDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: var(--background) }}>
+      <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
         <div className="max-w-5xl mx-auto px-4 py-8">
           <div className="animate-pulse">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div style={{ backgroundColor: var(--muted), height: '400px', borderRadius: '16px' }} />
+              <div style={{ backgroundColor: 'var(--muted)', height: '400px', borderRadius: '16px' }} />
               <div className="space-y-4">
-                <div style={{ backgroundColor: var(--muted), height: '12px', borderRadius: '4px', width: '40%' }} />
-                <div style={{ backgroundColor: var(--muted), height: '32px', borderRadius: '4px', width: '80%' }} />
-                <div style={{ backgroundColor: var(--muted), height: '24px', borderRadius: '4px', width: '30%' }} />
-                <div style={{ backgroundColor: var(--muted), height: '80px', borderRadius: '8px' }} />
+                <div style={{ backgroundColor: 'var(--muted)', height: '12px', borderRadius: '4px', width: '40%' }} />
+                <div style={{ backgroundColor: 'var(--muted)', height: '32px', borderRadius: '4px', width: '80%' }} />
+                <div style={{ backgroundColor: 'var(--muted)', height: '24px', borderRadius: '4px', width: '30%' }} />
+                <div style={{ backgroundColor: 'var(--muted)', height: '80px', borderRadius: '8px' }} />
               </div>
             </div>
           </div>
@@ -127,16 +127,16 @@ function ProductDetailPage() {
 
   if (error || !product) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: var(--background) }}>
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--background)' }}>
         <div className="text-center">
-          <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: var(--muted) }}>
+          <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: 'var(--muted)' }}>
             <svg className="w-6 h-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
           </div>
-          <h2 className="text-xl font-bold mb-2" style={{ color: var(--foreground) }}>Produto não encontrado</h2>
-          <p className="text-sm mb-6" style={{ color: var(--muted-foreground) }}>Este produto pode ter sido removido ou desativado.</p>
-          <Link to="/catalog" className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold no-underline transition-colors hover:opacity-90" style={{ backgroundColor: var(--primary), color: var(--primary-foreground) }}>
+          <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>Produto não encontrado</h2>
+          <p className="text-sm mb-6" style={{ color: 'var(--muted-foreground)' }}>Este produto pode ter sido removido ou desativado.</p>
+          <Link to="/catalog" className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold no-underline transition-colors hover:opacity-90" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}>
             Voltar ao catálogo
           </Link>
         </div>
@@ -145,17 +145,17 @@ function ProductDetailPage() {
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: var(--background) }}>
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
       {/* Header */}
-      <header className="sticky top-0 z-50 w-full border-b shadow-sm" style={{ backgroundColor: var(--card), borderColor: var(--border) }}>
+      <header className="sticky top-0 z-50 w-full border-b shadow-sm" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 no-underline">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: var(--primary) }}>
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'var(--primary)' }}>
               <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
               </svg>
             </div>
-            <span className="font-bold text-lg" style={{ color: var(--foreground) }}>SaturnoEmbalagens</span>
+            <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>SaturnoEmbalagens</span>
           </Link>
           <div className="flex items-center gap-3">
             <CartBadge />
@@ -163,7 +163,7 @@ function ProductDetailPage() {
               <Link
                 to="/account"
                 className="text-sm font-medium px-4 py-2 rounded-lg no-underline transition-colors hover:opacity-90"
-                style={{ backgroundColor: var(--muted), color: var(--foreground) }}
+                style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
               >
                 Minha conta
               </Link>
@@ -171,7 +171,7 @@ function ProductDetailPage() {
               <Link
                 to="/login"
                 className="text-sm font-medium px-4 py-2 rounded-lg no-underline transition-colors hover:opacity-90"
-                style={{ backgroundColor: var(--primary), color: var(--primary-foreground) }}
+                style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
               >
                 Entrar
               </Link>
@@ -182,10 +182,10 @@ function ProductDetailPage() {
 
       <div className="max-w-5xl mx-auto px-4 py-8">
         {/* Breadcrumb */}
-        <nav className="flex items-center gap-2 text-sm mb-8" style={{ color: var(--muted-foreground) }}>
-          <Link to="/" className="no-underline transition-colors" style={{ color: var(--muted-foreground) }}>Início</Link>
+        <nav className="flex items-center gap-2 text-sm mb-8" style={{ color: 'var(--muted-foreground)' }}>
+          <Link to="/" className="no-underline transition-colors" style={{ color: 'var(--muted-foreground)' }}>Início</Link>
           <span>/</span>
-          <Link to="/catalog" className="no-underline transition-colors" style={{ color: var(--muted-foreground) }}>Catálogo</Link>
+          <Link to="/catalog" className="no-underline transition-colors" style={{ color: 'var(--muted-foreground)' }}>Catálogo</Link>
           {product.category && (
             <>
               <span>/</span>
@@ -193,14 +193,14 @@ function ProductDetailPage() {
                 to="/catalog/$categorySlug"
                 params={{ categorySlug: product.category.slug }}
                 className="no-underline transition-colors"
-                style={{ color: var(--muted-foreground) }}
+                style={{ color: 'var(--muted-foreground)' }}
               >
                 {product.category.name}
               </Link>
             </>
           )}
           <span>/</span>
-          <span style={{ color: var(--foreground) }} className="truncate max-w-xs">{product.name}</span>
+          <span style={{ color: 'var(--foreground)' }} className="truncate max-w-xs">{product.name}</span>
         </nav>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12">
@@ -208,12 +208,12 @@ function ProductDetailPage() {
           <div className="space-y-3">
             <div
               className="rounded-2xl overflow-hidden flex items-center justify-center"
-              style={{ backgroundColor: var(--muted), minHeight: '360px' }}
+              style={{ backgroundColor: 'var(--muted)', minHeight: '360px' }}
             >
               {selectedImage ? (
                 <img src={selectedImage} alt={product.name} className="w-full h-full object-cover" style={{ maxHeight: '500px' }} />
               ) : (
-                <svg className="w-20 h-20" style={{ color: var(--muted-foreground) }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={0.5}>
+                <svg className="w-20 h-20" style={{ color: 'var(--muted-foreground)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={0.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                 </svg>
               )}
@@ -246,33 +246,33 @@ function ProductDetailPage() {
                 to="/catalog/$categorySlug"
                 params={{ categorySlug: product.category.slug }}
                 className="inline-block text-sm font-medium mb-2 no-underline transition-colors"
-                style={{ color: var(--primary) }}
+                style={{ color: 'var(--primary)' }}
               >
                 {product.category.name}
               </Link>
             )}
 
-            <h1 className="text-2xl md:text-3xl font-bold mb-3" style={{ color: var(--foreground) }}>
+            <h1 className="text-2xl md:text-3xl font-bold mb-3" style={{ color: 'var(--foreground)' }}>
               {product.name}
             </h1>
 
             <div className="mb-6">
-              <span className="text-3xl font-bold" style={{ color: var(--foreground) }}>{formattedPrice}</span>
+              <span className="text-3xl font-bold" style={{ color: 'var(--foreground)' }}>{formattedPrice}</span>
             </div>
 
             {/* Stock Status */}
             <div className="mb-6">
               {isAvailable ? (
                 <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: var(--success) }} />
-                  <span className="text-sm font-medium" style={{ color: var(--success) }}>
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: 'var(--success)' }} />
+                  <span className="text-sm font-medium" style={{ color: 'var(--success)' }}>
                     Disponível ({product.stock_quantity} unidades)
                   </span>
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: var(--destructive) }} />
-                  <span className="text-sm font-medium" style={{ color: var(--destructive) }}>Esgotado</span>
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: 'var(--destructive)' }} />
+                  <span className="text-sm font-medium" style={{ color: 'var(--destructive)' }}>Esgotado</span>
                 </div>
               )}
             </div>
@@ -280,8 +280,8 @@ function ProductDetailPage() {
             {/* Description */}
             {product.description && (
               <div className="mb-6">
-                <h2 className="text-sm font-semibold mb-2" style={{ color: var(--foreground) }}>Descrição</h2>
-                <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: var(--muted-foreground) }}>
+                <h2 className="text-sm font-semibold mb-2" style={{ color: 'var(--foreground)' }}>Descrição</h2>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--muted-foreground)' }}>
                   {product.description}
                 </p>
               </div>
@@ -289,19 +289,19 @@ function ProductDetailPage() {
 
             {/* SKU */}
             {product.sku && (
-              <p className="text-xs mb-6" style={{ color: var(--muted-foreground) }}>SKU: {product.sku}</p>
+              <p className="text-xs mb-6" style={{ color: 'var(--muted-foreground)' }}>SKU: {product.sku}</p>
             )}
 
             {/* Quantity Selector */}
             {isAvailable && (
               <div className="mb-4">
-                <label className="block text-sm font-medium mb-2" style={{ color: var(--foreground) }}>Quantidade</label>
+                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>Quantidade</label>
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => handleQuantityChange(quantity - 1)}
                     disabled={quantity <= 1}
                     className="w-10 h-10 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ backgroundColor: var(--muted), color: var(--foreground) }}
+                    style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
@@ -314,13 +314,13 @@ function ProductDetailPage() {
                     min={1}
                     max={product.stock_quantity}
                     className="w-16 h-10 rounded-lg border text-center text-sm font-medium"
-                    style={{ borderColor: var(--border), backgroundColor: var(--card), color: var(--foreground) }}
+                    style={{ borderColor: 'var(--border)', backgroundColor: 'var(--card)', color: 'var(--foreground)' }}
                   />
                   <button
                     onClick={() => handleQuantityChange(quantity + 1)}
                     disabled={quantity >= product.stock_quantity}
                     className="w-10 h-10 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ backgroundColor: var(--muted), color: var(--foreground) }}
+                    style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -335,21 +335,21 @@ function ProductDetailPage() {
               disabled={!isAvailable || addingToCart}
               onClick={handleAddToCart}
               className="w-full rounded-xl py-3.5 text-base font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ backgroundColor: var(--primary) }}
+              style={{ backgroundColor: 'var(--primary)' }}
             >
               {addingToCart ? 'Adicionando...' : isAvailable ? 'Adicionar ao carrinho' : 'Produto esgotado'}
             </button>
 
             {/* Pickup Info */}
-            <div className="mt-6 p-4 rounded-xl" style={{ backgroundColor: var(--muted), border: '1px solid var(--muted)' }}>
+            <div className="mt-6 p-4 rounded-xl" style={{ backgroundColor: 'var(--muted)', border: '1px solid var(--muted)' }}>
               <div className="flex items-start gap-3">
-                <svg className="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: var(--primary) }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: 'var(--primary)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
                 <div>
-                  <p className="text-sm font-semibold mb-0.5" style={{ color: var(--foreground) }}>Opção de retirada</p>
-                  <p className="text-xs" style={{ color: var(--muted-foreground) }}>
+                  <p className="text-sm font-semibold mb-0.5" style={{ color: 'var(--foreground)' }}>Opção de retirada</p>
+                  <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
                     Retire na R. Urupema, nº 150 - São Cosme de Baixo, Santa Luzia - MG
                   </p>
                 </div>
@@ -359,12 +359,12 @@ function ProductDetailPage() {
         </div>
       </div>
 
-      <footer className="border-t mt-12" style={{ backgroundColor: var(--card), borderColor: var(--border) }}>
+      <footer className="border-t mt-12" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
         <div className="max-w-5xl mx-auto px-4 py-8 text-center">
-          <Link to="/catalog" className="inline-flex items-center gap-2 text-sm font-medium no-underline mb-2" style={{ color: var(--primary) }}>
+          <Link to="/catalog" className="inline-flex items-center gap-2 text-sm font-medium no-underline mb-2" style={{ color: 'var(--primary)' }}>
             ← Voltar ao catálogo
           </Link>
-          <p className="text-xs" style={{ color: var(--muted-foreground) }}>© 2025 SaturnoEmbalagens. Todos os direitos reservados.</p>
+          <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>© 2025 SaturnoEmbalagens. Todos os direitos reservados.</p>
         </div>
       </footer>
     </div>

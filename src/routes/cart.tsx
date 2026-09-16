@@ -23,16 +23,16 @@ function CartPage() {
   // Loading state
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: var(--background) }}>
+      <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
         <header
           className="sticky top-0 z-50 w-full border-b shadow-sm"
-          style={{ backgroundColor: var(--card), borderColor: var(--border) }}
+          style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
         >
           <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
             <Link to="/" className="flex items-center gap-2 no-underline">
               <div
                 className="w-9 h-9 rounded-xl flex items-center justify-center"
-                style={{ backgroundColor: var(--primary) }}
+                style={{ backgroundColor: 'var(--primary)' }}
               >
                 <svg
                   className="w-5 h-5 text-white"
@@ -48,7 +48,7 @@ function CartPage() {
                   />
                 </svg>
               </div>
-              <span className="font-bold text-lg" style={{ color: var(--foreground) }}>
+              <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>
                 SaturnoEmbalagens
               </span>
             </Link>
@@ -58,14 +58,14 @@ function CartPage() {
 
         <div className="max-w-5xl mx-auto px-4 py-8">
           <div className="animate-pulse">
-            <div className="h-8 w-48 rounded mb-8" style={{ backgroundColor: var(--muted) }} />
+            <div className="h-8 w-48 rounded mb-8" style={{ backgroundColor: 'var(--muted)' }} />
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="flex gap-4 p-4 rounded-xl" style={{ backgroundColor: var(--card), border: '1px solid var(--border)' }}>
-                  <div className="w-20 h-20 rounded-lg" style={{ backgroundColor: var(--muted) }} />
+                <div key={i} className="flex gap-4 p-4 rounded-xl" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+                  <div className="w-20 h-20 rounded-lg" style={{ backgroundColor: 'var(--muted)' }} />
                   <div className="flex-1 space-y-2">
-                    <div className="h-4 w-3/4 rounded" style={{ backgroundColor: var(--muted) }} />
-                    <div className="h-3 w-1/4 rounded" style={{ backgroundColor: var(--muted) }} />
+                    <div className="h-4 w-3/4 rounded" style={{ backgroundColor: 'var(--muted)' }} />
+                    <div className="h-3 w-1/4 rounded" style={{ backgroundColor: 'var(--muted)' }} />
                   </div>
                 </div>
               ))}
@@ -79,16 +79,16 @@ function CartPage() {
   // Not authenticated
   if (!user) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: var(--background) }}>
+      <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
         <header
           className="sticky top-0 z-50 w-full border-b shadow-sm"
-          style={{ backgroundColor: var(--card), borderColor: var(--border) }}
+          style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
         >
           <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
             <Link to="/" className="flex items-center gap-2 no-underline">
               <div
                 className="w-9 h-9 rounded-xl flex items-center justify-center"
-                style={{ backgroundColor: var(--primary) }}
+                style={{ backgroundColor: 'var(--primary)' }}
               >
                 <svg
                   className="w-5 h-5 text-white"
@@ -104,7 +104,7 @@ function CartPage() {
                   />
                 </svg>
               </div>
-              <span className="font-bold text-lg" style={{ color: var(--foreground) }}>
+              <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>
                 SaturnoEmbalagens
               </span>
             </Link>
@@ -116,11 +116,11 @@ function CartPage() {
           <div className="text-center">
             <div
               className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
-              style={{ backgroundColor: var(--muted) }}
+              style={{ backgroundColor: 'var(--muted)' }}
             >
               <svg
                 className="w-8 h-8"
-                style={{ color: var(--primary) }}
+                style={{ color: 'var(--primary)' }}
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -133,24 +133,24 @@ function CartPage() {
                 />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold mb-2" style={{ color: var(--foreground) }}>
+            <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>
               Faça login para ver seu carrinho
             </h1>
-            <p className="text-sm mb-6" style={{ color: var(--muted-foreground) }}>
+            <p className="text-sm mb-6" style={{ color: 'var(--muted-foreground)' }}>
               Acesse sua conta para visualizar e gerenciar os itens do seu carrinho.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Link
                 to="/login"
                 className="inline-flex items-center justify-center py-2.5 px-6 rounded-xl font-semibold text-white transition-all hover:opacity-90"
-                style={{ backgroundColor: var(--primary) }}
+                style={{ backgroundColor: 'var(--primary)' }}
               >
                 Entrar
               </Link>
               <Link
                 to="/catalog"
                 className="inline-flex items-center justify-center py-2.5 px-6 rounded-xl font-medium transition-all hover:opacity-80"
-                style={{ backgroundColor: var(--muted), color: var(--foreground) }}
+                style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
               >
                 Continuar comprando
               </Link>
@@ -164,16 +164,16 @@ function CartPage() {
   // Error state
   if (error) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: var(--background) }}>
+      <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
         <header
           className="sticky top-0 z-50 w-full border-b shadow-sm"
-          style={{ backgroundColor: var(--card), borderColor: var(--border) }}
+          style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
         >
           <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
             <Link to="/" className="flex items-center gap-2 no-underline">
               <div
                 className="w-9 h-9 rounded-xl flex items-center justify-center"
-                style={{ backgroundColor: var(--primary) }}
+                style={{ backgroundColor: 'var(--primary)' }}
               >
                 <svg
                   className="w-5 h-5 text-white"
@@ -189,7 +189,7 @@ function CartPage() {
                   />
                 </svg>
               </div>
-              <span className="font-bold text-lg" style={{ color: var(--foreground) }}>
+              <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>
                 SaturnoEmbalagens
               </span>
             </Link>
@@ -201,7 +201,7 @@ function CartPage() {
           <div className="text-center">
             <div
               className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4"
-              style={{ backgroundColor: var(--muted) }}
+              style={{ backgroundColor: 'var(--muted)' }}
             >
               <svg
                 className="w-6 h-6 text-red-500"
@@ -217,16 +217,16 @@ function CartPage() {
                 />
               </svg>
             </div>
-            <h2 className="text-xl font-bold mb-2" style={{ color: var(--foreground) }}>
+            <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>
               Erro ao carregar carrinho
             </h2>
-            <p className="text-sm mb-6" style={{ color: var(--muted-foreground) }}>
+            <p className="text-sm mb-6" style={{ color: 'var(--muted-foreground)' }}>
               {error}
             </p>
             <button
               onClick={() => window.location.reload()}
               className="inline-flex items-center justify-center py-2.5 px-6 rounded-xl font-semibold text-white transition-all hover:opacity-90"
-              style={{ backgroundColor: var(--primary) }}
+              style={{ backgroundColor: 'var(--primary)' }}
             >
               Tentar novamente
             </button>
@@ -239,16 +239,16 @@ function CartPage() {
   // Empty cart
   if (totalItems === 0) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: var(--background) }}>
+      <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
         <header
           className="sticky top-0 z-50 w-full border-b shadow-sm"
-          style={{ backgroundColor: var(--card), borderColor: var(--border) }}
+          style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
         >
           <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
             <Link to="/" className="flex items-center gap-2 no-underline">
               <div
                 className="w-9 h-9 rounded-xl flex items-center justify-center"
-                style={{ backgroundColor: var(--primary) }}
+                style={{ backgroundColor: 'var(--primary)' }}
               >
                 <svg
                   className="w-5 h-5 text-white"
@@ -264,7 +264,7 @@ function CartPage() {
                   />
                 </svg>
               </div>
-              <span className="font-bold text-lg" style={{ color: var(--foreground) }}>
+              <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>
                 SaturnoEmbalagens
               </span>
             </Link>
@@ -276,11 +276,11 @@ function CartPage() {
           <div className="text-center">
             <div
               className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4"
-              style={{ backgroundColor: var(--muted) }}
+              style={{ backgroundColor: 'var(--muted)' }}
             >
               <svg
                 className="w-10 h-10"
-                style={{ color: var(--primary) }}
+                style={{ color: 'var(--primary)' }}
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -293,16 +293,16 @@ function CartPage() {
                 />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold mb-2" style={{ color: var(--foreground) }}>
+            <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>
               Seu carrinho está vazio
             </h1>
-            <p className="text-sm mb-6" style={{ color: var(--muted-foreground) }}>
+            <p className="text-sm mb-6" style={{ color: 'var(--muted-foreground)' }}>
               Adicione produtos ao carrinho para continuar.
             </p>
             <Link
               to="/catalog"
               className="inline-flex items-center justify-center py-2.5 px-6 rounded-xl font-semibold text-white transition-all hover:opacity-90"
-              style={{ backgroundColor: var(--primary) }}
+              style={{ backgroundColor: 'var(--primary)' }}
             >
               Ver produtos
             </Link>
@@ -314,16 +314,16 @@ function CartPage() {
 
   // Cart with items
   return (
-    <div className="min-h-screen" style={{ backgroundColor: var(--background) }}>
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
       <header
         className="sticky top-0 z-50 w-full border-b shadow-sm"
-        style={{ backgroundColor: var(--card), borderColor: var(--border) }}
+        style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
       >
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 no-underline">
             <div
               className="w-9 h-9 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: var(--primary) }}
+              style={{ backgroundColor: 'var(--primary)' }}
             >
               <svg
                 className="w-5 h-5 text-white"
@@ -339,7 +339,7 @@ function CartPage() {
                 />
               </svg>
             </div>
-            <span className="font-bold text-lg" style={{ color: var(--foreground) }}>
+            <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>
               SaturnoEmbalagens
             </span>
           </Link>
@@ -349,15 +349,15 @@ function CartPage() {
 
       <div className="max-w-5xl mx-auto px-4 py-8">
         {/* Breadcrumb */}
-        <nav className="flex items-center gap-2 text-sm mb-6" style={{ color: var(--muted-foreground) }}>
-          <Link to="/" className="no-underline transition-colors hover:opacity-80" style={{ color: var(--muted-foreground) }}>
+        <nav className="flex items-center gap-2 text-sm mb-6" style={{ color: 'var(--muted-foreground)' }}>
+          <Link to="/" className="no-underline transition-colors hover:opacity-80" style={{ color: 'var(--muted-foreground)' }}>
             Início
           </Link>
           <span>/</span>
-          <span style={{ color: var(--foreground) }}>Carrinho</span>
+          <span style={{ color: 'var(--foreground)' }}>Carrinho</span>
         </nav>
 
-        <h1 className="text-2xl md:text-3xl font-bold mb-6" style={{ color: var(--foreground) }}>
+        <h1 className="text-2xl md:text-3xl font-bold mb-6" style={{ color: 'var(--foreground)' }}>
           Carrinho de compras
         </h1>
 
@@ -380,10 +380,10 @@ function CartPage() {
 
       <footer
         className="border-t mt-12"
-        style={{ backgroundColor: var(--card), borderColor: var(--border) }}
+        style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
       >
         <div className="max-w-5xl mx-auto px-4 py-8 text-center">
-          <p className="text-xs" style={{ color: var(--muted-foreground) }}>
+          <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
             © 2025 SaturnoEmbalagens. Todos os direitos reservados.
           </p>
         </div>
