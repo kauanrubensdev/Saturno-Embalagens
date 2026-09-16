@@ -26,11 +26,11 @@ export function ProductCard({ product }: ProductCardProps) {
     <Link
       to="/product/$productSlug"
       params={{ productSlug: product.slug }}
-      className="group block no-underline rounded-2xl overflow-hidden transition-all duration-200 hover:shadow-lg"
-      style={{ backgroundColor: '#ffffff', border: '1px solid #e5e5e5' }}
+      className="group block no-underline rounded-2xl overflow-hidden transition-all duration-200"
+      style={{ backgroundColor: '#002233', border: '1px solid rgba(255,65,3,0.12)' }}
     >
       {/* Image */}
-      <div className="relative overflow-hidden" style={{ height: '180px', backgroundColor: '#f5f5f5' }}>
+      <div className="relative overflow-hidden" style={{ height: '180px', backgroundColor: 'rgba(255,255,255,0.03)' }}>
         {product.image_url ? (
           <img
             src={product.image_url}
@@ -39,14 +39,14 @@ export function ProductCard({ product }: ProductCardProps) {
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <svg className="w-12 h-12" style={{ color: '#d1d5db' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+            <svg className="w-12 h-12" style={{ color: 'rgba(245,245,220,0.15)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
             </svg>
           </div>
         )}
 
         {!isAvailable && (
-          <div className="absolute inset-0 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="absolute inset-0 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
             <span className="text-white text-sm font-semibold px-3 py-1 rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
               Esgotado
             </span>
@@ -57,18 +57,18 @@ export function ProductCard({ product }: ProductCardProps) {
       {/* Content */}
       <div className="p-3 md:p-4">
         {product.category && (
-          <p className="text-xs font-medium mb-1" style={{ color: '#FF6B00' }}>
+          <p className="text-xs font-medium mb-1" style={{ color: '#FF4103' }}>
             {product.category.name}
           </p>
         )}
-        <h3 className="font-semibold text-sm md:text-base leading-tight mb-2 line-clamp-2" style={{ color: '#1a1a1a' }}>
+        <h3 className="font-semibold text-sm md:text-base leading-tight mb-2 line-clamp-2" style={{ color: '#F5F5DC' }}>
           {product.name}
         </h3>
         <div className="flex items-center justify-between">
-          <span className="font-bold text-base" style={{ color: '#1a1a1a' }}>
+          <span className="font-bold text-base" style={{ color: '#FF4103' }}>
             {formattedPrice}
           </span>
-          <span className="text-xs" style={{ color: isAvailable ? '#16a34a' : '#dc2626' }}>
+          <span className="text-xs" style={{ color: isAvailable ? '#22c55e' : '#ef4444' }}>
             {isAvailable ? 'Disponível' : 'Esgotado'}
           </span>
         </div>
