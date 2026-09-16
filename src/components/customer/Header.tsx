@@ -117,7 +117,7 @@ export function Header({ showNav = false }: HeaderProps) {
                 className="text-sm font-medium px-4 py-2 rounded-xl no-underline transition-all hover:opacity-90"
                 style={{
                   backgroundColor: theme === 'dark' ? '#FF4103' : '#FE5516',
-                  color: '#ffffff',
+                  color: var(--primary-foreground),
                 }}
               >
                 Cadastrar

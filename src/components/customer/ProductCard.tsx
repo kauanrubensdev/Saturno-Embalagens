@@ -27,7 +27,7 @@ export function ProductCard({ product }: ProductCardProps) {
       to="/product/$productSlug"
       params={{ productSlug: product.slug }}
       className="group block no-underline rounded-2xl overflow-hidden transition-all duration-200"
-      style={{ backgroundColor: '#002233', border: '1px solid rgba(255,65,3,0.12)' }}
+      style={{ backgroundColor: var(--card), border: '1px solid rgba(255,65,3,0.12)' }}
     >
       {/* Image */}
       <div className="relative overflow-hidden" style={{ height: '180px', backgroundColor: 'rgba(255,255,255,0.03)' }}>
@@ -57,15 +57,15 @@ export function ProductCard({ product }: ProductCardProps) {
       {/* Content */}
       <div className="p-3 md:p-4">
         {product.category && (
-          <p className="text-xs font-medium mb-1" style={{ color: '#FF4103' }}>
+          <p className="text-xs font-medium mb-1" style={{ color: var(--primary) }}>
             {product.category.name}
           </p>
         )}
-        <h3 className="font-semibold text-sm md:text-base leading-tight mb-2 line-clamp-2" style={{ color: '#F5F5DC' }}>
+        <h3 className="font-semibold text-sm md:text-base leading-tight mb-2 line-clamp-2" style={{ color: var(--foreground) }}>
           {product.name}
         </h3>
         <div className="flex items-center justify-between">
-          <span className="font-bold text-base" style={{ color: '#FF4103' }}>
+          <span className="font-bold text-base" style={{ color: var(--primary) }}>
             {formattedPrice}
           </span>
           <span className="text-xs" style={{ color: isAvailable ? '#22c55e' : '#ef4444' }}>

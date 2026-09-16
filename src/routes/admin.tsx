@@ -18,11 +18,11 @@ export const Route = createFileRoute('/admin')({
 
 function AdminPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#fcfbf8' }}>
+    <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: var(--background) }}>
       <div className="text-center max-w-md mx-auto px-4">
         <div
           className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6"
-          style={{ backgroundColor: '#FF6B00' }}
+          style={{ backgroundColor: var(--primary) }}
         >
           <svg
             className="w-8 h-8 text-white"
@@ -38,16 +38,16 @@ function AdminPage() {
             />
           </svg>
         </div>
-        <h1 className="text-2xl font-bold mb-2" style={{ color: '#1a1a1a' }}>
+        <h1 className="text-2xl font-bold mb-2" style={{ color: var(--foreground) }}>
           Área Administrativa
         </h1>
-        <p className="text-sm mb-8" style={{ color: '#666666' }}>
+        <p className="text-sm mb-8" style={{ color: var(--muted-foreground) }}>
           Esta área ainda está em desenvolvimento. Em breve você poderá gerenciar produtos, pedidos e muito mais.
         </p>
         <Link
           to="/"
           className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white no-underline transition-all hover:opacity-90"
-          style={{ backgroundColor: '#FF6B00' }}
+          style={{ backgroundColor: var(--primary) }}
         >
           Voltar ao início
         </Link>

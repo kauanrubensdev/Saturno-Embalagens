@@ -60,14 +60,14 @@ export function CartItem({ item }: CartItemProps) {
   return (
     <div
       className="flex gap-4 p-4 rounded-xl transition-all"
-      style={{ backgroundColor: '#ffffff', border: '1px solid #e5e5e5' }}
+      style={{ backgroundColor: var(--card), border: '1px solid var(--border)' }}
     >
       {/* Image */}
       <Link
         to="/product/$productSlug"
         params={{ productSlug: item.product.slug }}
         className="flex-shrink-0 rounded-lg overflow-hidden no-underline"
-        style={{ width: '80px', height: '80px', backgroundColor: '#f5f5f5' }}
+        style={{ width: '80px', height: '80px', backgroundColor: var(--muted) }}
       >
         {item.product.image_url ? (
           <img
@@ -79,7 +79,7 @@ export function CartItem({ item }: CartItemProps) {
           <div className="w-full h-full flex items-center justify-center">
             <svg
               className="w-8 h-8"
-              style={{ color: '#d1d5db' }}
+              style={{ color: var(--muted-foreground) }}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -101,16 +101,16 @@ export function CartItem({ item }: CartItemProps) {
           to="/product/$productSlug"
           params={{ productSlug: item.product.slug }}
           className="font-semibold text-sm no-underline transition-colors hover:opacity-80 line-clamp-2"
-          style={{ color: '#1a1a1a' }}
+          style={{ color: var(--foreground) }}
         >
           {item.product.name}
         </Link>
-        <p className="text-sm mt-0.5" style={{ color: '#666666' }}>
+        <p className="text-sm mt-0.5" style={{ color: var(--muted-foreground) }}>
           {formattedPrice} un
         </p>
 
         {isOutOfStock && (
-          <p className="text-xs font-medium mt-1" style={{ color: '#dc2626' }}>
+          <p className="text-xs font-medium mt-1" style={{ color: var(--destructive) }}>
             Esgotado
           </p>
         )}
@@ -126,7 +126,7 @@ export function CartItem({ item }: CartItemProps) {
         >
           <svg
             className="w-4 h-4"
-            style={{ color: '#999999' }}
+            style={{ color: var(--muted-foreground) }}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -145,7 +145,7 @@ export function CartItem({ item }: CartItemProps) {
             onClick={handleDecrease}
             disabled={updating || item.quantity <= 1 || isOutOfStock}
             className="w-7 h-7 rounded-lg flex items-center justify-center transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ backgroundColor: '#f5f5f5', color: '#1a1a1a' }}
+            style={{ backgroundColor: var(--muted), color: var(--foreground) }}
           >
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
@@ -153,7 +153,7 @@ export function CartItem({ item }: CartItemProps) {
           </button>
           <span
             className="w-8 text-center text-sm font-medium"
-            style={{ color: '#1a1a1a' }}
+            style={{ color: var(--foreground) }}
           >
             {item.quantity}
           </span>
@@ -161,7 +161,7 @@ export function CartItem({ item }: CartItemProps) {
             onClick={handleIncrease}
             disabled={updating || item.quantity >= item.product.stock_quantity || isOutOfStock}
             className="w-7 h-7 rounded-lg flex items-center justify-center transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ backgroundColor: '#f5f5f5', color: '#1a1a1a' }}
+            style={{ backgroundColor: var(--muted), color: var(--foreground) }}
           >
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -169,7 +169,7 @@ export function CartItem({ item }: CartItemProps) {
           </button>
         </div>
 
-        <span className="font-semibold text-sm" style={{ color: '#1a1a1a' }}>
+        <span className="font-semibold text-sm" style={{ color: var(--foreground) }}>
           {formattedSubtotal}
         </span>
       </div>

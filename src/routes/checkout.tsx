@@ -7,17 +7,17 @@ export const Route = createFileRoute('/checkout')({
 
 function CheckoutPage() {
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#fcfbf8' }}>
+    <div className="min-h-screen" style={{ backgroundColor: var(--background) }}>
       {/* Header */}
       <header
         className="sticky top-0 z-50 w-full border-b shadow-sm"
-        style={{ backgroundColor: '#ffffff', borderColor: '#e5e5e5' }}
+        style={{ backgroundColor: var(--card), borderColor: var(--border) }}
       >
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 no-underline">
             <div
               className="w-9 h-9 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: '#FF6B00' }}
+              style={{ backgroundColor: var(--primary) }}
             >
               <svg
                 className="w-5 h-5 text-white"
@@ -33,7 +33,7 @@ function CheckoutPage() {
                 />
               </svg>
             </div>
-            <span className="font-bold text-lg" style={{ color: '#1a1a1a' }}>
+            <span className="font-bold text-lg" style={{ color: var(--foreground) }}>
               SaturnoEmbalagens
             </span>
           </Link>
@@ -46,11 +46,11 @@ function CheckoutPage() {
         <div className="text-center">
           <div
             className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"
-            style={{ backgroundColor: '#fff7ed' }}
+            style={{ backgroundColor: var(--muted) }}
           >
             <svg
               className="w-10 h-10"
-              style={{ color: '#FF6B00' }}
+              style={{ color: var(--primary) }}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -64,11 +64,11 @@ function CheckoutPage() {
             </svg>
           </div>
 
-          <h1 className="text-2xl md:text-3xl font-bold mb-3" style={{ color: '#1a1a1a' }}>
+          <h1 className="text-2xl md:text-3xl font-bold mb-3" style={{ color: var(--foreground) }}>
             Checkout em desenvolvimento
           </h1>
 
-          <p className="text-base mb-8" style={{ color: '#666666' }}>
+          <p className="text-base mb-8" style={{ color: var(--muted-foreground) }}>
             A funcionalidade de checkout será implementada na próxima fase.
             <br />
             Você poderá finalizar suas compras com segurança e praticidade.
@@ -78,7 +78,7 @@ function CheckoutPage() {
             <Link
               to="/cart"
               className="inline-flex items-center justify-center py-2.5 px-6 rounded-xl font-semibold text-white transition-all hover:opacity-90"
-              style={{ backgroundColor: '#FF6B00' }}
+              style={{ backgroundColor: var(--primary) }}
             >
               <svg
                 className="w-4 h-4 mr-2"
@@ -95,7 +95,7 @@ function CheckoutPage() {
             <Link
               to="/catalog"
               className="inline-flex items-center justify-center py-2.5 px-6 rounded-xl font-medium transition-all hover:opacity-80"
-              style={{ backgroundColor: '#f5f5f5', color: '#1a1a1a' }}
+              style={{ backgroundColor: var(--muted), color: var(--foreground) }}
             >
               Continuar comprando
             </Link>
@@ -106,10 +106,10 @@ function CheckoutPage() {
       {/* Footer */}
       <footer
         className="border-t"
-        style={{ backgroundColor: '#ffffff', borderColor: '#e5e5e5' }}
+        style={{ backgroundColor: var(--card), borderColor: var(--border) }}
       >
         <div className="max-w-5xl mx-auto px-4 py-8 text-center">
-          <p className="text-xs" style={{ color: '#999999' }}>
+          <p className="text-xs" style={{ color: var(--muted-foreground) }}>
             © 2025 SaturnoEmbalagens. Todos os direitos reservados.
           </p>
         </div>
