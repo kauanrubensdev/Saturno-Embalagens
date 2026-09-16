@@ -45,15 +45,15 @@ function AccountPage() {
   };
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#fcfbf8' }}>
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
       <div className="max-w-xl mx-auto px-4 py-10">
-        <h1 className="text-2xl font-bold mb-6" style={{ color: '#1a1a1a' }}>
+        <h1 className="text-2xl font-bold mb-6" style={{ color: 'var(--foreground)' }}>
           Minha Conta
         </h1>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: '#1a1a1a' }}>
+            <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--foreground)' }}>
               Nome
             </label>
             <input
@@ -63,15 +63,15 @@ function AccountPage() {
               required
               className="w-full h-11 px-4 rounded-xl border text-sm transition-colors focus:outline-none focus:ring-2"
               style={{
-                borderColor: '#d1d5db',
-                backgroundColor: '#ffffff',
-                color: '#1a1a1a',
+                borderColor: 'var(--border)',
+                backgroundColor: 'var(--card)',
+                color: 'var(--foreground)',
               }}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: '#1a1a1a' }}>
+            <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--foreground)' }}>
               Telefone
             </label>
             <input
@@ -81,15 +81,15 @@ function AccountPage() {
               placeholder="(00) 00000-0000"
               className="w-full h-11 px-4 rounded-xl border text-sm transition-colors focus:outline-none focus:ring-2"
               style={{
-                borderColor: '#d1d5db',
-                backgroundColor: '#ffffff',
-                color: '#1a1a1a',
+                borderColor: 'var(--border)',
+                backgroundColor: 'var(--card)',
+                color: 'var(--foreground)',
               }}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: '#666666' }}>
+            <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--muted-foreground)' }}>
               E-mail
             </label>
             <input
@@ -98,9 +98,9 @@ function AccountPage() {
               disabled
               className="w-full h-11 px-4 rounded-xl border text-sm cursor-not-allowed"
               style={{
-                borderColor: '#e5e5e5',
-                backgroundColor: '#f5f5f5',
-                color: '#999999',
+                borderColor: 'var(--border)',
+                backgroundColor: 'var(--muted)',
+                color: 'var(--muted-foreground)',
               }}
             />
           </div>
@@ -109,7 +109,7 @@ function AccountPage() {
             type="submit"
             disabled={saving}
             className="w-full h-11 rounded-xl font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50"
-            style={{ backgroundColor: '#FF6B00' }}
+            style={{ backgroundColor: 'var(--primary)' }}
           >
             {saving ? 'Salvando...' : 'Salvar alterações'}
           </button>

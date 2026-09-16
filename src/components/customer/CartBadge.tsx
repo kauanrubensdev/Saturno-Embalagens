@@ -13,7 +13,7 @@ export function CartBadge() {
       >
         <svg
           className="w-5 h-5"
-          style={{ color: '#1a1a1a' }}
+          style={{ color: 'var(--foreground)' }}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -36,7 +36,7 @@ export function CartBadge() {
     >
       <svg
         className="w-5 h-5"
-        style={{ color: '#1a1a1a' }}
+        style={{ color: 'var(--foreground)' }}
         fill="none"
         viewBox="0 0 24 24"
         stroke="currentColor"
@@ -51,7 +51,7 @@ export function CartBadge() {
       {totalItems > 0 && (
         <span
           className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold text-white"
-          style={{ backgroundColor: '#FF6B00' }}
+          style={{ backgroundColor: 'var(--primary)' }}
         >
           {totalItems > 99 ? '99+' : totalItems}
         </span>

@@ -15,8 +15,8 @@ export function Header({ showNav = false }: HeaderProps) {
     <header
       className="sticky top-0 z-50 w-full border-b shadow-sm"
       style={{
-        backgroundColor: theme === 'dark' ? '#001621' : '#F5F5DC',
-        borderColor: theme === 'dark' ? 'rgba(255,65,3,0.15)' : '#E8D9BB',
+        backgroundColor: 'var(--background)',
+        borderColor: 'var(--border)',
       }}
     >
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -24,14 +24,15 @@ export function Header({ showNav = false }: HeaderProps) {
         <Link to="/" className="flex items-center gap-2 no-underline">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center"
-            style={{ backgroundColor: theme === 'dark' ? '#FF4103' : '#FE5516' }}
+            style={{ backgroundColor: 'var(--primary)' }}
           >
             <svg
-              className="w-5 h-5 text-white"
+              className="w-5 h-5"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
               strokeWidth={2}
+              style={{ color: 'var(--primary-foreground)' }}
             >
               <path
                 strokeLinecap="round"
@@ -40,10 +41,7 @@ export function Header({ showNav = false }: HeaderProps) {
               />
             </svg>
           </div>
-          <span
-            className="font-bold text-lg"
-            style={{ color: theme === 'dark' ? '#F5F5DC' : '#001621' }}
-          >
+          <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>
             SaturnoEmbalagens
           </span>
         </Link>
@@ -54,7 +52,7 @@ export function Header({ showNav = false }: HeaderProps) {
             <Link
               to="/catalog"
               className="text-sm font-medium no-underline transition-colors hover:opacity-70"
-              style={{ color: theme === 'dark' ? '#F5F5DC' : '#001621' }}
+              style={{ color: 'var(--foreground)' }}
             >
               Catálogo
             </Link>
@@ -66,13 +64,16 @@ export function Header({ showNav = false }: HeaderProps) {
           {/* Theme Toggle */}
           {mounted && (
             <button
+              type="button"
               onClick={toggleTheme}
               aria-label={theme === 'dark' ? 'Mudar para tema claro' : 'Mudar para tema escuro'}
+              title={theme === 'dark' ? 'Tema escuro ativo' : 'Tema claro ativo'}
+              aria-pressed={theme === 'dark'}
               className="p-2 rounded-lg transition-all hover:opacity-80"
               style={{
-                backgroundColor: theme === 'dark' ? 'rgba(255,255,255,0.08)' : '#E8D9BB',
-                color: theme === 'dark' ? '#F5F5DC' : '#001621',
-                border: 'none',
+                backgroundColor: 'var(--accent)',
+                color: 'var(--accent-foreground)',
+                border: '1px solid var(--border)',
                 cursor: 'pointer',
               }}
             >
@@ -94,8 +95,8 @@ export function Header({ showNav = false }: HeaderProps) {
               to="/account"
               className="text-sm font-medium px-4 py-2 rounded-xl no-underline transition-all hover:opacity-90"
               style={{
-                backgroundColor: theme === 'dark' ? 'rgba(255,255,255,0.08)' : '#E8D9BB',
-                color: theme === 'dark' ? '#F5F5DC' : '#001621',
+                backgroundColor: 'var(--accent)',
+                color: 'var(--accent-foreground)',
               }}
             >
               {profile?.name ? profile.name.split(' ')[0] : 'Conta'}
@@ -106,8 +107,8 @@ export function Header({ showNav = false }: HeaderProps) {
                 to="/login"
                 className="text-sm font-medium px-4 py-2 rounded-xl no-underline transition-all hover:opacity-90"
                 style={{
-                  backgroundColor: theme === 'dark' ? 'rgba(255,255,255,0.08)' : '#E8D9BB',
-                  color: theme === 'dark' ? '#F5F5DC' : '#001621',
+                  backgroundColor: 'var(--accent)',
+                  color: 'var(--accent-foreground)',
                 }}
               >
                 Entrar
@@ -116,8 +117,8 @@ export function Header({ showNav = false }: HeaderProps) {
                 to="/register"
                 className="text-sm font-medium px-4 py-2 rounded-xl no-underline transition-all hover:opacity-90"
                 style={{
-                  backgroundColor: theme === 'dark' ? '#FF4103' : '#FE5516',
-                  color: '#ffffff',
+                  backgroundColor: 'var(--primary)',
+                  color: 'var(--primary-foreground)',
                 }}
               >
                 Cadastrar
