@@ -4,14 +4,10 @@ import { AdminDashboard } from '@/components/admin/AdminDashboard';
 
 export const Route = createFileRoute('/admin')({
   beforeLoad: async ({ context }) => {
-    const { user, profile } = context as {
-      user?: { id: string } | null;
-      profile?: { role: 'customer' | 'admin' } | null;
-    };
-    if (!user) {
+    if (!context.user) {
       throw redirect({ to: '/login' });
     }
-    if (profile?.role !== 'admin') {
+    if (context.user.role !== 'admin') {
       throw redirect({ to: '/account' });
     }
   },

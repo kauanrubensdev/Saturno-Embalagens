@@ -1,13 +1,12 @@
 import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-router';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { getCurrentUser, signIn } from '@/lib/auth';
+import { signIn } from '@/lib/auth';
 import { toast } from 'sonner';
 
 export const Route = createFileRoute('/login')({
   beforeLoad: async ({ context }) => {
-    const { user } = context as { user?: { id: string } | null };
-    if (user) {
+    if (context.user) {
       throw redirect({ to: '/account' });
     }
   },
@@ -30,12 +29,7 @@ function LoginPage() {
         toast.error(result.error);
       } else {
         await refreshProfile();
-        const currentUser = await getCurrentUser();
-        if (currentUser?.role === 'admin') {
-          navigate({ to: '/admin' });
-        } else {
-          navigate({ to: '/' });
-        }
+        navigate({ to: '/' });
       }
     } finally {
       setLoading(false);

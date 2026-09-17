@@ -1,4 +1,4 @@
-import { createFileRoute, Link, redirect } from '@tanstack/react-router';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminLayout } from '@/components/admin/AdminLayout';
@@ -39,14 +39,10 @@ function generateSlug(name: string): string {
 
 export const Route = createFileRoute('/admin/categories')({
   beforeLoad: async ({ context }) => {
-    const { user, profile } = context as {
-      user?: { id: string } | null;
-      profile?: { role: 'customer' | 'admin' } | null;
-    };
-    if (!user) {
+    if (!context.user) {
       throw redirect({ to: '/login' });
     }
-    if (profile?.role !== 'admin') {
+    if (context.user.role !== 'admin') {
       throw redirect({ to: '/account' });
     }
   },
