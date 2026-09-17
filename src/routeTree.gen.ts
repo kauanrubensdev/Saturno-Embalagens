@@ -18,6 +18,7 @@ import { Route as CheckoutRouteImport } from './routes/checkout'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as RegisterRouteImport } from './routes/register'
+import { Route as AdminCategoriesRouteImport } from './routes/admin.categories'
 import { Route as CatalogCategorySlugRouteImport } from './routes/catalog.$categorySlug'
 import { Route as ProductProductSlugRouteImport } from './routes/product.$productSlug'
 
@@ -66,6 +67,11 @@ const RegisterRoute = RegisterRouteImport.update({
   path: '/register',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminCategoriesRoute = AdminCategoriesRouteImport.update({
+  id: '/categories',
+  path: '/categories',
+  getParentRoute: () => AdminRoute,
+} as any)
 const CatalogCategorySlugRoute = CatalogCategorySlugRouteImport.update({
   id: '/$categorySlug',
   path: '/$categorySlug',
@@ -77,35 +83,31 @@ const ProductProductSlugRoute = ProductProductSlugRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 
-const AdminCategoriesRoute = AdminCategoriesRouteImport.update({
-  id: '/admin/categories',
-  path: '/categories',
-  getParentRoute: () => AdminRoute,
-} as any)
-
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/cart': typeof CartRoute
   '/catalog': typeof CatalogRouteWithChildren
   '/checkout': typeof CheckoutRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
+  '/admin/categories': typeof AdminCategoriesRoute
   '/catalog/$categorySlug': typeof CatalogCategorySlugRoute
   '/product/$productSlug': typeof ProductProductSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/cart': typeof CartRoute
   '/catalog': typeof CatalogRouteWithChildren
   '/checkout': typeof CheckoutRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
+  '/admin/categories': typeof AdminCategoriesRoute
   '/catalog/$categorySlug': typeof CatalogCategorySlugRoute
   '/product/$productSlug': typeof ProductProductSlugRoute
 }
@@ -113,13 +115,14 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/cart': typeof CartRoute
   '/catalog': typeof CatalogRouteWithChildren
   '/checkout': typeof CheckoutRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
+  '/admin/categories': typeof AdminCategoriesRoute
   '/catalog/$categorySlug': typeof CatalogCategorySlugRoute
   '/product/$productSlug': typeof ProductProductSlugRoute
 }
@@ -135,6 +138,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/register'
+    | '/admin/categories'
     | '/catalog/$categorySlug'
     | '/product/$productSlug'
   fileRoutesByTo: FileRoutesByTo
@@ -148,6 +152,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/register'
+    | '/admin/categories'
     | '/catalog/$categorySlug'
     | '/product/$productSlug'
   id:
@@ -161,6 +166,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/register'
+    | '/admin/categories'
     | '/catalog/$categorySlug'
     | '/product/$productSlug'
   fileRoutesById: FileRoutesById
@@ -168,7 +174,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AccountRoute: typeof AccountRoute
-  AdminRoute: typeof AdminRoute
+  AdminRoute: typeof AdminRouteWithChildren
   CartRoute: typeof CartRoute
   CatalogRoute: typeof CatalogRouteWithChildren
   CheckoutRoute: typeof CheckoutRoute
@@ -243,6 +249,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/categories': {
+      id: '/admin/categories'
+      path: '/categories'
+      fullPath: '/admin/categories'
+      preLoaderRoute: typeof AdminCategoriesRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/catalog/$categorySlug': {
       id: '/catalog/$categorySlug'
       path: '/$categorySlug'
@@ -260,6 +273,16 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AdminRouteChildren {
+  AdminCategoriesRoute: typeof AdminCategoriesRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminCategoriesRoute: AdminCategoriesRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
 interface CatalogRouteChildren {
   CatalogCategorySlugRoute: typeof CatalogCategorySlugRoute
 }
@@ -274,7 +297,7 @@ const CatalogRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccountRoute: AccountRoute,
-  AdminRoute: AdminRoute,
+  AdminRoute: AdminRouteWithChildren,
   CartRoute: CartRoute,
   CatalogRoute: CatalogRouteWithChildren,
   CheckoutRoute: CheckoutRoute,

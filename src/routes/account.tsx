@@ -2,11 +2,20 @@ import { createFileRoute, redirect } from '@tanstack/react-router';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { updateProfile } from '@/lib/auth';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 export const Route = createFileRoute('/account')({
   beforeLoad: async ({ context }) => {
+    console.info('[AUTH-11] beforeLoad /account iniciado');
     const { user } = context as { user?: { id: string } | null };
+    console.info('[AUTH-12] context.user', user ?? null);
+    const { data, error } = await supabase.auth.getSession();
+    console.info('[AUTH-13] sessão atual', {
+      session: Boolean(data.session),
+      user: data.session?.user.id ?? null,
+      error: error?.message ?? null,
+    });
     if (!user) {
       throw redirect({ to: '/login' });
     }
