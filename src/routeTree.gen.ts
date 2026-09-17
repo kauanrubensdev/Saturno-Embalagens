@@ -77,6 +77,12 @@ const ProductProductSlugRoute = ProductProductSlugRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 
+const AdminCategoriesRoute = AdminCategoriesRouteImport.update({
+  id: '/admin/categories',
+  path: '/categories',
+  getParentRoute: () => AdminRoute,
+} as any)
+
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
