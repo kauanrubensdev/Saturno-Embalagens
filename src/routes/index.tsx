@@ -152,13 +152,16 @@ function Index() {
       {/* Categories */}
       <section className="py-16 md:py-20" style={{ backgroundColor: 'var(--card)' }}>
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-center justify-between mb-10">
+          <div className="flex items-center justify-between mb-8">
             <div>
-              <h2 className="text-2xl md:text-3xl font-bold" style={{ color: 'var(--foreground)' }}>Nossas Categorias</h2>
-              <p className="mt-2 text-sm" style={{ color: 'var(--muted-foreground)' }}>Encontre a embalagem ideal para o seu negócio</p>
+              <h2 className="text-2xl md:text-3xl font-bold mb-1.5" style={{ color: 'var(--foreground)' }}>Encontre a embalagem certa</h2>
+              <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>Escolha uma categoria e encontre as opções disponíveis para o seu negócio.</p>
             </div>
-            <Link to="/catalog" className="text-sm font-semibold no-underline transition-colors" style={{ color: 'var(--primary)' }}>
-              Ver todas →
+            <Link to="/catalog" className="hidden sm:flex items-center gap-1 text-sm font-semibold no-underline transition-colors hover:gap-2" style={{ color: 'var(--primary)' }}>
+              Ver todas
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
             </Link>
           </div>
 
