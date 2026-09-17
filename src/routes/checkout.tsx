@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { CartBadge } from '@/components/customer/CartBadge';
+import { ThemeToggle } from '@/components/customer/ThemeToggle';
 
 export const Route = createFileRoute('/checkout')({
   component: CheckoutPage,
@@ -38,6 +39,7 @@ function CheckoutPage() {
             </span>
           </Link>
           <CartBadge />
+          <ThemeToggle />
         </div>
       </header>
 

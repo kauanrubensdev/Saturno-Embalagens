@@ -4,6 +4,7 @@ import { CartSummary } from '@/components/customer/CartSummary';
 import { CartBadge } from '@/components/customer/CartBadge';
 import { useCart } from '@/hooks/useCart';
 import { useAuth } from '@/hooks/useAuth';
+import { ThemeToggle } from '@/components/customer/ThemeToggle';
 
 export const Route = createFileRoute('/cart')({
   component: CartPage,
@@ -53,6 +54,7 @@ function CartPage() {
               </span>
             </Link>
             <CartBadge />
+            <ThemeToggle />
           </div>
         </header>
 
@@ -109,6 +111,7 @@ function CartPage() {
               </span>
             </Link>
             <CartBadge />
+            <ThemeToggle />
           </div>
         </header>
 
@@ -194,6 +197,7 @@ function CartPage() {
               </span>
             </Link>
             <CartBadge />
+            <ThemeToggle />
           </div>
         </header>
 
@@ -269,6 +273,7 @@ function CartPage() {
               </span>
             </Link>
             <CartBadge />
+            <ThemeToggle />
           </div>
         </header>
 
@@ -344,6 +349,7 @@ function CartPage() {
             </span>
           </Link>
           <CartBadge />
+          <ThemeToggle />
         </div>
       </header>
 

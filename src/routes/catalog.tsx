@@ -2,6 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { ProductCard } from '@/components/customer/ProductCard';
+import { ThemeToggle } from '@/components/customer/ThemeToggle';
 
 interface CatalogProduct {
   id: string;
@@ -94,6 +95,7 @@ function CatalogPage() {
               Entrar
             </Link>
           </div>
+          <ThemeToggle />
         </div>
       </header>
 
