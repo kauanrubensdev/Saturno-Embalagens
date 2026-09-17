@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { ProductCard } from '@/components/customer/ProductCard';
 import { CategoryMenu } from '@/components/customer/CategoryMenu';
+import { ThemeToggle } from '@/components/customer/ThemeToggle';
 
 export const Route = createFileRoute('/')({
   component: Index,
@@ -59,7 +60,7 @@ function Index() {
       {/* Header */}
       <header
         className="sticky top-0 z-50 w-full border-b"
-        style={{ backgroundColor: 'rgba(0,22,33,0.95)', borderColor: 'rgba(255,65,3,0.15)', backdropFilter: 'blur(8px)' }}
+        style={{ backgroundColor: 'var(--background)', borderColor: 'rgba(255,65,3,0.15)', backdropFilter: 'blur(8px)' }}
       >
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5 no-underline">
@@ -87,6 +88,7 @@ function Index() {
               Entrar
             </Link>
           </div>
+          <ThemeToggle />
         </div>
       </header>
 

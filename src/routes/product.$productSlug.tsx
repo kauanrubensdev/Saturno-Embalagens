@@ -5,6 +5,7 @@ import { useCart } from '@/hooks/useCart';
 import { useAuth } from '@/hooks/useAuth';
 import { CartBadge } from '@/components/customer/CartBadge';
 import { toast } from 'sonner';
+import { ThemeToggle } from '@/components/customer/ThemeToggle';
 
 interface ProductDetail {
   id: string;
@@ -177,6 +178,7 @@ function ProductDetailPage() {
               </Link>
             )}
           </div>
+          <ThemeToggle />
         </div>
       </header>
 
