@@ -248,13 +248,40 @@ function Index() {
       </section>
 
       {/* CTA */}
-      <section className="py-16 md:py-20" style={{ backgroundColor: 'var(--primary)' }}>
-        <div className="max-w-3xl mx-auto px-4 text-center">
-          <h2 className="text-3xl md:text-4xl font-extrabold mb-4" style={{ color: 'var(--primary-foreground)' }}>Quer conhecer todos os produtos?</h2>
-          <p className="text-base mb-10" style={{ color: 'var(--primary-foreground)' }}>Acesse nosso catálogo completo e encontre a embalagem perfeita para o seu negócio.</p>
-          <Link to="/catalog" className="inline-flex items-center gap-2 rounded-xl px-10 py-4 text-base font-bold no-underline transition-all hover:opacity-90" style={{ backgroundColor: 'var(--background)', color: 'var(--foreground)' }}>
+      <section className="py-20 md:py-28 relative overflow-hidden" style={{ backgroundColor: 'var(--primary)' }}>
+        {/* Decorative elements */}
+        <div className="absolute top-0 left-0 w-64 h-64 rounded-full opacity-10" style={{ backgroundColor: 'var(--foreground)', transform: 'translate(-50%, -50%)' }} />
+        <div className="absolute bottom-0 right-0 w-48 h-48 rounded-full opacity-10" style={{ backgroundColor: 'var(--foreground)', transform: 'translate(50%, 50%)' }} />
+        <div className="absolute top-8 right-8 w-3 h-3 rounded-full" style={{ backgroundColor: 'var(--primary-foreground)', opacity: 0.3 }} />
+        <div className="absolute bottom-12 left-12 w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--primary-foreground)', opacity: 0.3 }} />
+        
+        <div className="max-w-3xl mx-auto px-4 text-center relative z-10">
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-6" style={{ backgroundColor: 'rgba(255,255,255,0.15)', color: 'var(--primary-foreground)' }}>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+            </svg>
+            <span className="text-xs font-semibold tracking-wider uppercase">Catálogo completo</span>
+          </div>
+          
+          {/* Title */}
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold mb-5 leading-tight" style={{ color: 'var(--primary-foreground)' }}>
+            Quer conhecer todos os produtos?
+          </h2>
+          
+          {/* Description */}
+          <p className="text-base md:text-lg mb-10 max-w-xl mx-auto leading-relaxed opacity-90" style={{ color: 'var(--primary-foreground)' }}>
+            Acesse nosso catálogo completo e encontre a embalagem perfeita para o seu negócio.
+          </p>
+          
+          {/* CTA Button */}
+          <Link 
+            to="/catalog" 
+            className="inline-flex items-center justify-center gap-3 rounded-xl px-10 py-4 text-base font-bold no-underline transition-all duration-200 hover:scale-[1.03] hover:shadow-lg" 
+            style={{ backgroundColor: 'var(--background)', color: 'var(--foreground)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
+          >
             Acessar catálogo completo
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
             </svg>
           </Link>
