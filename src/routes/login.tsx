@@ -1,7 +1,8 @@
 import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { signIn, getCurrentUser } from '@/lib/auth';
+import { signIn } from '@/lib/auth';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 export const Route = createFileRoute('/login')({
@@ -22,20 +23,53 @@ function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.info('[AUTH-1] handleSubmit iniciado');
     setLoading(true);
     try {
       const result = await signIn({ email, password });
+      console.info('[AUTH-4] user existe?', Boolean(result.user));
+      console.info('[AUTH-5] session existe?', Boolean(result.session));
       if (result.error) {
         toast.error(result.error);
         return;
       }
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      console.info('[AUTH-DIAG] getSession', {
+        'getSession error': sessionError?.message ?? null,
+        'getSession session': Boolean(sessionData.session),
+        'getSession user': sessionData.session?.user.id ?? null,
+      });
+
+      console.info('[AUTH-6] refreshProfile iniciado');
       await refreshProfile();
-      const currentUser = await getCurrentUser();
-      const destination = currentUser?.role === 'admin' ? '/admin' : '/account';
+      console.info('[AUTH-7] refreshProfile terminou');
+
+      const authenticatedUserId = result.user?.id;
+      const profileResult = authenticatedUserId
+        ? await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', authenticatedUserId)
+            .single()
+        : { data: null, error: null };
+
+      console.info('[AUTH-8] profile existe?', Boolean(profileResult.data));
+      console.info('[AUTH-9] role', profileResult.data?.role ?? null);
+      console.info('[AUTH-DIAG] profile', {
+        'profile encontrado': Boolean(profileResult.data),
+        'profile id': profileResult.data?.id ?? null,
+        'profile role': profileResult.data?.role ?? null,
+        'profile error': profileResult.error?.message ?? null,
+      });
+
+      const destination = profileResult.data?.role === 'admin' ? '/admin' : '/account';
+      console.info('[AUTH-10] navegação para /account iniciada', { destination });
       await navigate({
         to: destination,
         replace: true,
       });
+      console.info('[AUTH-14] navegação concluída', { destination: window.location.pathname });
     } finally {
       setLoading(false);
     }

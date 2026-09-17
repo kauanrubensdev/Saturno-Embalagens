@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { AuthUser, Profile, LoginData, RegisterData } from '@/types/auth';
+import type { Session, User } from '@supabase/supabase-js';
 
 // ============================================================
 // Helper: obtém profile do usuário autenticado
@@ -40,10 +41,21 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 // ============================================================
 // Login por e-mail e senha
 // ============================================================
-export async function signIn({ email, password }: LoginData): Promise<{ error: string | null }> {
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) return { error: error.message };
-  return { error: null };
+export async function signIn({ email, password }: LoginData): Promise<{
+  error: string | null;
+  user: User | null;
+  session: Session | null;
+}> {
+  console.info('[AUTH-2] signIn iniciado');
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  console.info('[AUTH-3] signIn retornou', {
+    'signIn error': error?.message ?? null,
+    'signIn user': data.user?.id ?? null,
+    'signIn session': Boolean(data.session),
+  });
+
+  if (error) return { error: error.message, user: data.user, session: data.session };
+  return { error: null, user: data.user, session: data.session };
 }
 
 // ============================================================
