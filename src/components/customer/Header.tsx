@@ -13,26 +13,29 @@ export function Header({ showNav = false }: HeaderProps) {
 
   return (
     <header
-      className="sticky top-0 z-50 w-full border-b shadow-sm"
+      className="sticky top-0 z-50 w-full border-b"
       style={{
-        backgroundColor: 'var(--background)',
+        backgroundColor: 'var(--card)',
         borderColor: 'var(--border)',
+        boxShadow: 'var(--shadow-xs)',
       }}
     >
-      <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+      <div className="max-w-7xl mx-auto px-4 h-[68px] flex items-center justify-between gap-4">
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-2 no-underline">
+        <Link
+          to="/"
+          className="flex items-center gap-2.5 no-underline group flex-shrink-0"
+        >
           <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center"
+            className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105"
             style={{ backgroundColor: 'var(--primary)' }}
           >
             <svg
-              className="w-5 h-5"
+              className="w-5 h-5 text-white"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
               strokeWidth={2}
-              style={{ color: 'var(--primary-foreground)' }}
             >
               <path
                 strokeLinecap="round"
@@ -41,22 +44,37 @@ export function Header({ showNav = false }: HeaderProps) {
               />
             </svg>
           </div>
-          <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>
-            SaturnoEmbalagens
+          <span
+            className="font-bold text-lg tracking-tight"
+            style={{ color: 'var(--foreground)' }}
+          >
+            <span style={{ color: 'var(--primary)' }}>Saturno</span>Embalagens
           </span>
         </Link>
 
         {/* Navigation */}
         {showNav && (
-          <nav className="hidden md:flex items-center gap-6">
-            <Link
-              to="/catalog"
-              className="text-sm font-medium no-underline transition-colors hover:opacity-70"
-              style={{ color: 'var(--foreground)' }}
-            >
-              Catálogo
-            </Link>
-          </nav>
+          <>
+            <div
+              className="hidden md:block w-px h-6 mx-2"
+              style={{ backgroundColor: 'var(--border)' }}
+            />
+            <nav className="hidden md:flex items-center gap-1">
+              <Link
+                to="/catalog"
+                className="px-4 py-2 text-sm font-medium rounded-lg no-underline transition-all duration-150"
+                style={{ color: 'var(--foreground)' }}
+                activeProps={{
+                  style: { color: 'var(--primary)', backgroundColor: 'var(--accent)' },
+                }}
+                hoverProps={{
+                  style: { color: 'var(--primary)', backgroundColor: 'var(--accent)' },
+                }}
+              >
+                Catálogo
+              </Link>
+            </nav>
+          </>
         )}
 
         {/* Right side */}
@@ -69,13 +87,14 @@ export function Header({ showNav = false }: HeaderProps) {
               aria-label={theme === 'dark' ? 'Mudar para tema claro' : 'Mudar para tema escuro'}
               title={theme === 'dark' ? 'Tema escuro ativo' : 'Tema claro ativo'}
               aria-pressed={theme === 'dark'}
-              className="p-2 rounded-lg transition-all hover:opacity-80"
+              className="p-2 rounded-xl transition-all duration-150 hover:scale-105 focus:outline-none focus-visible:ring-2"
               style={{
                 backgroundColor: 'var(--accent)',
                 color: 'var(--accent-foreground)',
                 border: '1px solid var(--border)',
                 cursor: 'pointer',
-              }}
+                '--tw-ring-color': 'var(--ring)',
+              } as React.CSSProperties}
             >
               {theme === 'dark' ? (
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -89,14 +108,39 @@ export function Header({ showNav = false }: HeaderProps) {
             </button>
           )}
 
-          <CartBadge />
+          {/* Cart */}
+          <Link
+            to="/cart"
+            className="relative p-2 rounded-xl transition-all duration-150 hover:scale-105"
+            style={{
+              backgroundColor: 'var(--accent)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <svg
+              className="w-5 h-5"
+              style={{ color: 'var(--accent-foreground)' }}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+              />
+            </svg>
+          </Link>
+
+          {/* Auth */}
           {user ? (
             <Link
               to="/account"
-              className="text-sm font-medium px-4 py-2 rounded-xl no-underline transition-all hover:opacity-90"
+              className="text-sm font-semibold px-4 py-2 rounded-xl no-underline transition-all duration-150 hover:opacity-90"
               style={{
-                backgroundColor: 'var(--accent)',
-                color: 'var(--accent-foreground)',
+                backgroundColor: 'var(--primary)',
+                color: 'var(--primary-foreground)',
               }}
             >
               {profile?.name ? profile.name.split(' ')[0] : 'Conta'}
@@ -105,17 +149,18 @@ export function Header({ showNav = false }: HeaderProps) {
             <>
               <Link
                 to="/login"
-                className="text-sm font-medium px-4 py-2 rounded-xl no-underline transition-all hover:opacity-90"
+                className="text-sm font-medium px-4 py-2 rounded-xl no-underline transition-all duration-150 hover:opacity-80"
                 style={{
                   backgroundColor: 'var(--accent)',
                   color: 'var(--accent-foreground)',
+                  border: '1px solid var(--border)',
                 }}
               >
                 Entrar
               </Link>
               <Link
                 to="/register"
-                className="text-sm font-medium px-4 py-2 rounded-xl no-underline transition-all hover:opacity-90"
+                className="text-sm font-semibold px-4 py-2 rounded-xl no-underline transition-all duration-150 hover:opacity-90"
                 style={{
                   backgroundColor: 'var(--primary)',
                   color: 'var(--primary-foreground)',
