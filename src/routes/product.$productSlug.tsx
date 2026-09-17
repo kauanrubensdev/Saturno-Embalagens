@@ -109,44 +109,64 @@ function ProductDetailPage() {
   if (loading) {
     return (
       <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
+        <Header user={user} />
         <div className="max-w-5xl mx-auto px-4 py-8">
           <div className="animate-pulse">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div style={{ backgroundColor: 'var(--muted)', height: '400px', borderRadius: '16px' }} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
               <div className="space-y-4">
-                <div style={{ backgroundColor: 'var(--muted)', height: '12px', borderRadius: '4px', width: '40%' }} />
-                <div style={{ backgroundColor: 'var(--muted)', height: '32px', borderRadius: '4px', width: '80%' }} />
-                <div style={{ backgroundColor: 'var(--muted)', height: '24px', borderRadius: '4px', width: '30%' }} />
-                <div style={{ backgroundColor: 'var(--muted)', height: '80px', borderRadius: '8px' }} />
+                <div style={{ backgroundColor: 'var(--muted)', height: '400px', borderRadius: '16px' }} />
+                <div className="flex gap-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} style={{ backgroundColor: 'var(--muted)', height: '72px', width: '72px', borderRadius: '12px' }} />
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-5">
+                <div style={{ backgroundColor: 'var(--muted)', height: '14px', borderRadius: '6px', width: '25%' }} />
+                <div style={{ backgroundColor: 'var(--muted)', height: '36px', borderRadius: '8px', width: '85%' }} />
+                <div style={{ backgroundColor: 'var(--muted)', height: '32px', borderRadius: '8px', width: '30%' }} />
+                <div style={{ backgroundColor: 'var(--muted)', height: '60px', borderRadius: '8px' }} />
+                <div style={{ backgroundColor: 'var(--muted)', height: '48px', borderRadius: '12px', width: '60%' }} />
+                <div style={{ backgroundColor: 'var(--muted)', height: '48px', borderRadius: '12px' }} />
               </div>
             </div>
           </div>
         </div>
+        <Footer />
       </div>
     );
   }
 
   if (error || !product) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--background)' }}>
-        <div className="text-center">
-          <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: 'var(--muted)' }}>
-            <svg className="w-6 h-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+        <Header user={user} />
+        <div className="flex-1 flex items-center justify-center px-4">
+          <div className="text-center max-w-md">
+            <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6" style={{ backgroundColor: 'var(--muted)' }}>
+              <svg className="w-10 h-10 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+            </div>
+            <h1 className="text-2xl font-bold mb-3" style={{ color: 'var(--foreground)' }}>Produto não encontrado</h1>
+            <p className="text-sm mb-8" style={{ color: 'var(--muted-foreground)' }}>Este produto pode ter sido removido ou desativado do catálogo.</p>
+            <Link to="/catalog" className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold no-underline transition-all hover:opacity-90" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Voltar ao catálogo
+            </Link>
           </div>
-          <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>Produto não encontrado</h2>
-          <p className="text-sm mb-6" style={{ color: 'var(--muted-foreground)' }}>Este produto pode ter sido removido ou desativado.</p>
-          <Link to="/catalog" className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold no-underline transition-colors hover:opacity-90" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}>
-            Voltar ao catálogo
-          </Link>
         </div>
+        <Footer />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+      <Header user={user} />
+      <main className="flex-1">
       {/* Header */}
       <header className="sticky top-0 z-50 w-full border-b shadow-sm" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -361,14 +381,66 @@ function ProductDetailPage() {
         </div>
       </div>
 
-      <footer className="border-t mt-12" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
-        <div className="max-w-5xl mx-auto px-4 py-8 text-center">
-          <Link to="/catalog" className="inline-flex items-center gap-2 text-sm font-medium no-underline mb-2" style={{ color: 'var(--primary)' }}>
-            ← Voltar ao catálogo
+      </main>
+      <Footer />
+    </div>
+  );
+}
+
+// Local Header Component
+function Header({ user }: { user: unknown }) {
+  return (
+    <header className="sticky top-0 z-50 w-full border-b" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
+      <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+        <Link to="/" className="flex items-center gap-2.5 no-underline">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'var(--primary)' }}>
+            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+            </svg>
+          </div>
+          <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>SaturnoEmbalagens</span>
+        </Link>
+        <div className="flex items-center gap-2">
+          <CartBadge />
+          {user ? (
+            <Link to="/account" className="text-sm font-medium px-4 py-2 rounded-lg no-underline transition-all hover:opacity-80" style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}>
+              Minha conta
+            </Link>
+          ) : (
+            <Link to="/login" className="text-sm font-medium px-4 py-2 rounded-lg no-underline transition-all hover:opacity-80" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}>
+              Entrar
+            </Link>
+          )}
+          <ThemeToggle />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// Local Footer Component
+function Footer() {
+  return (
+    <footer className="border-t mt-auto" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
+      <div className="max-w-5xl mx-auto px-4 py-8">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--primary)' }}>
+              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+            </div>
+            <span className="font-semibold text-sm" style={{ color: 'var(--foreground)' }}>SaturnoEmbalagens</span>
+          </div>
+          <Link to="/catalog" className="inline-flex items-center gap-2 text-sm font-medium no-underline transition-colors hover:opacity-80" style={{ color: 'var(--primary)' }}>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Voltar ao catálogo
           </Link>
           <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>© 2025 SaturnoEmbalagens. Todos os direitos reservados.</p>
         </div>
-      </footer>
-    </div>
+      </div>
+    </footer>
   );
 }
