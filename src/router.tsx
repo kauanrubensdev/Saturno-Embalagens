@@ -1,4 +1,4 @@
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-router";
 import { createRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
 import { getCurrentUser, getProfile } from "./lib/auth";
@@ -22,12 +22,9 @@ export const getRouter = () => {
     },
     defaultPreloadStaleTime: 0,
     wrapLoader: (loader) => async ({ context }) => {
-      if (!context.user) {
-        const user = await getCurrentUser();
-        const profile = user ? await getProfile() : null;
-        return loader({ context: { ...context, user, profile } });
-      }
-      return loader({ context });
+      const user = await getCurrentUser();
+      const profile = user ? await getProfile() : null;
+      return loader({ context: { ...context, user, profile } });
     },
   });
 
