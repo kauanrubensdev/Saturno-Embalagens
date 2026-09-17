@@ -182,38 +182,64 @@ function Index() {
       {/* Featured Products */}
       <section className="py-16 md:py-20" style={{ backgroundColor: 'var(--background)' }}>
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-center justify-between mb-10">
+          {/* Section Header */}
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-10">
             <div>
-              <h2 className="text-2xl md:text-3xl font-bold" style={{ color: 'var(--foreground)' }}>Produtos em Destaque</h2>
-              <p className="mt-2 text-sm" style={{ color: 'var(--muted-foreground)' }}>Os mais procurados pelos nossos clientes</p>
+              <div className="inline-flex items-center gap-2 mb-3">
+                <div className="w-1.5 h-6 rounded-full" style={{ backgroundColor: 'var(--primary)' }} />
+                <h2 className="text-2xl md:text-3xl font-bold" style={{ color: 'var(--foreground)' }}>
+                  Produtos em Destaque
+                </h2>
+              </div>
+              <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+                Os mais procurados pelos nossos clientes
+              </p>
             </div>
-            <Link to="/catalog" className="text-sm font-semibold no-underline transition-colors" style={{ color: 'var(--primary)' }}>
-              Ver todos →
+            <Link 
+              to="/catalog" 
+              className="inline-flex items-center gap-1.5 text-sm font-semibold no-underline transition-all hover:gap-2.5"
+              style={{ color: 'var(--primary)' }}
+            >
+              Ver todos os produtos
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
             </Link>
           </div>
 
+          {/* Products Grid */}
           {loadingProducts ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-5">
               {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                <div key={i} className="animate-pulse rounded-2xl overflow-hidden" style={{ backgroundColor: 'var(--muted)', border: '1px solid var(--border)' }}>
-                  <div style={{ backgroundColor: 'var(--muted)', height: '180px' }} />
-                  <div className="p-4 space-y-2">
+                <div key={i} className="animate-pulse rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+                  <div style={{ aspectRatio: '4/3', backgroundColor: 'var(--muted)' }} />
+                  <div className="p-4 space-y-3">
                     <div style={{ backgroundColor: 'var(--muted)', height: '16px', borderRadius: '4px' }} />
-                    <div style={{ backgroundColor: 'var(--muted)', height: '12px', borderRadius: '4px', width: '60%' }} />
+                    <div style={{ backgroundColor: 'var(--muted)', height: '14px', borderRadius: '4px', width: '70%' }} />
+                    <div className="pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+                      <div style={{ backgroundColor: 'var(--muted)', height: '20px', borderRadius: '4px', width: '50%' }} />
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
           ) : featuredProducts.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-5">
               {featuredProducts.map((product) => (
                 <ProductCard key={product.id} product={product} />
               ))}
             </div>
           ) : (
-            <div className="text-center py-16">
-              <p className="text-base" style={{ color: 'var(--muted-foreground)' }}>Nenhum produto em destaque no momento.</p>
-              <Link to="/catalog" className="mt-4 inline-block text-sm font-semibold no-underline" style={{ color: 'var(--primary)' }}>
+            <div className="text-center py-16 rounded-2xl" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+              <svg className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--muted-foreground)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+              <p className="text-base mb-4" style={{ color: 'var(--muted-foreground)' }}>Nenhum produto em destaque no momento.</p>
+              <Link 
+                to="/catalog" 
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold no-underline transition-all hover:opacity-90"
+                style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
+              >
                 Ver todos os produtos
               </Link>
             </div>
