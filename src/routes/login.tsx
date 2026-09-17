@@ -29,7 +29,13 @@ function LoginPage() {
         toast.error(result.error);
       } else {
         await refreshProfile();
-        navigate({ to: '/' });
+        const { user: authUser, profile: authProfile } = useAuth();
+        const destination = authUser?.role === 'admin' ? '/admin' : '/';
+        const ctx = Route.fullPath === '/login' ? {} : {};
+        await navigate({
+          to: destination,
+          replace: true,
+        });
       }
     } finally {
       setLoading(false);

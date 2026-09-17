@@ -17,14 +17,17 @@ export const getRouter = () => {
     routeTree,
     context: {
       queryClient,
-      user: null,
-      profile: null,
+      user: null as AuthUser | null,
+      profile: null as Profile | null,
     },
     defaultPreloadStaleTime: 0,
     wrapLoader: (loader) => async ({ context }) => {
-      const user = await getCurrentUser();
-      const profile = await getProfile();
-      return loader({ context: { ...context, user, profile } });
+      if (!context.user) {
+        const user = await getCurrentUser();
+        const profile = user ? await getProfile() : null;
+        return loader({ context: { ...context, user, profile } });
+      }
+      return loader({ context });
     },
   });
 
