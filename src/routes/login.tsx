@@ -14,7 +14,7 @@ export const Route = createFileRoute('/login')({
 });
 
 function LoginPage() {
-  const { refreshProfile } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,9 +29,7 @@ function LoginPage() {
         toast.error(result.error);
       } else {
         await refreshProfile();
-        const { user: authUser, profile: authProfile } = useAuth();
-        const destination = authUser?.role === 'admin' ? '/admin' : '/';
-        const ctx = Route.fullPath === '/login' ? {} : {};
+        const destination = user?.role === 'admin' ? '/admin' : '/account';
         await navigate({
           to: destination,
           replace: true,
