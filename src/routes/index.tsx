@@ -105,7 +105,7 @@ function Index() {
               <span style={{ color: 'var(--primary)' }}>valorizam</span>{' '}
               seu delivery
             </h1>
-            <p className="text-lg md:text-xl mb-10 leading-relaxed max-w-xl" style={{ color: 'rgba(245,245,220,0.7)' }}>
+            <p className="text-lg md:text-xl mb-10 leading-relaxed max-w-xl" style={{ color: 'var(--muted-foreground)' }}>
               Caixas e embalagens para deixar seu produto bem apresentado, protegido e pronto para chegar ao cliente.
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
@@ -115,7 +115,7 @@ function Index() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
                 </svg>
               </Link>
-              <Link to="/catalog" className="inline-flex items-center justify-center gap-2 rounded-xl px-8 py-3.5 text-base font-semibold no-underline transition-all hover:opacity-80 border" style={{ backgroundColor: 'transparent', color: 'var(--foreground)', borderColor: 'rgba(245,245,220,0.3)' }}>
+              <Link to="/catalog" className="inline-flex items-center justify-center gap-2 rounded-xl px-8 py-3.5 text-base font-semibold no-underline transition-all hover:opacity-80 border" style={{ backgroundColor: 'transparent', color: 'var(--foreground)', borderColor: 'var(--border)' }}>
                 Conheça nossos produtos
               </Link>
             </div>
@@ -132,7 +132,7 @@ function Index() {
           <div className="flex items-center justify-between mb-10">
             <div>
               <h2 className="text-2xl md:text-3xl font-bold" style={{ color: 'var(--foreground)' }}>Nossas Categorias</h2>
-              <p className="mt-2 text-sm" style={{ color: 'rgba(245,245,220,0.55)' }}>Encontre a embalagem ideal para o seu negócio</p>
+              <p className="mt-2 text-sm" style={{ color: 'var(--muted-foreground)' }}>Encontre a embalagem ideal para o seu negócio</p>
             </div>
             <Link to="/catalog" className="text-sm font-semibold no-underline transition-colors" style={{ color: 'var(--primary)' }}>
               Ver todas →
@@ -142,13 +142,13 @@ function Index() {
           {loadingCategories ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="animate-pulse rounded-2xl" style={{ backgroundColor: 'rgba(255,255,255,0.05)', height: '140px' }} />
+                <div key={i} className="animate-pulse rounded-2xl" style={{ backgroundColor: 'var(--muted)', height: '140px' }} />
               ))}
             </div>
           ) : categories.length > 0 ? (
             <CategoryMenu categories={categories} />
           ) : (
-            <p className="text-center py-12" style={{ color: 'rgba(245,245,220,0.45)' }}>Nenhuma categoria disponível.</p>
+            <p className="text-center py-12" style={{ color: 'var(--muted-foreground)' }}>Nenhuma categoria disponível.</p>
           )}
         </div>
       </section>
@@ -159,7 +159,7 @@ function Index() {
           <div className="flex items-center justify-between mb-10">
             <div>
               <h2 className="text-2xl md:text-3xl font-bold" style={{ color: 'var(--foreground)' }}>Produtos em Destaque</h2>
-              <p className="mt-2 text-sm" style={{ color: 'rgba(245,245,220,0.55)' }}>Os mais procurados pelos nossos clientes</p>
+              <p className="mt-2 text-sm" style={{ color: 'var(--muted-foreground)' }}>Os mais procurados pelos nossos clientes</p>
             </div>
             <Link to="/catalog" className="text-sm font-semibold no-underline transition-colors" style={{ color: 'var(--primary)' }}>
               Ver todos →
@@ -169,11 +169,11 @@ function Index() {
           {loadingProducts ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
               {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                <div key={i} className="animate-pulse rounded-2xl overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ backgroundColor: 'rgba(255,255,255,0.05)', height: '180px' }} />
+                <div key={i} className="animate-pulse rounded-2xl overflow-hidden" style={{ backgroundColor: 'var(--muted)', border: '1px solid var(--border)' }}>
+                  <div style={{ backgroundColor: 'var(--muted)', height: '180px' }} />
                   <div className="p-4 space-y-2">
-                    <div style={{ backgroundColor: 'rgba(255,255,255,0.08)', height: '16px', borderRadius: '4px' }} />
-                    <div style={{ backgroundColor: 'rgba(255,255,255,0.05)', height: '12px', borderRadius: '4px', width: '60%' }} />
+                    <div style={{ backgroundColor: 'var(--muted)', height: '16px', borderRadius: '4px' }} />
+                    <div style={{ backgroundColor: 'var(--muted)', height: '12px', borderRadius: '4px', width: '60%' }} />
                   </div>
                 </div>
               ))}
@@ -186,7 +186,7 @@ function Index() {
             </div>
           ) : (
             <div className="text-center py-16">
-              <p className="text-base" style={{ color: 'rgba(245,245,220,0.45)' }}>Nenhum produto em destaque no momento.</p>
+              <p className="text-base" style={{ color: 'var(--muted-foreground)' }}>Nenhum produto em destaque no momento.</p>
               <Link to="/catalog" className="mt-4 inline-block text-sm font-semibold no-underline" style={{ color: 'var(--primary)' }}>
                 Ver todos os produtos
               </Link>
@@ -199,7 +199,7 @@ function Index() {
       <section className="py-16 md:py-20" style={{ backgroundColor: 'var(--primary)' }}>
         <div className="max-w-3xl mx-auto px-4 text-center">
           <h2 className="text-3xl md:text-4xl font-extrabold mb-4" style={{ color: 'var(--primary-foreground)' }}>Quer conhecer todos os produtos?</h2>
-          <p className="text-base mb-10" style={{ color: 'rgba(255,255,255,0.85)' }}>Acesse nosso catálogo completo e encontre a embalagem perfeita para o seu negócio.</p>
+          <p className="text-base mb-10" style={{ color: 'var(--primary-foreground)' }}>Acesse nosso catálogo completo e encontre a embalagem perfeita para o seu negócio.</p>
           <Link to="/catalog" className="inline-flex items-center gap-2 rounded-xl px-10 py-4 text-base font-bold no-underline transition-all hover:opacity-90" style={{ backgroundColor: 'var(--background)', color: 'var(--foreground)' }}>
             Acessar catálogo completo
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -222,27 +222,27 @@ function Index() {
                 </div>
                 <span className="font-bold" style={{ color: 'var(--foreground)' }}>SaturnoEmbalagens</span>
               </div>
-              <p className="text-sm leading-relaxed" style={{ color: 'rgba(245,245,220,0.55)' }}>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
                 Embalagens de qualidade para delivery. Qualidade e preço justo para seu negócio.
               </p>
             </div>
             <div>
               <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--foreground)' }}>Navegação</h3>
               <ul className="space-y-2.5">
-                <li><Link to="/catalog" className="text-sm no-underline transition-colors hover:opacity-80" style={{ color: 'rgba(245,245,220,0.55)' }}>Catálogo</Link></li>
-                <li><Link to="/login" className="text-sm no-underline transition-colors hover:opacity-80" style={{ color: 'rgba(245,245,220,0.55)' }}>Minha conta</Link></li>
-                <li><Link to="/cart" className="text-sm no-underline transition-colors hover:opacity-80" style={{ color: 'rgba(245,245,220,0.55)' }}>Carrinho</Link></li>
+                <li><Link to="/catalog" className="text-sm no-underline transition-colors hover:opacity-80" style={{ color: 'var(--muted-foreground)' }}>Catálogo</Link></li>
+                <li><Link to="/login" className="text-sm no-underline transition-colors hover:opacity-80" style={{ color: 'var(--muted-foreground)' }}>Minha conta</Link></li>
+                <li><Link to="/cart" className="text-sm no-underline transition-colors hover:opacity-80" style={{ color: 'var(--muted-foreground)' }}>Carrinho</Link></li>
               </ul>
             </div>
             <div>
               <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--foreground)' }}>Retirada</h3>
-              <p className="text-sm leading-relaxed" style={{ color: 'rgba(245,245,220,0.55)' }}>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
                 R. Urupema, nº 150<br />São Cosme de Baixo<br />Santa Luzia - MG, 33130-140
               </p>
             </div>
           </div>
           <div className="mt-10 pt-6 border-t text-center" style={{ borderColor: 'rgba(255,65,3,0.12)' }}>
-            <p className="text-xs" style={{ color: 'rgba(245,245,220,0.35)' }}>© 2025 SaturnoEmbalagens. Todos os direitos reservados.</p>
+            <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>© 2025 SaturnoEmbalagens. Todos os direitos reservados.</p>
           </div>
         </div>
       </footer>

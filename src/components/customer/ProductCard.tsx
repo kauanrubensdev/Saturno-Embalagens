@@ -30,7 +30,7 @@ export function ProductCard({ product }: ProductCardProps) {
       style={{ backgroundColor: 'var(--card)', border: '1px solid rgba(255,65,3,0.12)' }}
     >
       {/* Image */}
-      <div className="relative overflow-hidden" style={{ height: '180px', backgroundColor: 'rgba(255,255,255,0.03)' }}>
+      <div className="relative overflow-hidden" style={{ height: '180px', backgroundColor: 'var(--muted)' }}>
         {product.image_url ? (
           <img
             src={product.image_url}
@@ -39,7 +39,7 @@ export function ProductCard({ product }: ProductCardProps) {
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <svg className="w-12 h-12" style={{ color: 'rgba(245,245,220,0.15)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+            <svg className="w-12 h-12" style={{ color: 'var(--muted-foreground)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
             </svg>
           </div>
