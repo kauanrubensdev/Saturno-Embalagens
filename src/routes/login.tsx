@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { signIn } from '@/lib/auth';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { invalidateRouter } from '@/router';
 
 export const Route = createFileRoute('/login')({
   beforeLoad: async ({ context }) => {
@@ -62,6 +63,11 @@ function LoginPage() {
         'profile role': profileResult.data?.role ?? null,
         'profile error': profileResult.error?.message ?? null,
       });
+
+      // Invalida o router para forçar re-execução do beforeLoad do root,
+      // que vai popular context.user com a sessão recém-criada.
+      console.info('[AUTH-INVALIDATE] invalidateRouter');
+      invalidateRouter();
 
       const destination = profileResult.data?.role === 'admin' ? '/admin' : '/account';
       console.info('[AUTH-10] navegação para /account iniciada', { destination });
