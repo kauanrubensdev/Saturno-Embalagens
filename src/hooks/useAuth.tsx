@@ -59,8 +59,13 @@ export function useAuth() {
   }, []);
 
   const refreshProfile = useCallback(async () => {
-    await loadUser();
-  }, [loadUser]);
+    console.info('[ACCOUNT-REFRESH] refreshProfile chamado');
+    const authUser = await getCurrentUser();
+    setUser(authUser);
+    const profileData = await getProfile();
+    console.info('[ACCOUNT-REFRESH] profile carregado', profileData?.id ?? null);
+    setProfile(profileData);
+  }, []);
 
   const isAdmin = user?.role === 'admin';
 

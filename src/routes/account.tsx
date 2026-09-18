@@ -28,16 +28,23 @@ function AccountPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.info('[ACCOUNT-4] submit iniciou');
     setSaving(true);
     try {
+      console.info('[ACCOUNT-5] update profile iniciou');
       const result = await updateProfile({ name, phone });
+      console.info('[ACCOUNT-6] update profile terminou', result.error ?? 'sucesso');
       if (result.error) {
         toast.error(result.error);
       } else {
         toast.success('Perfil atualizado com sucesso!');
         await refreshProfile();
       }
+    } catch (err) {
+      console.error('[ACCOUNT-ERROR]', err);
+      toast.error('Erro ao atualizar perfil');
     } finally {
+      console.info('[ACCOUNT-9] finally executado');
       setSaving(false);
     }
   };
