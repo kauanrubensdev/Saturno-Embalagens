@@ -1,14 +1,19 @@
 import { createRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
+import type { RootRouteContext } from "./routes/__root";
 
-export const getRouter = () => {
+export const getRouter = (initialAuth?: RootRouteContext['auth']) => {
   const router = createRouter({
     routeTree,
     context: {
-      // Contexto inicial — será sobrescrito pelo beforeLoad do root route
-      // antes de qualquer beforeLoad de rota filha.
-      user: null,
-      profile: null,
+      // Contexto inicial fornecido pelo AuthProvider via RouterProvider.
+      // Inicializa como não-pronto para que os guards aguardem.
+      auth: initialAuth ?? {
+        authReady: false,
+        user: null,
+        profile: null,
+        isAdmin: false,
+      },
     },
     defaultPreloadStaleTime: 0,
   });
@@ -17,9 +22,9 @@ export const getRouter = () => {
 };
 
 /**
- * Referência global ao router — usada para forçar recomputação
- * do contexto de autenticação (root beforeLoad) após login/logout.
- * Definida em start.ts via routerState.subscribe.
+ * Referência global ao router — usada para forçar reavaliação
+ * dos guards após login/logout quando o contexto React muda
+ * mas o router precisa atualizar seus guards.
  */
 let currentRouter: ReturnType<typeof getRouter> | null = null;
 

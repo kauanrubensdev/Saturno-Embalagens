@@ -1,22 +1,19 @@
 import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { signIn } from '@/lib/auth';
-import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { invalidateRouter } from '@/router';
 
 export const Route = createFileRoute('/login')({
   beforeLoad: async ({ context }) => {
-    if (context.user) {
-      throw redirect({ to: '/account' });
+    if (context.auth?.user) {
+      throw redirect({ to: context.auth.isAdmin ? '/admin' : '/' });
     }
   },
   component: LoginPage,
 });
 
 function LoginPage() {
-  const { refreshProfile } = useAuth();
+  const { login } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,58 +21,26 @@ function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.info('[AUTH-1] handleSubmit iniciado');
     setLoading(true);
     try {
-      const result = await signIn({ email, password });
-      console.info('[AUTH-4] user existe?', Boolean(result.user));
-      console.info('[AUTH-5] session existe?', Boolean(result.session));
+      const result = await login({ email, password });
       if (result.error) {
         toast.error(result.error);
         return;
       }
 
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      console.info('[AUTH-DIAG] getSession', {
-        'getSession error': sessionError?.message ?? null,
-        'getSession session': Boolean(sessionData.session),
-        'getSession user': sessionData.session?.user.id ?? null,
-      });
+      // Aguarda o próximo render para que authReady + user + profile
+      // estejam atualizados no estado React antes de navegar.
+      // O destino é decidido pelo role do profile, não /account por padrão.
+      // Pequeno delay para o onAuthStateChange do AuthProvider executar.
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
-      console.info('[AUTH-6] refreshProfile iniciado');
-      await refreshProfile();
-      console.info('[AUTH-7] refreshProfile terminou');
-
-      const authenticatedUserId = result.user?.id;
-      const profileResult = authenticatedUserId
-        ? await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', authenticatedUserId)
-            .single()
-        : { data: null, error: null };
-
-      console.info('[AUTH-8] profile existe?', Boolean(profileResult.data));
-      console.info('[AUTH-9] role', profileResult.data?.role ?? null);
-      console.info('[AUTH-DIAG] profile', {
-        'profile encontrado': Boolean(profileResult.data),
-        'profile id': profileResult.data?.id ?? null,
-        'profile role': profileResult.data?.role ?? null,
-        'profile error': profileResult.error?.message ?? null,
-      });
-
-      // Invalida o router para forçar re-execução do beforeLoad do root,
-      // que vai popular context.user com a sessão recém-criada.
-      console.info('[AUTH-INVALIDATE] invalidateRouter');
-      invalidateRouter();
-
-      const destination = profileResult.data?.role === 'admin' ? '/admin' : '/account';
-      console.info('[AUTH-10] navegação para /account iniciada', { destination });
-      await navigate({
-        to: destination,
-        replace: true,
-      });
-      console.info('[AUTH-14] navegação concluída', { destination: window.location.pathname });
+      // Lê o role atualizado via navigate via state, pois após login
+      // o useAuth state já tem user + profile atualizados.
+      // Passamos null como destination e deixamos o AuthProvider decidir
+      // via redirect no app entry.
+      // Para destino correto, navegamos para home (que lê auth e mostra a UI correta).
+      await navigate({ to: '/', replace: true });
     } finally {
       setLoading(false);
     }

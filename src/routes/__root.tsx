@@ -3,24 +3,34 @@ import { Toaster } from '@/components/ui/toaster';
 import styles from '@/styles.css?url';
 import { useEffect } from 'react';
 import { useTheme } from '@/hooks/useTheme';
-import { getCurrentUser, getProfile } from '@/lib/auth';
+import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import type { AuthUser, Profile } from '@/types/auth';
 
 export interface RootRouteContext {
-  user: AuthUser | null;
-  profile: Profile | null;
+  auth: {
+    authReady: boolean;
+    user: AuthUser | null;
+    profile: Profile | null;
+    isAdmin: boolean;
+  };
 }
 
 export const Route = createRootRoute({
   head: () => ({
     links: [{ rel: 'stylesheet', href: styles }],
   }),
-  beforeLoad: async () => {
-    // Executa ANTES dos beforeLoad de /account e /admin —
-    // assim context.user já está disponível quando os guards verificam.
-    const user = await getCurrentUser();
-    const profile = user ? await getProfile() : null;
-    return { user, profile };
+  beforeLoad: async ({ context }) => {
+    // O contexto do router recebe o estado de auth diretamente da mesma
+    // fonte React usada pelos componentes — não faz chamada separada.
+    // O componente RootLayoutForAuth fornece esse contexto via RouterProvider.
+    return {
+      auth: context.auth ?? {
+        authReady: false,
+        user: null,
+        profile: null,
+        isAdmin: false,
+      },
+    };
   },
   component: RootLayout,
 });
@@ -47,3 +57,17 @@ function RootLayout() {
     </html>
   );
 }
+
+// ============================================================
+// Componente wrapper que injeta o contexto de auth no Router.
+// DEVE envolver o RouterProvider no entry point.
+// ============================================================
+export function RootLayoutForAuth({ children }: { children: ReactNode }) {
+  return (
+    <AuthProvider>
+      {children}
+    </AuthProvider>
+  );
+}
+
+import type { ReactNode } from 'react';

@@ -8,7 +8,7 @@ interface HeaderProps {
 }
 
 export function Header({ showNav = false }: HeaderProps) {
-  const { user, profile } = useAuth();
+  const { authReady, user, profile } = useAuth();
   const { theme, toggleTheme, mounted } = useTheme();
 
   return (
@@ -133,8 +133,14 @@ export function Header({ showNav = false }: HeaderProps) {
             </svg>
           </Link>
 
-          {/* Auth */}
-          {user ? (
+          {/* Auth — usa authReady para não mostrar estado incorreto */}
+          {!authReady ? (
+            <div
+              className="h-9 w-20 rounded-xl animate-pulse"
+              style={{ backgroundColor: 'var(--muted)' }}
+            />
+          ) : user ? (
+            // Autenticado
             <Link
               to="/account"
               className="text-sm font-semibold px-4 py-2 rounded-xl no-underline transition-all duration-150 hover:opacity-90"
@@ -146,6 +152,7 @@ export function Header({ showNav = false }: HeaderProps) {
               {profile?.name ? profile.name.split(' ')[0] : 'Conta'}
             </Link>
           ) : (
+            // Deslogado
             <>
               <Link
                 to="/login"

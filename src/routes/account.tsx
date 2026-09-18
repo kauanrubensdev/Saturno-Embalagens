@@ -7,7 +7,11 @@ import { Header } from '@/components/customer/Header';
 
 export const Route = createFileRoute('/account')({
   beforeLoad: async ({ context }) => {
-    if (!context.user) {
+    // Aguarda autenticação estar pronta — não trata loading como "não logado"
+    if (!context.auth?.authReady) {
+      return; // deixa o componente decidir (ele mostra loading)
+    }
+    if (!context.auth?.user) {
       throw redirect({ to: '/login' });
     }
   },
@@ -15,17 +19,29 @@ export const Route = createFileRoute('/account')({
 });
 
 function AccountPage() {
-  const { user, profile, refreshProfile, logout } = useAuth();
+  const { authReady, user, profile, refreshProfile, logout } = useAuth();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Aguarda auth estar pronto antes de popular os campos
   useEffect(() => {
-    if (profile) {
+    if (authReady && profile) {
       setName(profile.name || '');
       setPhone(profile.phone || '');
     }
-  }, [profile]);
+  }, [authReady, profile]);
+
+  // Loading state enquanto auth não está pronto
+  if (!authReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--background)' }}>
+        <div className="animate-pulse text-sm" style={{ color: 'var(--muted-foreground)' }}>
+          Carregando...
+        </div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
