@@ -17,6 +17,8 @@ export const getRouter = () => {
     },
     defaultPreloadStaleTime: 0,
     wrapLoader: (loader) => async ({ context }) => {
+      // Always fetch the current session from Supabase — do not rely on
+      // cached context.user which stays null after initial boot.
       const user = await getCurrentUser();
       const profile = user ? await getProfile() : null;
       return loader({ context: { ...context, user, profile } });
