@@ -438,7 +438,7 @@ function Footer() {
             </svg>
             Voltar ao catálogo
           </Link>
-          <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>© 2026 SaturnoEmbalagens. Todos os direitos reservados.</p>
+          <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>© 2025 SaturnoEmbalagens. Todos os direitos reservados.</p>
         </div>
       </div>
     </footer>
