@@ -390,7 +390,7 @@ function CartPage() {
       >
         <div className="max-w-5xl mx-auto px-4 py-8 text-center">
           <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-            © 2025 SaturnoEmbalagens. Todos os direitos reservados.
+            © 2026 SaturnoEmbalagens. Todos os direitos reservados.
           </p>
         </div>
       </footer>

@@ -64,7 +64,7 @@ function LoginPage() {
           <h1 className="text-4xl font-bold text-white mb-4">Embalagens industriais<br />de alta qualidade</h1>
           <p className="text-lg" style={{ color: 'var(--muted-foreground)' }}>Soluções completas para seu negócio</p>
         </div>
-        <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>© 2025 SaturnoEmbalagens</p>
+        <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>© 2026 SaturnoEmbalagens</p>
       </div>
 
       {/* Right panel */}
