@@ -49,12 +49,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const authUser = session.user;
+
+    // Limpa o profile anterior antes de aplicar a nova sessão
+    setProfile(null);
     setUser(authUser);
+
     const profileData = await getProfile(authUser.id);
     if (syncId !== activeSync.current) return;
 
     setProfile(profileData);
-
     setAuthReady(true);
     setLoading(false);
   }, []);
@@ -67,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
         void applySession(session);
       } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-        setUser(session.user);
+        void applySession(session);
       }
     });
 

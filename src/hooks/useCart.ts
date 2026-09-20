@@ -25,12 +25,16 @@ interface Cart {
 }
 
 export function useCart() {
-  const { user, profile } = useAuth();
+  const { user, authReady } = useAuth();
   const [cart, setCart] = useState<Cart | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchCart = useCallback(async () => {
+    // Don't conclude user is logged out before auth is ready
+    if (!authReady) {
+      return;
+    }
     if (!user) {
       setCart(null);
       setLoading(false);

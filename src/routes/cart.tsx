@@ -11,7 +11,7 @@ export const Route = createFileRoute('/cart')({
 });
 
 function CartPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, authReady, loading: authLoading } = useAuth();
   const { cart, loading, error, getTotalItems, getSubtotal } = useCart();
   const totalItems = getTotalItems();
   const subtotal = getSubtotal();
@@ -78,8 +78,8 @@ function CartPage() {
     );
   }
 
-  // Not authenticated
-  if (!user) {
+  // Not authenticated - only show when auth is ready and no user
+  if (!user && authReady) {
     return (
       <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
         <header

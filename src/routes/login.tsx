@@ -5,8 +5,14 @@ import { toast } from 'sonner';
 
 export const Route = createFileRoute('/login')({
   beforeLoad: async ({ context }) => {
-    if (context.auth?.user) {
-      throw redirect({ to: context.auth.isAdmin ? '/admin' : '/' });
+    if (context.auth?.authReady) {
+      if (context.auth?.user) {
+        if (context.auth?.profile?.role === 'admin') {
+          throw redirect({ to: '/admin' });
+        } else {
+          throw redirect({ to: '/' });
+        }
+      }
     }
   },
   component: LoginPage,

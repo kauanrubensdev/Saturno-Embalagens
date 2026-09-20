@@ -140,16 +140,16 @@ export function Header({ showNav = false }: HeaderProps) {
               style={{ backgroundColor: 'var(--muted)' }}
             />
           ) : user ? (
-            // Autenticado
+            // Autenticado - admin vê link para /admin, customer vê link para /account
             <Link
-              to="/account"
+              to={profile?.role === 'admin' ? '/admin' : '/account'}
               className="text-sm font-semibold px-4 py-2 rounded-xl no-underline transition-all duration-150 hover:opacity-90"
               style={{
                 backgroundColor: 'var(--primary)',
                 color: 'var(--primary-foreground)',
               }}
             >
-              {profile?.name ? profile.name.split(' ')[0] : 'Conta'}
+              {profile?.role === 'admin' ? 'Admin' : (profile?.name ? profile.name.split(' ')[0] : 'Conta')}
             </Link>
           ) : (
             // Deslogado

@@ -1,12 +1,52 @@
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute, Link, redirect } from '@tanstack/react-router';
 import { CartBadge } from '@/components/customer/CartBadge';
 import { ThemeToggle } from '@/components/customer/ThemeToggle';
+import { useAuth } from '@/hooks/useAuth';
 
 export const Route = createFileRoute('/checkout')({
+  beforeLoad: async ({ context }) => {
+    if (!context.auth?.authReady) {
+      return;
+    }
+    if (!context.auth?.user) {
+      throw redirect({ to: '/login' });
+    }
+  },
   component: CheckoutPage,
 });
 
 function CheckoutPage() {
+  const { authReady, user } = useAuth();
+
+  if (!authReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--background)' }}>
+        <div className="animate-pulse text-sm" style={{ color: 'var(--muted-foreground)' }}>
+          Carregando...
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--background)' }}>
+        <div className="text-center">
+          <p className="text-lg mb-4" style={{ color: 'var(--foreground)' }}>
+            Faça login para acessar o checkout
+          </p>
+          <Link
+            to="/login"
+            className="inline-flex items-center justify-center py-2.5 px-6 rounded-xl font-semibold text-white transition-all hover:opacity-90"
+            style={{ backgroundColor: 'var(--primary)' }}
+          >
+            Entrar
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
       {/* Header */}
