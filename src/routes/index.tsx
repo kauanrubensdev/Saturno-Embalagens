@@ -363,7 +363,7 @@ function Index() {
           {/* Divider */}
           <div className="mt-12 pt-8 border-t flex flex-col sm:flex-row items-center justify-between gap-4" style={{ borderColor: 'var(--border)' }}>
             <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-              © 2025 SaturnoEmbalagens. Todos os direitos reservados.
+              © 2026 SaturnoEmbalagens. Todos os direitos reservados.
             </p>
             <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--muted-foreground)' }}>
               Feito com
