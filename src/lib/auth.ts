@@ -1,41 +1,19 @@
 import { supabase } from '@/integrations/supabase/client';
-import type { AuthUser, Profile, LoginData, RegisterData } from '@/types/auth';
+import type { Profile, LoginData, RegisterData } from '@/types/auth';
 import type { Session, User } from '@supabase/supabase-js';
 
 // ============================================================
 // Helper: obtém profile do usuário autenticado
 // ============================================================
-export async function getProfile(): Promise<Profile | null> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
+export async function getProfile(userId: string): Promise<Profile | null> {
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
-    .eq('id', user.id)
+    .eq('id', userId)
     .single();
 
   if (error || !data) return null;
   return data as Profile;
-}
-
-// ============================================================
-// Helper: obtém usuário autenticado com profile
-// ============================================================
-export async function getCurrentUser(): Promise<AuthUser | null> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const profile = await getProfile();
-  if (!profile) return null;
-
-  return {
-    id: user.id,
-    email: user.email ?? '',
-    name: profile.name,
-    role: profile.role as 'customer' | 'admin',
-    ...(profile.phone ? { phone: profile.phone } : {}),
-  };
 }
 
 // ============================================================
@@ -46,13 +24,7 @@ export async function signIn({ email, password }: LoginData): Promise<{
   user: User | null;
   session: Session | null;
 }> {
-  console.info('[AUTH-2] signIn iniciado');
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  console.info('[AUTH-3] signIn retornou', {
-    'signIn error': error?.message ?? null,
-    'signIn user': data.user?.id ?? null,
-    'signIn session': Boolean(data.session),
-  });
 
   if (error) return { error: error.message, user: data.user, session: data.session };
   return { error: null, user: data.user, session: data.session };
@@ -115,10 +87,3 @@ export async function updateProfile(updates: { name?: string; phone?: string }):
   return { error: null };
 }
 
-// ============================================================
-// Verificar se o usuário atual é admin (via RLS — server-side)
-// ============================================================
-export async function isAdmin(): Promise<boolean> {
-  const profile = await getProfile();
-  return profile?.role === 'admin';
-}
