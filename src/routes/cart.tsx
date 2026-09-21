@@ -1,10 +1,9 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { CartItem } from '@/components/customer/CartItem';
 import { CartSummary } from '@/components/customer/CartSummary';
-import { CartBadge } from '@/components/customer/CartBadge';
+import { Header } from '@/components/customer/Header';
 import { useCart } from '@/hooks/useCart';
 import { useAuth } from '@/hooks/useAuth';
-import { ThemeToggle } from '@/components/customer/ThemeToggle';
 
 export const Route = createFileRoute('/cart')({
   component: CartPage,
@@ -12,53 +11,16 @@ export const Route = createFileRoute('/cart')({
 
 function CartPage() {
   const { user, authReady, loading: authLoading } = useAuth();
-  const { cart, loading, error, getTotalItems, getSubtotal } = useCart();
+  const { cart, loading, error, getTotalItems } = useCart();
   const totalItems = getTotalItems();
-  const subtotal = getSubtotal();
-
-  const formattedSubtotal = new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(subtotal);
 
   // Loading state
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
-        <header
-          className="sticky top-0 z-50 w-full border-b shadow-sm"
-          style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-        >
-          <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-            <Link to="/" className="flex items-center gap-2 no-underline">
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center"
-                style={{ backgroundColor: 'var(--primary)' }}
-              >
-                <svg
-                  className="w-5 h-5 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                  />
-                </svg>
-              </div>
-              <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>
-                SaturnoEmbalagens
-              </span>
-            </Link>
-            <CartBadge />
-            <ThemeToggle />
-          </div>
-        </header>
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+        <Header showNav />
 
-        <div className="max-w-5xl mx-auto px-4 py-8">
+        <div className="max-w-5xl mx-auto px-4 py-8 flex-1 w-full">
           <div className="animate-pulse">
             <div className="h-8 w-48 rounded mb-8" style={{ backgroundColor: 'var(--muted)' }} />
             <div className="space-y-4">
@@ -81,41 +43,10 @@ function CartPage() {
   // Not authenticated - only show when auth is ready and no user
   if (!user && authReady) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
-        <header
-          className="sticky top-0 z-50 w-full border-b shadow-sm"
-          style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-        >
-          <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-            <Link to="/" className="flex items-center gap-2 no-underline">
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center"
-                style={{ backgroundColor: 'var(--primary)' }}
-              >
-                <svg
-                  className="w-5 h-5 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                  />
-                </svg>
-              </div>
-              <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>
-                SaturnoEmbalagens
-              </span>
-            </Link>
-            <CartBadge />
-            <ThemeToggle />
-          </div>
-        </header>
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+        <Header showNav />
 
-        <div className="max-w-5xl mx-auto px-4 py-16">
+        <div className="max-w-5xl mx-auto px-4 py-16 flex-1 flex items-center justify-center">
           <div className="text-center">
             <div
               className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
@@ -167,41 +98,10 @@ function CartPage() {
   // Error state
   if (error) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
-        <header
-          className="sticky top-0 z-50 w-full border-b shadow-sm"
-          style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-        >
-          <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-            <Link to="/" className="flex items-center gap-2 no-underline">
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center"
-                style={{ backgroundColor: 'var(--primary)' }}
-              >
-                <svg
-                  className="w-5 h-5 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                  />
-                </svg>
-              </div>
-              <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>
-                SaturnoEmbalagens
-              </span>
-            </Link>
-            <CartBadge />
-            <ThemeToggle />
-          </div>
-        </header>
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+        <Header showNav />
 
-        <div className="max-w-5xl mx-auto px-4 py-16">
+        <div className="max-w-5xl mx-auto px-4 py-16 flex-1 flex items-center justify-center">
           <div className="text-center">
             <div
               className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4"
@@ -229,7 +129,7 @@ function CartPage() {
             </p>
             <button
               onClick={() => window.location.reload()}
-              className="inline-flex items-center justify-center py-2.5 px-6 rounded-xl font-semibold text-white transition-all hover:opacity-90"
+              className="inline-flex items-center justify-center py-2.5 px-6 rounded-xl font-semibold text-white transition-all hover:opacity-90 cursor-pointer"
               style={{ backgroundColor: 'var(--primary)' }}
             >
               Tentar novamente
@@ -243,41 +143,10 @@ function CartPage() {
   // Empty cart
   if (totalItems === 0) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
-        <header
-          className="sticky top-0 z-50 w-full border-b shadow-sm"
-          style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-        >
-          <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-            <Link to="/" className="flex items-center gap-2 no-underline">
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center"
-                style={{ backgroundColor: 'var(--primary)' }}
-              >
-                <svg
-                  className="w-5 h-5 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                  />
-                </svg>
-              </div>
-              <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>
-                SaturnoEmbalagens
-              </span>
-            </Link>
-            <CartBadge />
-            <ThemeToggle />
-          </div>
-        </header>
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+        <Header showNav />
 
-        <div className="max-w-5xl mx-auto px-4 py-16">
+        <div className="max-w-5xl mx-auto px-4 py-16 flex-1 flex items-center justify-center">
           <div className="text-center">
             <div
               className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4"
@@ -319,41 +188,10 @@ function CartPage() {
 
   // Cart with items
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
-      <header
-        className="sticky top-0 z-50 w-full border-b shadow-sm"
-        style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-      >
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 no-underline">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: 'var(--primary)' }}
-            >
-              <svg
-                className="w-5 h-5 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                />
-              </svg>
-            </div>
-            <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>
-              SaturnoEmbalagens
-            </span>
-          </Link>
-          <CartBadge />
-          <ThemeToggle />
-        </div>
-      </header>
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+      <Header showNav />
 
-      <div className="max-w-5xl mx-auto px-4 py-8">
+      <main className="flex-1 max-w-5xl mx-auto px-4 py-8 w-full">
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-sm mb-6" style={{ color: 'var(--muted-foreground)' }}>
           <Link to="/" className="no-underline transition-colors hover:opacity-80" style={{ color: 'var(--muted-foreground)' }}>
@@ -382,7 +220,7 @@ function CartPage() {
             </div>
           </div>
         </div>
-      </div>
+      </main>
 
       <footer
         className="border-t mt-12"
@@ -390,7 +228,7 @@ function CartPage() {
       >
         <div className="max-w-5xl mx-auto px-4 py-8 text-center">
           <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-            © 2025 SaturnoEmbalagens. Todos os direitos reservados.
+            © 2026 SaturnoEmbalagens. Todos os direitos reservados.
           </p>
         </div>
       </footer>

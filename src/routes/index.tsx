@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { ProductCard } from '@/components/customer/ProductCard';
 import { CategoryMenu } from '@/components/customer/CategoryMenu';
-import { ThemeToggle } from '@/components/customer/ThemeToggle';
+import { Header } from '@/components/customer/Header';
 
 export const Route = createFileRoute('/')({
   component: Index,
@@ -57,34 +57,7 @@ function Index() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--background)', color: 'var(--foreground)' }}>
-      {/* Header */}
-      <header
-        className="sticky top-0 z-50 w-full border-b"
-        style={{ backgroundColor: 'var(--background)', borderColor: 'rgba(255,65,3,0.15)', backdropFilter: 'blur(8px)' }}
-      >
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2.5 no-underline">
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--primary)' }}>
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
-            </div>
-            <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>SaturnoEmbalagens</span>
-          </Link>
-
-          <nav className="hidden md:flex items-center gap-8">
-            <Link to="/catalog" className="text-sm font-medium no-underline transition-colors hover:opacity-80" style={{ color: 'var(--foreground)' }}>Catálogo</Link>
-            <Link to="/cart" className="text-sm font-medium no-underline transition-colors hover:opacity-80" style={{ color: 'var(--foreground)' }}>Carrinho</Link>
-          </nav>
-
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
-            <Link to="/login" className="text-sm font-medium px-4 py-2 rounded-lg no-underline transition-all hover:opacity-90" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}>
-              Entrar
-            </Link>
-          </div>
-        </div>
-      </header>
+      <Header showNav />
 
       {/* Hero */}
       <section className="relative overflow-hidden" style={{ backgroundColor: 'var(--background)' }}>

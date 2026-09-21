@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { ProductCard } from '@/components/customer/ProductCard';
-import { ThemeToggle } from '@/components/customer/ThemeToggle';
+import { Header } from '@/components/customer/Header';
 
 interface CatalogProduct {
   id: string;
@@ -73,60 +73,11 @@ function CatalogPage() {
   }, [products, search, selectedCategory]);
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
-      {/* Header */}
-      <header 
-        className="sticky top-0 z-50 w-full border-b transition-colors duration-200"
-        style={{ 
-          backgroundColor: 'var(--card)', 
-          borderColor: 'var(--border)',
-          boxShadow: 'var(--shadow-xs)'
-        }}
-      >
-        <div className="max-w-7xl mx-auto px-4 h-[68px] flex items-center justify-between gap-4">
-          <Link to="/" className="flex items-center gap-2.5 no-underline group flex-shrink-0">
-            <div 
-              className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105" 
-              style={{ backgroundColor: 'var(--primary)' }}
-            >
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
-            </div>
-            <span className="font-bold text-lg tracking-tight" style={{ color: 'var(--foreground)' }}>
-              <span style={{ color: 'var(--primary)' }}>Saturno</span>Embalagens
-            </span>
-          </Link>
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-            <Link 
-              to="/cart" 
-              className="relative p-2 rounded-xl transition-all duration-150 hover:scale-105"
-              style={{ 
-                backgroundColor: 'var(--accent)', 
-                border: '1px solid var(--border)' 
-              }}
-            >
-              <svg className="w-5 h-5" style={{ color: 'var(--accent-foreground)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinecap="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
-            </Link>
-            <Link 
-              to="/login" 
-              className="text-sm font-semibold px-4 py-2 rounded-xl no-underline transition-all duration-150 hover:opacity-90"
-              style={{ 
-                backgroundColor: 'var(--primary)', 
-                color: 'var(--primary-foreground)' 
-              }}
-            >
-              Entrar
-            </Link>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+      <Header showNav />
 
       {/* Catalog Content */}
-      <div className="max-w-7xl mx-auto px-4 py-8 md:py-12">
+      <main className="flex-1 max-w-7xl mx-auto px-4 py-8 md:py-12 w-full">
         {/* Page Header */}
         <div className="mb-8 md:mb-10">
           <h1 
@@ -345,7 +296,7 @@ function CatalogPage() {
             ))}
           </div>
         )}
-      </div>
+      </main>
 
       {/* Footer */}
       <footer 

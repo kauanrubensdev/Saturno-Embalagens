@@ -67,9 +67,6 @@ export function Header({ showNav = false }: HeaderProps) {
                 activeProps={{
                   style: { color: 'var(--primary)', backgroundColor: 'var(--accent)' },
                 }}
-                hoverProps={{
-                  style: { color: 'var(--primary)', backgroundColor: 'var(--accent)' },
-                }}
               >
                 Catálogo
               </Link>
@@ -93,8 +90,7 @@ export function Header({ showNav = false }: HeaderProps) {
                 color: 'var(--accent-foreground)',
                 border: '1px solid var(--border)',
                 cursor: 'pointer',
-                '--tw-ring-color': 'var(--ring)',
-              } as React.CSSProperties}
+              }}
             >
               {theme === 'dark' ? (
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -108,30 +104,8 @@ export function Header({ showNav = false }: HeaderProps) {
             </button>
           )}
 
-          {/* Cart */}
-          <Link
-            to="/cart"
-            className="relative p-2 rounded-xl transition-all duration-150 hover:scale-105"
-            style={{
-              backgroundColor: 'var(--accent)',
-              border: '1px solid var(--border)',
-            }}
-          >
-            <svg
-              className="w-5 h-5"
-              style={{ color: 'var(--accent-foreground)' }}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
-              />
-            </svg>
-          </Link>
+          {/* Cart Badge with live count */}
+          <CartBadge />
 
           {/* Auth — usa authReady para não mostrar estado incorreto */}
           {!authReady ? (

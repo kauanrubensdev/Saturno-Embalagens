@@ -1,6 +1,5 @@
 import { createFileRoute, Link, redirect } from '@tanstack/react-router';
-import { CartBadge } from '@/components/customer/CartBadge';
-import { ThemeToggle } from '@/components/customer/ThemeToggle';
+import { Header } from '@/components/customer/Header';
 import { useAuth } from '@/hooks/useAuth';
 
 export const Route = createFileRoute('/checkout')({
@@ -48,43 +47,11 @@ function CheckoutPage() {
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
-      {/* Header */}
-      <header
-        className="sticky top-0 z-50 w-full border-b shadow-sm"
-        style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-      >
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 no-underline">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: 'var(--primary)' }}
-            >
-              <svg
-                className="w-5 h-5 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                />
-              </svg>
-            </div>
-            <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>
-              SaturnoEmbalagens
-            </span>
-          </Link>
-          <CartBadge />
-          <ThemeToggle />
-        </div>
-      </header>
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+      <Header showNav />
 
       {/* Content */}
-      <div className="max-w-2xl mx-auto px-4 py-16">
+      <main className="flex-1 max-w-2xl mx-auto px-4 py-16 w-full flex items-center justify-center">
         <div className="text-center">
           <div
             className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"
@@ -143,7 +110,7 @@ function CheckoutPage() {
             </Link>
           </div>
         </div>
-      </div>
+      </main>
 
       {/* Footer */}
       <footer
@@ -152,7 +119,7 @@ function CheckoutPage() {
       >
         <div className="max-w-5xl mx-auto px-4 py-8 text-center">
           <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-            © 2025 SaturnoEmbalagens. Todos os direitos reservados.
+            © 2026 SaturnoEmbalagens. Todos os direitos reservados.
           </p>
         </div>
       </footer>

@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 
-type Theme = 'dark' | 'light';
+export type Theme = 'dark' | 'light';
 
 const STORAGE_KEY = 'saturno-theme';
+const THEME_CHANGE_EVENT = 'saturno-theme-change';
 
 function getStoredTheme(): Theme {
   if (typeof window === 'undefined') return 'dark';
@@ -19,6 +20,9 @@ function applyTheme(theme: Theme) {
   try {
     localStorage.setItem(STORAGE_KEY, theme);
   } catch {}
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(THEME_CHANGE_EVENT, { detail: theme }));
+  }
 }
 
 export function useTheme() {
@@ -30,6 +34,18 @@ export function useTheme() {
     setThemeState(initial);
     applyTheme(initial);
     setMounted(true);
+
+    const handleThemeChange = (e: Event) => {
+      const customEvent = e as CustomEvent<Theme>;
+      if (customEvent.detail) {
+        setThemeState(customEvent.detail);
+      }
+    };
+
+    window.addEventListener(THEME_CHANGE_EVENT, handleThemeChange);
+    return () => {
+      window.removeEventListener(THEME_CHANGE_EVENT, handleThemeChange);
+    };
   }, []);
 
   const setTheme = useCallback((newTheme: Theme) => {

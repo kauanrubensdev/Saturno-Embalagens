@@ -3,6 +3,7 @@ import { hydrateRoot } from 'react-dom/client';
 import { RouterProvider, type AnyRouter } from '@tanstack/react-router';
 import { hydrateStart } from '@tanstack/react-start/client';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
+import { CartProvider } from '@/hooks/useCart';
 
 function AuthenticatedRouter({ router }: { router: AnyRouter }) {
   const auth = useAuth();
@@ -27,7 +28,9 @@ void hydrateStart().then((router) => {
       document,
       <StrictMode>
         <AuthProvider>
-          <AuthenticatedRouter router={router} />
+          <CartProvider>
+            <AuthenticatedRouter router={router} />
+          </CartProvider>
         </AuthProvider>
       </StrictMode>,
     );

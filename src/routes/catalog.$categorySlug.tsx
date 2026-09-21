@@ -2,6 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { ProductCard } from '@/components/customer/ProductCard';
+import { Header } from '@/components/customer/Header';
 
 interface CategoryProduct {
   id: string;
@@ -32,38 +33,46 @@ function CategoryPage() {
     setError(null);
     setSearch('');
 
-    supabase
-      .from('products')
-      .select('id, name, slug, price, image_url, stock_quantity, category:categories(name, slug)')
-      .eq('is_active', true)
-      .eq('categories.slug', categorySlug)
-      .order('name', { ascending: true })
-      .then(({ data, error: fetchError }) => {
-        if (fetchError) {
-          setError('Erro ao carregar produtos. Tente novamente.');
+    const fetchCategoryAndProducts = async () => {
+      try {
+        // 1. Fetch category
+        const { data: categoryData, error: categoryError } = await supabase
+          .from('categories')
+          .select('id, name, slug')
+          .eq('slug', categorySlug)
+          .eq('is_active', true)
+          .single();
+
+        if (categoryError || !categoryData) {
+          setError('Categoria não encontrada.');
           setLoading(false);
           return;
         }
 
-        const productsData = (data as CategoryProduct[]) || [];
-        setProducts(productsData);
+        setCategoryName(categoryData.name);
 
-        const firstProduct = productsData[0];
-        if (firstProduct?.category) {
-          setCategoryName(firstProduct.category.name);
-        } else {
-          supabase
-            .from('categories')
-            .select('name')
-            .eq('slug', categorySlug)
-            .eq('is_active', true)
-            .single()
-            .then(({ data: catData }) => {
-              if (catData) setCategoryName(catData.name);
-            });
+        // 2. Fetch products in this category
+        const { data: productsData, error: productsError } = await supabase
+          .from('products')
+          .select('id, name, slug, price, image_url, stock_quantity, category:categories(name, slug)')
+          .eq('is_active', true)
+          .eq('category_id', categoryData.id)
+          .order('name', { ascending: true });
+
+        if (productsError) {
+          throw productsError;
         }
+
+        setProducts((productsData as CategoryProduct[]) || []);
+      } catch (err) {
+        console.error('Error loading category products:', err);
+        setError('Erro ao carregar produtos. Tente novamente.');
+      } finally {
         setLoading(false);
-      });
+      }
+    };
+
+    fetchCategoryAndProducts();
   }, [categorySlug]);
 
   const filteredProducts = useMemo(() => {
@@ -72,9 +81,11 @@ function CategoryPage() {
   }, [products, search]);
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+      <Header showNav />
+
       {/* Page Container */}
-      <div className="max-w-7xl mx-auto px-4 py-8 md:py-12">
+      <main className="flex-1 max-w-7xl mx-auto px-4 py-8 md:py-12 w-full">
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-sm mb-6" style={{ color: 'var(--muted-foreground)' }}>
           <Link 
@@ -140,14 +151,6 @@ function CategoryPage() {
                 borderColor: 'var(--border)', 
                 backgroundColor: 'var(--card)',
                 color: 'var(--foreground)'
-              }}
-              onFocus={(e) => { 
-                e.target.style.borderColor = 'var(--primary)'; 
-                e.target.style.boxShadow = 'var(--shadow-focus)'; 
-              }}
-              onBlur={(e) => { 
-                e.target.style.borderColor = 'var(--border)'; 
-                e.target.style.boxShadow = 'none'; 
               }}
             />
           </div>
@@ -308,7 +311,35 @@ function CategoryPage() {
             ))}
           </div>
         )}
-      </div>
+      </main>
+
+      {/* Footer */}
+      <footer 
+        className="border-t mt-12" 
+        style={{ 
+          backgroundColor: 'var(--card)', 
+          borderColor: 'var(--border)' 
+        }}
+      >
+        <div className="max-w-7xl mx-auto px-4 py-8 text-center">
+          <Link to="/" className="inline-flex items-center gap-2 no-underline mb-3">
+            <div 
+              className="w-8 h-8 rounded-lg flex items-center justify-center" 
+              style={{ backgroundColor: 'var(--primary)' }}
+            >
+              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+            </div>
+            <span className="font-bold text-sm" style={{ color: 'var(--foreground)' }}>
+              <span style={{ color: 'var(--primary)' }}>Saturno</span>Embalagens
+            </span>
+          </Link>
+          <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+            © 2026 SaturnoEmbalagens. Todos os direitos reservados.
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }
