@@ -38,62 +38,85 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const activeSync = useRef(0);
 
-  const applySession = useCallback(async (session: Session | null) => {
+  // ----------------------------------------------------------
+  // Carregamento do profile — controlado pelo user atual.
+  // Executa sempre que user muda, garantindo que profile e
+  // authReady fiquem consistentes com o user.
+  // ----------------------------------------------------------
+  useEffect(() => {
     const syncId = ++activeSync.current;
-    if (!session?.user) {
-      setUser(null);
+
+    if (!user) {
       setProfile(null);
       setAuthReady(true);
       setLoading(false);
       return;
     }
 
-    const authUser = session.user;
-
-    // Limpa o profile anterior antes de aplicar a nova sessão
+    // Usuário existe — carrega o profile
     setProfile(null);
-    setUser(authUser);
+    setAuthReady(false);
+    setLoading(true);
 
-    const profileData = await getProfile(authUser.id);
-    if (syncId !== activeSync.current) return;
+    getProfile(user.id).then((profileData) => {
+      if (syncId !== activeSync.current) return;
+      setProfile(profileData);
+      setAuthReady(true);
+      setLoading(false);
+    });
+  }, [user]);
 
-    setProfile(profileData);
-    setAuthReady(true);
-    setLoading(false);
-  }, []);
-
-  // Inicialização — executa uma única vez
+  // ----------------------------------------------------------
+  // Inicialização — getSession uma única vez + onAuthStateChange
+  // O callback onAuthStateChange apenas atualiza user de forma
+  // síncrona; o useEffect acima cuida do profile.
+  // ----------------------------------------------------------
   useEffect(() => {
-    void supabase.auth.getSession().then(({ data }) => applySession(data.session));
+    const init = async () => {
+      const { data } = await supabase.auth.getSession();
+      const sessionUser = data.session?.user ?? null;
+      setUser(sessionUser);
+      // O useEffect de [user] cuidará de setAuthReady e setProfile
+    };
+
+    void init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
-        void applySession(session);
-      } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-        void applySession(session);
+      const sessionUser = session?.user ?? null;
+
+      if (event === 'SIGNED_OUT') {
+        // Sinaliza que a sessão foi invalidada; o useEffect de [user]
+        // vai detectar user=null e limpar tudo.
+        activeSync.current += 1;
+        setUser(null);
+        return;
+      }
+
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        // Atualiza apenas o user de forma síncrona.
+        // O useEffect de [user] cuidará do profile e authReady.
+        setUser(sessionUser);
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [applySession]);
+  }, []);
 
-  // Login — atualiza estado central
+  // Login — atualiza estado central via setUser (onAuthStateChange também dispara)
   const login = useCallback(async (data: LoginData) => {
     const result = await signIn(data);
-    if (!result.error && result.session) {
-      await applySession(result.session);
-    }
+    // Não duplicamos a sincronização da sessão aqui.
+    // O onAuthStateChange (SIGNED_IN) já atualiza user via setUser,
+    // e o useEffect de [user] carrega o profile.
     return result;
-  }, [applySession]);
+  }, []);
 
   // Logout — limpa estado central
   const logout = useCallback(async () => {
     await signOut();
     activeSync.current += 1;
     setUser(null);
-    setProfile(null);
-    setAuthReady(true);
-    setLoading(false);
+    // O useEffect de [user] vai detectar user=null e limpar profile/authReady
   }, []);
 
   // Refresh do profile

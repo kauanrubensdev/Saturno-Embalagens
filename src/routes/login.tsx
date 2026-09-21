@@ -38,14 +38,8 @@ function LoginPage() {
       // Aguarda o próximo render para que authReady + user + profile
       // estejam atualizados no estado React antes de navegar.
       // O destino é decidido pelo role do profile, não /account por padrão.
-      // Pequeno delay para o onAuthStateChange do AuthProvider executar.
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Lê o role atualizado via navigate via state, pois após login
-      // o useAuth state já tem user + profile atualizados.
-      // Passamos null como destination e deixamos o AuthProvider decidir
-      // via redirect no app entry.
-      // Para destino correto, navegamos para home (que lê auth e mostra a UI correta).
+      // O AuthProvider já sincroniza user/profile via onAuthStateChange.
+      // Aguardamos o estado central ficar consistente antes de navegar.
       await navigate({ to: '/', replace: true });
     } finally {
       setLoading(false);

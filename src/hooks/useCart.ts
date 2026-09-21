@@ -99,7 +99,7 @@ export function useCart() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, authReady]);
 
   useEffect(() => {
     fetchCart();
