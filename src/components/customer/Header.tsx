@@ -8,7 +8,7 @@ interface HeaderProps {
 }
 
 export function Header({ showNav = false }: HeaderProps) {
-  const { authReady, user, profile } = useAuth();
+  const { authReady, user, profile, isAdmin } = useAuth();
   const { theme, toggleTheme, mounted } = useTheme();
 
   return (
@@ -116,14 +116,14 @@ export function Header({ showNav = false }: HeaderProps) {
           ) : user ? (
             // Autenticado - admin vê link para /admin, customer vê link para /account
             <Link
-              to={profile?.role === 'admin' ? '/admin' : '/account'}
+              to={isAdmin ? '/admin' : '/account'}
               className="text-sm font-semibold px-4 py-2 rounded-xl no-underline transition-all duration-150 hover:opacity-90"
               style={{
                 backgroundColor: 'var(--primary)',
                 color: 'var(--primary-foreground)',
               }}
             >
-              {profile?.role === 'admin' ? 'Admin' : (profile?.name ? profile.name.split(' ')[0] : 'Conta')}
+              {isAdmin ? 'ADMIN' : (profile?.name ? profile.name.split(' ')[0] : 'Conta')}
             </Link>
           ) : (
             // Deslogado
