@@ -21,6 +21,7 @@ import { Route as RegisterRouteImport } from './routes/register'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminCategoriesRouteImport } from './routes/admin.categories'
+import { Route as AdminCustomersRouteImport } from './routes/admin.customers'
 import { Route as AdminOrdersRouteImport } from './routes/admin.orders'
 import { Route as AdminProductsRouteImport } from './routes/admin.products'
 import { Route as CatalogCategorySlugRouteImport } from './routes/catalog.$categorySlug'
@@ -86,6 +87,11 @@ const AdminCategoriesRoute = AdminCategoriesRouteImport.update({
   path: '/categories',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminCustomersRoute = AdminCustomersRouteImport.update({
+  id: '/customers',
+  path: '/customers',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminOrdersRoute = AdminOrdersRouteImport.update({
   id: '/orders',
   path: '/orders',
@@ -119,6 +125,7 @@ export interface FileRoutesByFullPath {
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/admin/categories': typeof AdminCategoriesRoute
+  '/admin/customers': typeof AdminCustomersRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
   '/catalog/$categorySlug': typeof CatalogCategorySlugRoute
@@ -136,6 +143,7 @@ export interface FileRoutesByTo {
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/admin/categories': typeof AdminCategoriesRoute
+  '/admin/customers': typeof AdminCustomersRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
   '/catalog/$categorySlug': typeof CatalogCategorySlugRoute
@@ -155,6 +163,7 @@ export interface FileRoutesById {
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/admin/categories': typeof AdminCategoriesRoute
+  '/admin/customers': typeof AdminCustomersRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
   '/catalog/$categorySlug': typeof CatalogCategorySlugRoute
@@ -175,6 +184,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/reset-password'
     | '/admin/categories'
+    | '/admin/customers'
     | '/admin/orders'
     | '/admin/products'
     | '/catalog/$categorySlug'
@@ -192,6 +202,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/reset-password'
     | '/admin/categories'
+    | '/admin/customers'
     | '/admin/orders'
     | '/admin/products'
     | '/catalog/$categorySlug'
@@ -210,6 +221,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/reset-password'
     | '/admin/categories'
+    | '/admin/customers'
     | '/admin/orders'
     | '/admin/products'
     | '/catalog/$categorySlug'
@@ -317,6 +329,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCategoriesRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/customers': {
+      id: '/admin/customers'
+      path: '/customers'
+      fullPath: '/admin/customers'
+      preLoaderRoute: typeof AdminCustomersRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/orders': {
       id: '/admin/orders'
       path: '/orders'
@@ -350,6 +369,7 @@ declare module '@tanstack/react-router' {
 
 interface AdminRouteChildren {
   AdminCategoriesRoute: typeof AdminCategoriesRoute
+  AdminCustomersRoute: typeof AdminCustomersRoute
   AdminOrdersRoute: typeof AdminOrdersRoute
   AdminProductsRoute: typeof AdminProductsRoute
   AdminIndexRoute: typeof AdminIndexRoute
@@ -357,6 +377,7 @@ interface AdminRouteChildren {
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminCategoriesRoute: AdminCategoriesRoute,
+  AdminCustomersRoute: AdminCustomersRoute,
   AdminOrdersRoute: AdminOrdersRoute,
   AdminProductsRoute: AdminProductsRoute,
   AdminIndexRoute: AdminIndexRoute,
