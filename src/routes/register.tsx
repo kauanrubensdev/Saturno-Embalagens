@@ -58,7 +58,7 @@ function RegisterPage() {
         </div>
 
         {/* Form */}
-        <div className="rounded-2xl shadow-lg p-8" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+        <div className="rounded-2xl shadow-lg p-6 sm:p-8" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
           {success ? (
             <div className="text-center py-8">
               <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: 'var(--muted)' }}>

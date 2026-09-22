@@ -167,7 +167,7 @@ function ProductDetailPage() {
       <main className="flex-1">
         <div className="max-w-5xl mx-auto px-4 py-8">
           {/* Breadcrumb */}
-          <nav className="flex items-center gap-2 text-sm mb-8" style={{ color: 'var(--muted-foreground)' }}>
+          <nav className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm mb-6 sm:mb-8 flex-wrap" style={{ color: 'var(--muted-foreground)' }}>
             <Link to="/" className="no-underline transition-colors hover:opacity-80" style={{ color: 'var(--muted-foreground)' }}>Início</Link>
             <span>/</span>
             <Link to="/catalog" className="no-underline transition-colors hover:opacity-80" style={{ color: 'var(--muted-foreground)' }}>Catálogo</Link>
@@ -185,20 +185,20 @@ function ProductDetailPage() {
               </>
             )}
             <span>/</span>
-            <span style={{ color: 'var(--foreground)' }} className="truncate max-w-xs">{product.name}</span>
+            <span style={{ color: 'var(--foreground)' }} className="truncate max-w-[160px] sm:max-w-xs">{product.name}</span>
           </nav>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 lg:gap-12">
             {/* Images */}
             <div className="space-y-3">
               <div
-                className="rounded-2xl overflow-hidden flex items-center justify-center"
-                style={{ backgroundColor: 'var(--muted)', minHeight: '360px' }}
+                className="rounded-2xl overflow-hidden flex items-center justify-center min-h-[260px] sm:min-h-[360px]"
+                style={{ backgroundColor: 'var(--muted)' }}
               >
                 {selectedImage ? (
                   <img src={selectedImage} alt={product.name} className="w-full h-full object-cover" style={{ maxHeight: '500px' }} />
                 ) : (
-                  <svg className="w-20 h-20" style={{ color: 'var(--muted-foreground)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={0.5}>
+                  <svg className="w-16 h-16 sm:w-20 sm:h-20" style={{ color: 'var(--muted-foreground)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={0.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                   </svg>
                 )}

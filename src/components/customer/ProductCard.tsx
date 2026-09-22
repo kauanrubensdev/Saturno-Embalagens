@@ -72,10 +72,10 @@ export function ProductCard({ product }: ProductCardProps) {
         )}
 
         {/* Availability Badge */}
-        <div className="absolute top-3 right-3">
+        <div className="absolute top-2 sm:top-3 right-2 sm:right-3">
           {isAvailable ? (
             <span 
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold"
+              className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-semibold"
               style={{ 
                 backgroundColor: 'rgba(22, 163, 74, 0.9)',
                 color: '#ffffff'
@@ -86,7 +86,7 @@ export function ProductCard({ product }: ProductCardProps) {
             </span>
           ) : (
             <span 
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold"
+              className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-semibold"
               style={{ 
                 backgroundColor: 'rgba(220, 38, 38, 0.9)',
                 color: '#ffffff'
@@ -99,9 +99,9 @@ export function ProductCard({ product }: ProductCardProps) {
 
         {/* Category Badge */}
         {product.category && (
-          <div className="absolute bottom-3 left-3">
+          <div className="absolute bottom-2 sm:bottom-3 left-2 sm:left-3">
             <span 
-              className="inline-block px-2.5 py-1 rounded-full text-xs font-medium"
+              className="inline-block px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium"
               style={{ 
                 backgroundColor: 'var(--background)',
                 color: 'var(--foreground)',
@@ -115,30 +115,30 @@ export function ProductCard({ product }: ProductCardProps) {
       </div>
 
       {/* Content */}
-      <div className="p-4">
+      <div className="p-3 sm:p-4">
         <h3 
-          className="font-semibold text-sm md:text-base leading-snug mb-3 line-clamp-2" 
+          className="font-semibold text-xs sm:text-sm md:text-base leading-snug mb-2 sm:mb-3 line-clamp-2" 
           style={{ color: 'var(--foreground)' }}
         >
           {product.name}
         </h3>
         
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-1.5 sm:gap-2 flex-wrap">
           <span 
-            className="font-bold text-lg"
+            className="font-bold text-base sm:text-lg"
             style={{ color: 'var(--primary)' }}
           >
             {formattedPrice}
           </span>
           
           <span 
-            className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+            className="inline-flex items-center gap-1 text-[11px] sm:text-xs font-medium px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg transition-colors"
             style={{ 
               backgroundColor: isAvailable ? 'var(--muted)' : 'rgba(220, 38, 38, 0.1)',
               color: isAvailable ? 'var(--success)' : 'var(--destructive)'
             }}
           >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-3 h-3 sm:w-3.5 sm:h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               {isAvailable ? (
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               ) : (
@@ -150,13 +150,13 @@ export function ProductCard({ product }: ProductCardProps) {
         </div>
 
         {/* Action hint */}
-        <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
+        <div className="mt-2.5 sm:mt-3 pt-2.5 sm:pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
           <span 
-            className="inline-flex items-center gap-1.5 text-xs font-medium transition-colors"
+            className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs font-medium transition-colors"
             style={{ color: 'var(--muted-foreground)' }}
           >
             Ver produto
-            <svg className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-3 sm:w-3.5 h-3 sm:h-3.5 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
           </span>

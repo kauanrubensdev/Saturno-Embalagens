@@ -61,30 +61,30 @@ function Index() {
 
       {/* Hero */}
       <section className="relative overflow-hidden" style={{ backgroundColor: 'var(--background)' }}>
-        <div className="max-w-7xl mx-auto px-4 py-16 md:py-24 lg:py-32">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+        <div className="max-w-7xl mx-auto px-4 py-10 sm:py-16 md:py-24 lg:py-32">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-12 lg:gap-16 items-center">
             {/* Left: Content */}
             <div className="max-w-xl">
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-6 text-xs font-semibold tracking-wider uppercase" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}>
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-4 sm:mb-6 text-xs font-semibold tracking-wider uppercase" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}>
                 <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                 Qualidade e preço justo
               </div>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold leading-tight mb-6" style={{ color: 'var(--foreground)' }}>
+              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold leading-tight mb-4 sm:mb-6" style={{ color: 'var(--foreground)' }}>
                 Embalagens que{' '}
                 <span style={{ color: 'var(--primary)' }}>valorizam</span>{' '}
                 seu delivery
               </h1>
-              <p className="text-lg md:text-xl mb-10 leading-relaxed max-w-lg" style={{ color: 'var(--muted-foreground)' }}>
+              <p className="text-base sm:text-lg md:text-xl mb-6 sm:mb-10 leading-relaxed max-w-lg" style={{ color: 'var(--muted-foreground)' }}>
                 Caixas e embalagens para deixar seu produto bem apresentado, protegido e pronto para chegar ao cliente.
               </p>
-              <div className="flex flex-col sm:flex-row gap-4">
-                <Link to="/catalog" className="inline-flex items-center justify-center gap-2.5 rounded-xl px-8 py-4 text-base font-bold no-underline transition-all hover:opacity-90 hover:scale-[1.02]" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)', boxShadow: '0 4px 14px rgba(255,65,3,0.25)' }}>
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                <Link to="/catalog" className="inline-flex items-center justify-center gap-2.5 rounded-xl px-6 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-bold no-underline transition-all hover:opacity-90 hover:scale-[1.02]" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)', boxShadow: '0 4px 14px rgba(255,65,3,0.25)' }}>
                   Ver catálogo
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
                   </svg>
                 </Link>
-                <a href="#categorias" className="inline-flex items-center justify-center gap-2.5 rounded-xl px-8 py-4 text-base font-semibold no-underline transition-all hover:opacity-80" style={{ backgroundColor: 'transparent', color: 'var(--foreground)', borderWidth: '1px', borderStyle: 'solid', borderColor: 'var(--border)' }}>
+                <a href="#categorias" className="inline-flex items-center justify-center gap-2.5 rounded-xl px-6 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold no-underline transition-all hover:opacity-80" style={{ backgroundColor: 'transparent', color: 'var(--foreground)', borderWidth: '1px', borderStyle: 'solid', borderColor: 'var(--border)' }}>
                   Conheça nossas categorias
                 </a>
               </div>
@@ -176,11 +176,11 @@ function Index() {
 
           {/* Products Grid */}
           {loadingProducts ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-5">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
               {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                 <div key={i} className="animate-pulse rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
                   <div style={{ aspectRatio: '4/3', backgroundColor: 'var(--muted)' }} />
-                  <div className="p-4 space-y-3">
+                  <div className="p-3 sm:p-4 space-y-3">
                     <div style={{ backgroundColor: 'var(--muted)', height: '16px', borderRadius: '4px' }} />
                     <div style={{ backgroundColor: 'var(--muted)', height: '14px', borderRadius: '4px', width: '70%' }} />
                     <div className="pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
@@ -191,7 +191,7 @@ function Index() {
               ))}
             </div>
           ) : featuredProducts.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-5">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
               {featuredProducts.map((product) => (
                 <ProductCard key={product.id} product={product} />
               ))}
@@ -215,7 +215,7 @@ function Index() {
       </section>
 
       {/* CTA */}
-      <section className="py-20 md:py-28 relative overflow-hidden" style={{ backgroundColor: 'var(--primary)' }}>
+      <section className="py-14 sm:py-20 md:py-28 relative overflow-hidden" style={{ backgroundColor: 'var(--primary)' }}>
         {/* Decorative elements */}
         <div className="absolute top-0 left-0 w-64 h-64 rounded-full opacity-10" style={{ backgroundColor: 'var(--foreground)', transform: 'translate(-50%, -50%)' }} />
         <div className="absolute bottom-0 right-0 w-48 h-48 rounded-full opacity-10" style={{ backgroundColor: 'var(--foreground)', transform: 'translate(50%, 50%)' }} />
@@ -224,7 +224,7 @@ function Index() {
         
         <div className="max-w-3xl mx-auto px-4 text-center relative z-10">
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-6" style={{ backgroundColor: 'rgba(255,255,255,0.15)', color: 'var(--primary-foreground)' }}>
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-4 sm:mb-6" style={{ backgroundColor: 'rgba(255,255,255,0.15)', color: 'var(--primary-foreground)' }}>
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
             </svg>
@@ -232,23 +232,23 @@ function Index() {
           </div>
           
           {/* Title */}
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold mb-5 leading-tight" style={{ color: 'var(--primary-foreground)' }}>
+          <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-extrabold mb-4 sm:mb-5 leading-tight" style={{ color: 'var(--primary-foreground)' }}>
             Quer conhecer todos os produtos?
           </h2>
           
           {/* Description */}
-          <p className="text-base md:text-lg mb-10 max-w-xl mx-auto leading-relaxed opacity-90" style={{ color: 'var(--primary-foreground)' }}>
+          <p className="text-sm sm:text-base md:text-lg mb-6 sm:mb-10 max-w-xl mx-auto leading-relaxed opacity-90" style={{ color: 'var(--primary-foreground)' }}>
             Acesse nosso catálogo completo e encontre a embalagem perfeita para o seu negócio.
           </p>
           
           {/* CTA Button */}
           <Link 
             to="/catalog" 
-            className="inline-flex items-center justify-center gap-3 rounded-xl px-10 py-4 text-base font-bold no-underline transition-all duration-200 hover:scale-[1.03] hover:shadow-lg" 
+            className="inline-flex items-center justify-center gap-2 sm:gap-3 rounded-xl px-6 sm:px-10 py-3.5 sm:py-4 text-sm sm:text-base font-bold no-underline transition-all duration-200 hover:scale-[1.03] hover:shadow-lg" 
             style={{ backgroundColor: 'var(--background)', color: 'var(--foreground)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
           >
             Acessar catálogo completo
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
             </svg>
           </Link>
