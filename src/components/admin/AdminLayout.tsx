@@ -64,7 +64,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   const isActive = (path: string) => {
     if (path === '/admin') {
-      return location.pathname === '/admin';
+      return location.pathname === '/admin' || location.pathname === '/admin/';
     }
     return location.pathname.startsWith(path);
   };

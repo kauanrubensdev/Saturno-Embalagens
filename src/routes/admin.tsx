@@ -1,6 +1,4 @@
-import { createFileRoute, redirect } from '@tanstack/react-router';
-import { AdminLayout } from '@/components/admin/AdminLayout';
-import { AdminDashboard } from '@/components/admin/AdminDashboard';
+import { createFileRoute, Outlet, redirect } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/admin')({
   beforeLoad: async ({ context }) => {
@@ -14,13 +12,10 @@ export const Route = createFileRoute('/admin')({
       throw redirect({ to: '/' });
     }
   },
-  component: AdminPage,
+  component: AdminLayoutRoute,
 });
 
-function AdminPage() {
-  return (
-    <AdminLayout>
-      <AdminDashboard />
-    </AdminLayout>
-  );
+function AdminLayoutRoute() {
+  return <Outlet />;
 }
+
