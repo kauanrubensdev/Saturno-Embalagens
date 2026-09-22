@@ -4,7 +4,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
-import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -36,10 +35,8 @@ import {
   Mail,
   Phone,
   Banknote,
-  DollarSign,
   QrCode,
   ShieldCheck,
-  Layers,
 } from 'lucide-react';
 
 export const Route = createFileRoute('/admin/settings')({
@@ -82,7 +79,6 @@ interface OrdersStockSettings {
   accept_orders: boolean;
   prep_time_minutes: number;
   stock_control: boolean;
-  allow_backorders: boolean;
 }
 
 const DEFAULT_STORE_INFO: StoreInfoSettings = {
@@ -110,8 +106,50 @@ const DEFAULT_ORDERS_STOCK: OrdersStockSettings = {
   accept_orders: true,
   prep_time_minutes: 30,
   stock_control: true,
-  allow_backorders: false,
 };
+
+// ============================================================
+// AdminSwitch — switch com cores explícitas da identidade visual
+// Usado exclusivamente em /admin/settings para garantir contraste
+// máximo em ambos os temas (dark/light) sem afetar outros usos
+// do componente Switch global.
+// ON:  trilho laranja (#FF4103) + bolinha branca
+// OFF: trilho cinza-escuro semi-opaco + bolinha cinza-clara
+// ============================================================
+interface AdminSwitchProps {
+  id?: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  disabled?: boolean;
+}
+
+function AdminSwitch({ id, checked, onCheckedChange, disabled = false }: AdminSwitchProps) {
+  return (
+    <button
+      id={id}
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => !disabled && onCheckedChange(!checked)}
+      className="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+      style={{
+        backgroundColor: checked ? '#FF4103' : 'rgba(100,116,139,0.55)',
+        border: checked ? '2px solid #FF4103' : '2px solid rgba(148,163,184,0.6)',
+        focusRingColor: '#FF4103',
+      }}
+    >
+      <span
+        aria-hidden="true"
+        className="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-lg ring-0 transition-transform duration-200 ease-in-out"
+        style={{
+          backgroundColor: checked ? '#ffffff' : '#cbd5e1',
+          transform: checked ? 'translateX(20px)' : 'translateX(2px)',
+        }}
+      />
+    </button>
+  );
+}
 
 function AdminSettingsPage() {
   const { user, profile, logout, forgotPassword } = useAuth();
@@ -202,7 +240,6 @@ function AdminSettingsPage() {
           accept_orders: savedOrdersStock?.accept_orders ?? true,
           prep_time_minutes: savedOrdersStock?.prep_time_minutes ?? 30,
           stock_control: savedOrdersStock?.stock_control ?? true,
-          allow_backorders: savedOrdersStock?.allow_backorders ?? false,
         });
       }
     } catch (err: any) {
@@ -603,7 +640,7 @@ function AdminSettingsPage() {
                         Permite envio de pedidos no endereço do cliente
                       </p>
                     </div>
-                    <Switch
+                    <AdminSwitch
                       id="toggle-delivery"
                       checked={delivery.delivery_enabled}
                       onCheckedChange={(checked) => setDelivery({ ...delivery, delivery_enabled: checked })}
@@ -622,7 +659,7 @@ function AdminSettingsPage() {
                         Permite que o cliente retire o pedido na loja
                       </p>
                     </div>
-                    <Switch
+                    <AdminSwitch
                       id="toggle-pickup"
                       checked={delivery.pickup_enabled}
                       onCheckedChange={(checked) => setDelivery({ ...delivery, pickup_enabled: checked })}
@@ -762,7 +799,7 @@ function AdminSettingsPage() {
                       </p>
                     </div>
                   </div>
-                  <Switch
+                  <AdminSwitch
                     id="toggle-pix"
                     checked={payments.pix_enabled}
                     onCheckedChange={(checked) => setPayments({ ...payments, pix_enabled: checked })}
@@ -790,7 +827,7 @@ function AdminSettingsPage() {
                       </p>
                     </div>
                   </div>
-                  <Switch
+                  <AdminSwitch
                     id="toggle-card"
                     checked={payments.card_enabled}
                     onCheckedChange={(checked) => setPayments({ ...payments, card_enabled: checked })}
@@ -818,7 +855,7 @@ function AdminSettingsPage() {
                       </p>
                     </div>
                   </div>
-                  <Switch
+                  <AdminSwitch
                     id="toggle-cash"
                     checked={payments.cash_on_delivery_enabled}
                     onCheckedChange={(checked) => setPayments({ ...payments, cash_on_delivery_enabled: checked })}
@@ -879,7 +916,7 @@ function AdminSettingsPage() {
                         Habilita a finalização de compras no catálogo
                       </p>
                     </div>
-                    <Switch
+                    <AdminSwitch
                       id="toggle-accept-orders"
                       checked={ordersStock.accept_orders}
                       onCheckedChange={(checked) => setOrdersStock({ ...ordersStock, accept_orders: checked })}
@@ -899,7 +936,7 @@ function AdminSettingsPage() {
                         Subtrai do estoque a cada pedido confirmado
                       </p>
                     </div>
-                    <Switch
+                    <AdminSwitch
                       id="toggle-stock-control"
                       checked={ordersStock.stock_control}
                       onCheckedChange={(checked) => setOrdersStock({ ...ordersStock, stock_control: checked })}
@@ -907,7 +944,7 @@ function AdminSettingsPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4">
                   {/* Tempo estimado de preparação */}
                   <div
                     className="p-4 rounded-xl border space-y-2"
@@ -939,26 +976,6 @@ function AdminSettingsPage() {
                     <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
                       Informa ao cliente a média de tempo para produção e despacho.
                     </p>
-                  </div>
-
-                  {/* Permitir compra sem estoque */}
-                  <div
-                    className="flex items-center justify-between p-4 rounded-xl border"
-                    style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
-                  >
-                    <div className="space-y-0.5 pr-2">
-                      <Label htmlFor="toggle-backorders" className="text-sm font-semibold cursor-pointer block" style={{ color: 'var(--foreground)' }}>
-                        Permitir compra sem estoque
-                      </Label>
-                      <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                        Permite vender produtos mesmo quando a quantidade for zero
-                      </p>
-                    </div>
-                    <Switch
-                      id="toggle-backorders"
-                      checked={ordersStock.allow_backorders}
-                      onCheckedChange={(checked) => setOrdersStock({ ...ordersStock, allow_backorders: checked })}
-                    />
                   </div>
                 </div>
               </div>
