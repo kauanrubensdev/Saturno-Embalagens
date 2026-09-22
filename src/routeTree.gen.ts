@@ -20,6 +20,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AdminCategoriesRouteImport } from './routes/admin.categories'
+import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as CatalogCategorySlugRouteImport } from './routes/catalog.$categorySlug'
 import { Route as ProductProductSlugRouteImport } from './routes/product.$productSlug'
 
@@ -78,6 +79,11 @@ const AdminCategoriesRoute = AdminCategoriesRouteImport.update({
   path: '/categories',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminSettingsRoute = AdminSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AdminRoute,
+} as any)
 const CatalogCategorySlugRoute = CatalogCategorySlugRouteImport.update({
   id: '/$categorySlug',
   path: '/$categorySlug',
@@ -101,6 +107,7 @@ export interface FileRoutesByFullPath {
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/admin/categories': typeof AdminCategoriesRoute
+  '/admin/settings': typeof AdminSettingsRoute
   '/catalog/$categorySlug': typeof CatalogCategorySlugRoute
   '/product/$productSlug': typeof ProductProductSlugRoute
 }
@@ -116,6 +123,7 @@ export interface FileRoutesByTo {
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/admin/categories': typeof AdminCategoriesRoute
+  '/admin/settings': typeof AdminSettingsRoute
   '/catalog/$categorySlug': typeof CatalogCategorySlugRoute
   '/product/$productSlug': typeof ProductProductSlugRoute
 }
@@ -132,6 +140,7 @@ export interface FileRoutesById {
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/admin/categories': typeof AdminCategoriesRoute
+  '/admin/settings': typeof AdminSettingsRoute
   '/catalog/$categorySlug': typeof CatalogCategorySlugRoute
   '/product/$productSlug': typeof ProductProductSlugRoute
 }
@@ -149,6 +158,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/reset-password'
     | '/admin/categories'
+    | '/admin/settings'
     | '/catalog/$categorySlug'
     | '/product/$productSlug'
   fileRoutesByTo: FileRoutesByTo
@@ -164,6 +174,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/reset-password'
     | '/admin/categories'
+    | '/admin/settings'
     | '/catalog/$categorySlug'
     | '/product/$productSlug'
   id:
@@ -179,6 +190,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/reset-password'
     | '/admin/categories'
+    | '/admin/settings'
     | '/catalog/$categorySlug'
     | '/product/$productSlug'
   fileRoutesById: FileRoutesById
@@ -276,6 +288,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCategoriesRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/settings': {
+      id: '/admin/settings'
+      path: '/settings'
+      fullPath: '/admin/settings'
+      preLoaderRoute: typeof AdminSettingsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/catalog/$categorySlug': {
       id: '/catalog/$categorySlug'
       path: '/$categorySlug'
@@ -295,10 +314,12 @@ declare module '@tanstack/react-router' {
 
 interface AdminRouteChildren {
   AdminCategoriesRoute: typeof AdminCategoriesRoute
+  AdminSettingsRoute: typeof AdminSettingsRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminCategoriesRoute: AdminCategoriesRoute,
+  AdminSettingsRoute: AdminSettingsRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
