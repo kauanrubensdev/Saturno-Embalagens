@@ -495,6 +495,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_update_order_status: {
+        Args: { p_new_status: string; p_order_id: string }
+        Returns: Json
+      }
       get_cart_user: { Args: { cart_uuid: string }; Returns: string }
       get_order_user: { Args: { order_uuid: string }; Returns: string }
       is_admin: { Args: never; Returns: boolean }
