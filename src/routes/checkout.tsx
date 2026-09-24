@@ -1,5 +1,5 @@
 import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-router';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Header } from '@/components/customer/Header';
 import { useAuth } from '@/hooks/useAuth';
 import { useCart } from '@/hooks/useCart';
@@ -18,14 +18,25 @@ import {
   Clock,
   ShieldCheck,
   FileText,
-  QrCode,
-  Copy,
   CreditCard,
   AlertCircle,
-  RefreshCw,
   ExternalLink,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { loadStripe, StripeElementsOptions } from '@stripe/stripe-js';
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+
+// ── Stripe public key — safe to expose in the frontend ──────────────────────
+const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string;
+
+// Lazy-initialize Stripe to avoid loading the SDK on every page
+let stripePromise: ReturnType<typeof loadStripe> | null = null;
+const getStripe = () => {
+  if (!stripePromise && STRIPE_PUBLISHABLE_KEY) {
+    stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
+  }
+  return stripePromise;
+};
 
 export const Route = createFileRoute('/checkout')({
   beforeLoad: async ({ context }) => {
@@ -38,6 +49,8 @@ export const Route = createFileRoute('/checkout')({
   },
   component: CheckoutPage,
 });
+
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface CustomerAddress {
   id: string;
@@ -72,19 +85,157 @@ interface CompletedOrderData {
   }[];
 }
 
-interface PixPaymentState {
+/** State for orders that require online payment via Stripe Payment Element */
+interface StripePaymentState {
   orderId: string;
   total: number;
-  pixQrCodeUrl: string | null;
-  pixCopyPaste: string | null;
-  pixExpiresAt: string | null;
-  hostedInstructionsUrl: string | null;
+  clientSecret: string;
   orderData: CompletedOrderData;
+  /** Whether confirmed payment by Stripe (via realtime or polling) */
   isPaid: boolean;
+  /** Whether the boleto PDF URL is available after payment submission */
+  boletoPdfUrl: string | null;
+  boletoHostedUrl: string | null;
 }
 
 const PICKUP_ADDRESS_TEXT =
   'R. Urupema, nº 150 - São Cosme de Baixo, Santa Luzia - MG, 33130-140';
+
+// ── StripePaymentForm Component ──────────────────────────────────────────────
+// Rendered inside the <Elements> provider; has access to useStripe/useElements
+
+interface StripePaymentFormProps {
+  stripePaymentState: StripePaymentState;
+  onPaymentConfirmed: () => void;
+  onBoletoIssued: (pdfUrl: string | null, hostedUrl: string | null) => void;
+  formatBRL: (val: number) => string;
+}
+
+function StripePaymentForm({
+  stripePaymentState,
+  onPaymentConfirmed,
+  onBoletoIssued,
+  formatBRL,
+}: StripePaymentFormProps) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentReady, setPaymentReady] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+
+    setIsSubmitting(true);
+    setPaymentError(null);
+
+    try {
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          // return_url is required by Stripe for redirect-based flows.
+          // We pass the current page so that after 3DS redirect the user returns here.
+          return_url: window.location.href,
+        },
+        // redirect: 'if_required' avoids redirect for card payments that
+        // don't need 3DS, giving us a better UX.
+        redirect: 'if_required',
+      });
+
+      if (error) {
+        setPaymentError(error.message || 'Erro ao processar o pagamento.');
+        toast.error(error.message || 'Falha no pagamento. Verifique os dados e tente novamente.');
+        return;
+      }
+
+      if (paymentIntent) {
+        // Check if this is a boleto payment (status = requires_action, next_action = boleto)
+        if (paymentIntent.status === 'requires_action') {
+          const nextAction = (paymentIntent as any).next_action;
+          if (nextAction?.type === 'display_boleto_details') {
+            const boleto = nextAction.display_boleto_details;
+            const pdfUrl = boleto?.boleto_pdf || boleto?.pdf || null;
+            const hostedUrl = boleto?.hosted_voucher_url || null;
+            onBoletoIssued(pdfUrl, hostedUrl);
+            toast.success(
+              'Boleto gerado! Realize o pagamento dentro do prazo para confirmar seu pedido.'
+            );
+            return;
+          }
+        }
+
+        if (paymentIntent.status === 'succeeded') {
+          onPaymentConfirmed();
+          toast.success('Pagamento confirmado com sucesso!');
+        } else if (paymentIntent.status === 'processing') {
+          // e.g. bank transfer still processing
+          toast.info(
+            'Seu pagamento está sendo processado. Você será notificado quando for confirmado.'
+          );
+        }
+      }
+    } catch (err: any) {
+      console.error('[STRIPE-PAYMENT-FORM] Erro inesperado:', err);
+      setPaymentError(err.message || 'Erro inesperado ao processar pagamento.');
+      toast.error('Erro ao processar pagamento. Tente novamente.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Stripe Payment Element — renders card, Apple Pay, Google Pay, Boleto, etc. */}
+      <PaymentElement
+        onReady={() => setPaymentReady(true)}
+        options={{
+          layout: 'tabs',
+        }}
+      />
+
+      {paymentError && (
+        <div
+          className="p-3.5 rounded-xl text-xs border flex items-start gap-2"
+          style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.08)',
+            borderColor: 'rgba(239, 68, 68, 0.25)',
+            color: '#dc2626',
+          }}
+        >
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>{paymentError}</span>
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={!stripe || !elements || !paymentReady || isSubmitting}
+        className="w-full py-3.5 px-6 rounded-xl font-bold text-white text-sm transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+        style={{ backgroundColor: 'var(--primary)' }}
+      >
+        {isSubmitting ? (
+          <>
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span>Processando pagamento...</span>
+          </>
+        ) : (
+          <>
+            <ShieldCheck className="w-5 h-5" />
+            <span>Confirmar Pagamento ({formatBRL(stripePaymentState.total)})</span>
+          </>
+        )}
+      </button>
+
+      <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1">
+        <ShieldCheck className="w-3.5 h-3.5 text-success" />
+        Pagamento seguro processado via Stripe. Seus dados são protegidos.
+      </p>
+    </form>
+  );
+}
+
+// ── Main CheckoutPage ────────────────────────────────────────────────────────
 
 export function CheckoutPage() {
   const { authReady, user } = useAuth();
@@ -93,13 +244,15 @@ export function CheckoutPage() {
 
   // Form states
   const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup'>('delivery');
-  const [paymentMethod, setPaymentMethod] = useState<'cash_on_delivery' | 'pix'>('cash_on_delivery');
+  const [paymentMethod, setPaymentMethod] = useState<'stripe_online' | 'cash_on_delivery'>(
+    'cash_on_delivery'
+  );
   const [customerNote, setCustomerNote] = useState('');
   const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string>('');
   const [loadingAddresses, setLoadingAddresses] = useState(true);
 
-  // New address modal state
+  // New address modal
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
   const [searchingCep, setSearchingCep] = useState(false);
@@ -114,18 +267,15 @@ export function CheckoutPage() {
     is_default: false,
   });
 
-  // Submission & Flow states
+  // Flow states
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<CompletedOrderData | null>(null);
-  const [pixState, setPixState] = useState<PixPaymentState | null>(null);
-  const [copiedPix, setCopiedPix] = useState(false);
-  const [checkingPixStatus, setCheckingPixStatus] = useState(false);
-  const [timeRemaining, setTimeRemaining] = useState<string | null>(null);
+  const [stripePaymentState, setStripePaymentState] = useState<StripePaymentState | null>(null);
 
-  // Polling ref
+  // Stripe confirmation state
   const pollingRef = useRef<number | null>(null);
 
-  // Fetch customer addresses
+  // ── Fetch addresses ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
 
@@ -158,42 +308,15 @@ export function CheckoutPage() {
     fetchAddresses();
   }, [user]);
 
-  // PIX Expiration Countdown
+  // ── Realtime subscription for online payment confirmation ─────────────────
   useEffect(() => {
-    if (!pixState?.pixExpiresAt || pixState.isPaid) {
-      setTimeRemaining(null);
-      return;
-    }
+    if (!stripePaymentState || stripePaymentState.isPaid) return;
+    if (stripePaymentState.boletoPdfUrl !== null) return; // boleto issued — don't poll
 
-    const updateTimer = () => {
-      const expires = new Date(pixState.pixExpiresAt!).getTime();
-      const now = new Date().getTime();
-      const diff = expires - now;
+    const orderId = stripePaymentState.orderId;
 
-      if (diff <= 0) {
-        setTimeRemaining('Expirado');
-        return;
-      }
-
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-      setTimeRemaining(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [pixState?.pixExpiresAt, pixState?.isPaid]);
-
-  // Realtime subscription & Polling for PIX payment confirmation
-  useEffect(() => {
-    if (!pixState || pixState.isPaid) return;
-
-    const orderId = pixState.orderId;
-
-    // 1. Supabase Realtime Subscription
     const channel = supabase
-      .channel(`order-pix-${orderId}`)
+      .channel(`order-payment-${orderId}`)
       .on(
         'postgres_changes',
         {
@@ -205,14 +328,14 @@ export function CheckoutPage() {
         (payload) => {
           const updated = payload.new as any;
           if (updated && updated.payment_status === 'paid') {
-            toast.success('Pagamento PIX confirmado com sucesso!');
-            setPixState((prev) => (prev ? { ...prev, isPaid: true } : null));
+            toast.success('Pagamento confirmado com sucesso!');
+            setStripePaymentState((prev) => (prev ? { ...prev, isPaid: true } : null));
           }
         }
       )
       .subscribe();
 
-    // 2. Controlled Polling Fallback (every 5 seconds)
+    // Polling fallback (every 8s)
     const checkStatus = async () => {
       try {
         const { data, error } = await supabase
@@ -222,24 +345,24 @@ export function CheckoutPage() {
           .single();
 
         if (!error && data && data.payment_status === 'paid') {
-          toast.success('Pagamento PIX confirmado com sucesso!');
-          setPixState((prev) => (prev ? { ...prev, isPaid: true } : null));
+          toast.success('Pagamento confirmado!');
+          setStripePaymentState((prev) => (prev ? { ...prev, isPaid: true } : null));
         }
       } catch (err) {
-        console.warn('[CHECKOUT-PIX-POLLING] Erro ao checar status:', err);
+        console.warn('[CHECKOUT-STRIPE-POLLING] Erro ao checar status:', err);
       }
     };
 
-    const interval = setInterval(checkStatus, 5000);
+    const interval = setInterval(checkStatus, 8000);
     pollingRef.current = interval as unknown as number;
 
     return () => {
       supabase.removeChannel(channel);
       clearInterval(interval);
     };
-  }, [pixState?.orderId, pixState?.isPaid]);
+  }, [stripePaymentState?.orderId, stripePaymentState?.isPaid, stripePaymentState?.boletoPdfUrl]);
 
-  // Handle CEP auto-fill
+  // ── CEP auto-fill ──────────────────────────────────────────────────────────
   const handleCepBlur = async () => {
     const rawCep = addressForm.zip_code.replace(/\D/g, '');
     if (rawCep.length !== 8) return;
@@ -308,7 +431,6 @@ export function CheckoutPage() {
       setSelectedAddressId(newAddr.id);
       setIsAddressModalOpen(false);
 
-      // Reset form
       setAddressForm({
         zip_code: '',
         street: '',
@@ -327,61 +449,31 @@ export function CheckoutPage() {
     }
   };
 
-  // Calculations
+  // ── Calculations ──────────────────────────────────────────────────────────
   const subtotal = getSubtotal();
-  const shippingCost = 0; // Free shipping
+  const shippingCost = 0;
   const total = subtotal + shippingCost;
 
   const selectedAddress = useMemo(() => {
     return addresses.find((a) => a.id === selectedAddressId) || null;
   }, [addresses, selectedAddressId]);
 
-  // Format currencies
   const formatBRL = (val: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
-  // Copy PIX Code to clipboard
-  const handleCopyPix = async () => {
-    if (!pixState?.pixCopyPaste) return;
-    try {
-      await navigator.clipboard.writeText(pixState.pixCopyPaste);
-      setCopiedPix(true);
-      toast.success('Código PIX copiado para a área de transferência!');
-      setTimeout(() => setCopiedPix(false), 3000);
-    } catch (err) {
-      toast.error('Erro ao copiar código PIX. Tente selecionar o texto manualmente.');
-    }
-  };
+  // ── Payment confirmed callback ─────────────────────────────────────────────
+  const handlePaymentConfirmed = useCallback(() => {
+    setStripePaymentState((prev) => (prev ? { ...prev, isPaid: true } : null));
+  }, []);
 
-  // Manual Check "Já realizei o pagamento"
-  const handleManualCheckPix = async () => {
-    if (!pixState?.orderId) return;
+  // ── Boleto issued callback ─────────────────────────────────────────────────
+  const handleBoletoIssued = useCallback((pdfUrl: string | null, hostedUrl: string | null) => {
+    setStripePaymentState((prev) =>
+      prev ? { ...prev, boletoPdfUrl: pdfUrl, boletoHostedUrl: hostedUrl } : null
+    );
+  }, []);
 
-    try {
-      setCheckingPixStatus(true);
-      const { data, error } = await supabase
-        .from('orders')
-        .select('payment_status')
-        .eq('id', pixState.orderId)
-        .single();
-
-      if (error) throw error;
-
-      if (data?.payment_status === 'paid') {
-        toast.success('Pagamento confirmado!');
-        setPixState((prev) => (prev ? { ...prev, isPaid: true } : null));
-      } else {
-        toast.info('Pagamento ainda em processamento. Aguarde alguns segundos após a transferência no seu banco.');
-      }
-    } catch (err: any) {
-      console.error('[CHECKOUT-CHECK-PIX]', err);
-      toast.error('Erro ao consultar status do pagamento.');
-    } finally {
-      setCheckingPixStatus(false);
-    }
-  };
-
-  // Finalize order handler
+  // ── Finalize order handler ─────────────────────────────────────────────────
   const handleFinalizeOrder = async () => {
     if (!user) {
       toast.error('Faça login para finalizar o pedido');
@@ -413,7 +505,6 @@ export function CheckoutPage() {
         throw new Error('Não foi possível verificar a disponibilidade dos produtos.');
       }
 
-      // Check each item
       for (const item of cart.items) {
         const liveProd = dbProducts.find((p) => p.id === item.product_id);
         if (!liveProd || !liveProd.is_active) {
@@ -421,12 +512,12 @@ export function CheckoutPage() {
         }
         if (liveProd.stock_quantity < item.quantity) {
           throw new Error(
-            `Estoque insuficiente para "${liveProd.name}". Quantidade disponível: ${liveProd.stock_quantity}, solicitada: ${item.quantity}.`
+            `Estoque insuficiente para "${liveProd.name}". Disponível: ${liveProd.stock_quantity}, solicitado: ${item.quantity}.`
           );
         }
       }
 
-      // 2. COMPUTE SNAPSHOT TOTALS
+      // 2. COMPUTE SNAPSHOT TOTALS (from live DB prices)
       const verifiedSubtotal = cart.items.reduce((sum, item) => {
         const liveProd = dbProducts.find((p) => p.id === item.product_id);
         const unitPrice = liveProd ? liveProd.price : item.product.price;
@@ -475,28 +566,24 @@ export function CheckoutPage() {
       });
 
       const { error: itemsErr } = await supabase.from('order_items').insert(orderItemsPayload);
-
       if (itemsErr) {
-        console.error('[CHECKOUT] Erro ao inserir order_items:', itemsErr);
         throw new Error('Falha ao registrar os itens do pedido: ' + itemsErr.message);
       }
 
-      // 5. UPDATE STOCK & REGISTER MOVEMENTS (Concurrent reservation)
+      // 5. UPDATE STOCK & REGISTER MOVEMENTS
       for (const item of cart.items) {
         const liveProd = dbProducts.find((p) => p.id === item.product_id)!;
         const newStock = Math.max(0, liveProd.stock_quantity - item.quantity);
 
-        // Update product stock
         const { error: stockUpdateErr } = await supabase
           .from('products')
           .update({ stock_quantity: newStock })
           .eq('id', item.product_id);
 
         if (stockUpdateErr) {
-          console.warn('[CHECKOUT] Aviso ao atualizar estoque do produto:', stockUpdateErr.message);
+          console.warn('[CHECKOUT] Aviso ao atualizar estoque:', stockUpdateErr.message);
         }
 
-        // Record movement
         const { error: movErr } = await supabase.from('stock_movements').insert({
           product_id: item.product_id,
           quantity: item.quantity,
@@ -511,6 +598,9 @@ export function CheckoutPage() {
         }
       }
 
+      const paymentMethodLabel =
+        paymentMethod === 'stripe_online' ? 'Cartão / Apple Pay / Google Pay / Boleto' : 'Dinheiro na entrega';
+
       const completedOrderData: CompletedOrderData = {
         id: createdOrder.id,
         created_at: createdOrder.created_at,
@@ -518,7 +608,7 @@ export function CheckoutPage() {
         subtotal: verifiedSubtotal,
         shipping_cost: verifiedShipping,
         delivery_type: deliveryType,
-        payment_method: paymentMethod === 'pix' ? 'PIX' : 'Dinheiro na entrega',
+        payment_method: paymentMethodLabel,
         payment_status: 'pending',
         customer_note: customerNote.trim() || null,
         shipping_address: deliveryType === 'delivery' ? selectedAddress : null,
@@ -534,46 +624,42 @@ export function CheckoutPage() {
       // 6. CLEAR CART
       await clearCart();
 
-      // 7. HANDLE PAYMENT METHOD BRANCH
-      if (paymentMethod === 'pix') {
-        // Invoke Edge Function to generate Stripe PIX
-        try {
-          const { data: pixRes, error: pixErr } = await supabase.functions.invoke('create-pix-payment', {
+      // 7. BRANCH: online payment vs cash_on_delivery
+      if (paymentMethod === 'stripe_online') {
+        // Invoke Edge Function to get a PaymentIntent client_secret
+        const session = await supabase.auth.getSession();
+        const accessToken = session.data?.session?.access_token;
+
+        const { data: paymentRes, error: paymentErr } = await supabase.functions.invoke(
+          'create-stripe-payment',
+          {
             body: { order_id: createdOrder.id },
-          });
-
-          if (pixErr) {
-            console.error('[CHECKOUT] Erro na Edge Function create-pix-payment:', pixErr);
-            toast.error('Pedido registrado! Chave Stripe ou Edge Function pendente de configuração no Supabase.');
+            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
           }
+        );
 
-          setPixState({
-            orderId: createdOrder.id,
-            total: verifiedTotal,
-            pixQrCodeUrl: pixRes?.pix_qr_code_url || null,
-            pixCopyPaste: pixRes?.pix_copy_paste || null,
-            pixExpiresAt: pixRes?.pix_expires_at || null,
-            hostedInstructionsUrl: pixRes?.hosted_instructions_url || null,
-            orderData: completedOrderData,
-            isPaid: false,
-          });
-
-          toast.success('Pedido criado! Conclua o pagamento via PIX.');
-        } catch (edgeErr: any) {
-          console.warn('[CHECKOUT] Falha ao invocar Edge Function:', edgeErr);
-          setPixState({
-            orderId: createdOrder.id,
-            total: verifiedTotal,
-            pixQrCodeUrl: null,
-            pixCopyPaste: null,
-            pixExpiresAt: null,
-            hostedInstructionsUrl: null,
-            orderData: completedOrderData,
-            isPaid: false,
-          });
+        if (paymentErr || !paymentRes?.client_secret) {
+          console.error('[CHECKOUT] Erro na Edge Function create-stripe-payment:', paymentErr);
+          toast.error(
+            'Pedido registrado, mas houve um erro ao inicializar o pagamento. Tente novamente ou entre em contato com o suporte.'
+          );
+          // Keep the order in DB; user can retry
+          return;
         }
+
+        setStripePaymentState({
+          orderId: createdOrder.id,
+          total: verifiedTotal,
+          clientSecret: paymentRes.client_secret,
+          orderData: completedOrderData,
+          isPaid: false,
+          boletoPdfUrl: null,
+          boletoHostedUrl: null,
+        });
+
+        toast.success('Pedido criado! Conclua o pagamento abaixo.');
       } else {
-        // Cash on delivery completed
+        // Cash on delivery — order is confirmed immediately
         setCompletedOrder(completedOrderData);
         toast.success('Pedido finalizado com sucesso!');
       }
@@ -587,7 +673,7 @@ export function CheckoutPage() {
     }
   };
 
-  // ── LOADING STATE ──
+  // ── LOADING STATE ──────────────────────────────────────────────────────────
   if (!authReady || cartLoading) {
     return (
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
@@ -602,7 +688,7 @@ export function CheckoutPage() {
     );
   }
 
-  // ── NOT AUTHENTICATED FALLBACK ──
+  // ── NOT AUTHENTICATED FALLBACK ─────────────────────────────────────────────
   if (!user) {
     return (
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
@@ -634,17 +720,32 @@ export function CheckoutPage() {
     );
   }
 
-  // ── PIX PAYMENT SCREEN (PENDING OR CONFIRMED) ──
-  if (pixState) {
-    const isPaid = pixState.isPaid;
-    const qrCodeDisplay = pixState.pixQrCodeUrl || (pixState.pixCopyPaste ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(pixState.pixCopyPaste)}` : null);
+  // ── STRIPE PAYMENT ELEMENT SCREEN ─────────────────────────────────────────
+  if (stripePaymentState) {
+    const { isPaid, boletoPdfUrl, boletoHostedUrl, orderData, total: orderTotal, clientSecret } =
+      stripePaymentState;
+
+    const stripeAppearance = {
+      theme: 'stripe' as const,
+      variables: {
+        colorPrimary: 'var(--primary, #3b82f6)',
+        fontFamily: 'Inter, system-ui, sans-serif',
+        borderRadius: '12px',
+      },
+    };
+
+    const elementsOptions: StripeElementsOptions = {
+      clientSecret,
+      appearance: stripeAppearance,
+      locale: 'pt-BR',
+    };
 
     return (
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
         <Header showNav />
 
         <main className="flex-1 max-w-2xl mx-auto px-4 py-6 sm:py-10 w-full">
-          {/* Top Status Card */}
+          {/* Status Card */}
           <div
             className="rounded-2xl p-6 sm:p-8 text-center mb-6 border"
             style={{
@@ -671,8 +772,80 @@ export function CheckoutPage() {
                   Pagamento Realizado com Sucesso!
                 </h1>
                 <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
-                  O Stripe confirmou o seu pagamento PIX. Seu pedido já está sendo preparado pela nossa equipe.
+                  Seu pagamento foi confirmado pelo Stripe. Seu pedido já está sendo preparado pela
+                  nossa equipe.
                 </p>
+              </>
+            ) : boletoPdfUrl !== null || boletoHostedUrl !== null ? (
+              <>
+                <div
+                  className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+                  style={{ backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#d97706' }}
+                >
+                  <FileText className="w-8 h-8 sm:w-10 sm:h-10" />
+                </div>
+                <span
+                  className="inline-block text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider mb-2"
+                  style={{ backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#d97706' }}
+                >
+                  Boleto Gerado — Pagamento Pendente
+                </span>
+                <h1 className="text-xl sm:text-2xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>
+                  Seu boleto está pronto
+                </h1>
+                <p className="text-xs sm:text-sm text-muted-foreground max-w-md mx-auto mb-4">
+                  Realize o pagamento do boleto dentro do prazo. A confirmação pode levar{' '}
+                  <strong>até 3 dias úteis</strong> após o pagamento.
+                </p>
+
+                <div
+                  className="p-4 rounded-xl border text-xs mb-4 space-y-1"
+                  style={{
+                    backgroundColor: 'rgba(251, 191, 36, 0.06)',
+                    borderColor: 'rgba(251, 191, 36, 0.25)',
+                    color: '#92400e',
+                  }}
+                >
+                  <p className="font-semibold flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    Atenção
+                  </p>
+                  <p>
+                    Boleto não é confirmação instantânea. Seu pedido só será processado após a
+                    compensação bancária.
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                  {boletoHostedUrl && (
+                    <a
+                      href={boletoHostedUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center py-2.5 px-5 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 gap-2"
+                      style={{ backgroundColor: 'var(--primary)' }}
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Visualizar Boleto
+                    </a>
+                  )}
+                  {boletoPdfUrl && (
+                    <a
+                      href={boletoPdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center py-2.5 px-5 rounded-xl text-sm font-semibold border transition-all hover:opacity-80 gap-2"
+                      style={{
+                        backgroundColor: 'var(--card)',
+                        borderColor: 'var(--border)',
+                        color: 'var(--foreground)',
+                      }}
+                    >
+                      <FileText className="w-4 h-4" />
+                      Baixar PDF
+                    </a>
+                  )}
+                </div>
               </>
             ) : (
               <>
@@ -680,171 +853,87 @@ export function CheckoutPage() {
                   className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 text-primary"
                   style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)' }}
                 >
-                  <QrCode className="w-8 h-8 sm:w-10 sm:h-10" />
+                  <CreditCard className="w-8 h-8 sm:w-10 sm:h-10" />
                 </div>
                 <span
                   className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider mb-2 text-primary"
                   style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)' }}
                 >
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Aguardando Pagamento PIX
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Finalizar Pagamento
                 </span>
                 <h1 className="text-xl sm:text-2xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>
-                  Escaneie o QR Code para pagar
+                  Conclua o pagamento do seu pedido
                 </h1>
                 <p className="text-xs sm:text-sm text-muted-foreground max-w-md mx-auto">
-                  Abra o aplicativo do seu banco, escolha a opção <strong>Pagar com PIX</strong> e escaneie o código ou copie o código abaixo.
+                  Escolha a forma de pagamento abaixo. Cartão, Apple Pay, Google Pay e Boleto são
+                  aceitos.
                 </p>
               </>
             )}
 
-            <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4 mt-4 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+            {/* Order metadata badges */}
+            <div
+              className="flex flex-wrap items-center justify-center gap-2 sm:gap-4 mt-4 pt-4 border-t"
+              style={{ borderColor: 'var(--border)' }}
+            >
               <div
                 className="px-3 py-1.5 rounded-xl text-xs font-semibold"
                 style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
               >
                 <span>Pedido: </span>
                 <span className="text-primary font-mono font-bold">
-                  #{pixState.orderId.slice(0, 8).toUpperCase()}
+                  #{stripePaymentState.orderId.slice(0, 8).toUpperCase()}
                 </span>
               </div>
-
               <div
                 className="px-3 py-1.5 rounded-xl text-xs font-semibold"
                 style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
               >
                 <span>Valor: </span>
-                <span className="text-primary font-bold">{formatBRL(pixState.total)}</span>
+                <span className="text-primary font-bold">{formatBRL(orderTotal)}</span>
               </div>
-
-              {timeRemaining && !isPaid && (
-                <div
-                  className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1"
-                  style={{ backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#d97706' }}
-                >
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>Expira em: {timeRemaining}</span>
-                </div>
-              )}
             </div>
           </div>
 
-          {/* PIX QR Code & Copy Box (Only if not paid) */}
-          {!isPaid && (
+          {/* Stripe Payment Element — only shown while awaiting payment */}
+          {!isPaid && boletoPdfUrl === null && boletoHostedUrl === null && (
             <div
-              className="rounded-2xl p-5 sm:p-6 mb-6 border space-y-6"
+              className="rounded-2xl p-5 sm:p-6 mb-6 border"
               style={{
                 backgroundColor: 'var(--card)',
                 borderColor: 'var(--border)',
               }}
             >
-              {/* QR Code Container */}
-              <div className="flex flex-col items-center justify-center space-y-3">
-                <div className="p-4 bg-white rounded-2xl border shadow-sm inline-block">
-                  {qrCodeDisplay ? (
-                    <img
-                      src={qrCodeDisplay}
-                      alt="QR Code PIX para pagamento"
-                      className="w-48 h-48 sm:w-56 sm:h-56 object-contain"
-                    />
-                  ) : (
-                    <div className="w-48 h-48 sm:w-56 sm:h-56 flex flex-col items-center justify-center text-center p-4 bg-gray-50 rounded-xl">
-                      <QrCode className="w-12 h-12 text-gray-400 mb-2" />
-                      <p className="text-xs text-gray-500">
-                        Código PIX gerado. Utilize o Copia e Cola abaixo.
-                      </p>
-                    </div>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground text-center">
-                  Aponte a câmera do aplicativo do seu banco para o QR Code
-                </p>
-              </div>
+              <h2 className="font-bold text-sm mb-4" style={{ color: 'var(--foreground)' }}>
+                Dados de Pagamento
+              </h2>
 
-              {/* Copy & Paste Code */}
-              {pixState.pixCopyPaste ? (
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    Código PIX Copia e Cola
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      readOnly
-                      value={pixState.pixCopyPaste}
-                      className="w-full h-11 px-3 pr-24 rounded-xl border text-xs font-mono bg-muted/50 focus:outline-none select-all"
-                      style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
-                    />
-                    <button
-                      type="button"
-                      onClick={handleCopyPix}
-                      className="absolute right-1.5 top-1.5 h-8 px-3 rounded-lg text-xs font-semibold text-white flex items-center gap-1.5 transition-all hover:opacity-90 cursor-pointer"
-                      style={{ backgroundColor: copiedPix ? 'var(--success)' : 'var(--primary)' }}
-                    >
-                      {copiedPix ? (
-                        <>
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Copiado!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Copiar</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
+              {getStripe() ? (
+                <Elements options={elementsOptions} stripe={getStripe()!}>
+                  <StripePaymentForm
+                    stripePaymentState={stripePaymentState}
+                    onPaymentConfirmed={handlePaymentConfirmed}
+                    onBoletoIssued={handleBoletoIssued}
+                    formatBRL={formatBRL}
+                  />
+                </Elements>
               ) : (
-                <div
-                  className="p-3.5 rounded-xl text-xs space-y-1 border"
-                  style={{
-                    backgroundColor: 'rgba(251, 191, 36, 0.08)',
-                    borderColor: 'rgba(251, 191, 36, 0.25)',
-                    color: '#d97706',
-                  }}
-                >
-                  <p className="font-semibold flex items-center gap-1.5">
-                    <AlertCircle className="w-4 h-4" />
-                    <span>Aguardando ativação das chaves Stripe</span>
-                  </p>
-                  <p className="opacity-90">
-                    O pedido foi registrado em sua conta. Assim que o secret do Stripe for informado no Supabase Edge Functions, o QR Code e código PIX serão gerados instantaneamente.
+                <div className="text-center py-8">
+                  <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">
+                    Stripe não está configurado. Verifique a variável{' '}
+                    <code className="font-mono text-xs bg-muted px-1 rounded">
+                      VITE_STRIPE_PUBLISHABLE_KEY
+                    </code>
+                    .
                   </p>
                 </div>
               )}
-
-              {/* Status and manual check action */}
-              <div
-                className="p-4 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-3"
-                style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}
-              >
-                <div className="flex items-center gap-2.5 text-xs">
-                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping flex-shrink-0" />
-                  <span className="font-medium" style={{ color: 'var(--foreground)' }}>
-                    Verificando pagamento automaticamente...
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleManualCheckPix}
-                  disabled={checkingPixStatus}
-                  className="w-full sm:w-auto px-4 py-2 rounded-xl text-xs font-semibold border transition-all hover:opacity-80 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  style={{
-                    backgroundColor: 'var(--card)',
-                    borderColor: 'var(--border)',
-                    color: 'var(--foreground)',
-                  }}
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${checkingPixStatus ? 'animate-spin' : ''}`} />
-                  <span>Já realizei o pagamento</span>
-                </button>
-              </div>
             </div>
           )}
 
-          {/* Order Summary Details */}
+          {/* Order Summary */}
           <div
             className="rounded-2xl p-5 sm:p-6 mb-6 border space-y-4 text-xs sm:text-sm"
             style={{
@@ -857,7 +946,7 @@ export function CheckoutPage() {
             </h2>
 
             <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-              {pixState.orderData.items.map((item, idx) => (
+              {orderData.items.map((item, idx) => (
                 <div key={idx} className="py-2.5 flex items-center justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate" style={{ color: 'var(--foreground)' }}>
@@ -874,13 +963,16 @@ export function CheckoutPage() {
               ))}
             </div>
 
-            <div className="pt-3 border-t flex justify-between font-bold text-sm" style={{ borderColor: 'var(--border)' }}>
+            <div
+              className="pt-3 border-t flex justify-between font-bold text-sm"
+              style={{ borderColor: 'var(--border)' }}
+            >
               <span style={{ color: 'var(--foreground)' }}>Total</span>
-              <span className="text-primary text-base font-black">{formatBRL(pixState.total)}</span>
+              <span className="text-primary text-base font-black">{formatBRL(orderTotal)}</span>
             </div>
           </div>
 
-          {/* Bottom Action Navigation */}
+          {/* Navigation */}
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link
               to="/account"
@@ -890,7 +982,6 @@ export function CheckoutPage() {
               <FileText className="w-4 h-4 mr-2" />
               Ver meus pedidos
             </Link>
-
             <Link
               to="/"
               className="inline-flex items-center justify-center py-3 px-6 rounded-xl font-medium transition-all hover:opacity-80 border"
@@ -919,7 +1010,7 @@ export function CheckoutPage() {
     );
   }
 
-  // ── CASH ON DELIVERY SUCCESS CONFIRMATION STATE ──
+  // ── CASH ON DELIVERY SUCCESS CONFIRMATION ──────────────────────────────────
   if (completedOrder) {
     return (
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
@@ -981,7 +1072,6 @@ export function CheckoutPage() {
               Resumo do Pedido
             </h2>
 
-            {/* Items table */}
             <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
               {completedOrder.items.map((item, idx) => (
                 <div key={idx} className="py-3 flex items-center justify-between gap-4 text-sm">
@@ -1000,7 +1090,6 @@ export function CheckoutPage() {
               ))}
             </div>
 
-            {/* Financial Summary */}
             <div
               className="pt-4 border-t space-y-2 text-sm"
               style={{ borderColor: 'var(--border)' }}
@@ -1022,10 +1111,15 @@ export function CheckoutPage() {
               </div>
             </div>
 
-            {/* Delivery & Payment info grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+            <div
+              className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t"
+              style={{ borderColor: 'var(--border)' }}
+            >
               <div className="p-4 rounded-xl" style={{ backgroundColor: 'var(--muted)' }}>
-                <div className="flex items-center gap-2 mb-2 font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
+                <div
+                  className="flex items-center gap-2 mb-2 font-semibold text-sm"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   {completedOrder.delivery_type === 'delivery' ? (
                     <>
                       <Truck className="w-4 h-4 text-primary" />
@@ -1041,9 +1135,11 @@ export function CheckoutPage() {
                 {completedOrder.delivery_type === 'delivery' && completedOrder.shipping_address ? (
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     {completedOrder.shipping_address.street}, {completedOrder.shipping_address.number}
-                    {completedOrder.shipping_address.complement && ` (${completedOrder.shipping_address.complement})`}
+                    {completedOrder.shipping_address.complement &&
+                      ` (${completedOrder.shipping_address.complement})`}
                     <br />
-                    {completedOrder.shipping_address.neighborhood} — {completedOrder.shipping_address.city}/{completedOrder.shipping_address.state}
+                    {completedOrder.shipping_address.neighborhood} —{' '}
+                    {completedOrder.shipping_address.city}/{completedOrder.shipping_address.state}
                     <br />
                     CEP: {completedOrder.shipping_address.zip_code}
                   </p>
@@ -1055,7 +1151,10 @@ export function CheckoutPage() {
               </div>
 
               <div className="p-4 rounded-xl" style={{ backgroundColor: 'var(--muted)' }}>
-                <div className="flex items-center gap-2 mb-2 font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
+                <div
+                  className="flex items-center gap-2 mb-2 font-semibold text-sm"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   <Banknote className="w-4 h-4 text-primary" />
                   <span>Forma de Pagamento</span>
                 </div>
@@ -1070,8 +1169,13 @@ export function CheckoutPage() {
             </div>
 
             {completedOrder.customer_note && (
-              <div className="p-4 rounded-xl text-xs space-y-1" style={{ backgroundColor: 'var(--muted)' }}>
-                <span className="font-semibold" style={{ color: 'var(--foreground)' }}>Observações:</span>
+              <div
+                className="p-4 rounded-xl text-xs space-y-1"
+                style={{ backgroundColor: 'var(--muted)' }}
+              >
+                <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                  Observações:
+                </span>
                 <p className="text-muted-foreground">{completedOrder.customer_note}</p>
               </div>
             )}
@@ -1087,7 +1191,6 @@ export function CheckoutPage() {
               <FileText className="w-4 h-4 mr-2" />
               Ver meus pedidos
             </Link>
-
             <Link
               to="/"
               className="inline-flex items-center justify-center py-3 px-6 rounded-xl font-medium transition-all hover:opacity-80 border"
@@ -1116,7 +1219,7 @@ export function CheckoutPage() {
     );
   }
 
-  // ── EMPTY CART STATE ──
+  // ── EMPTY CART STATE ───────────────────────────────────────────────────────
   if (!cart || cart.items.length === 0) {
     return (
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
@@ -1165,7 +1268,7 @@ export function CheckoutPage() {
     );
   }
 
-  // ── MAIN CHECKOUT PAGE ──
+  // ── MAIN CHECKOUT FORM ─────────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
       <Header showNav />
@@ -1184,7 +1287,10 @@ export function CheckoutPage() {
             <span>/</span>
             <span style={{ color: 'var(--foreground)' }}>Checkout</span>
           </nav>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" style={{ color: 'var(--foreground)' }}>
+          <h1
+            className="text-2xl sm:text-3xl font-bold tracking-tight"
+            style={{ color: 'var(--foreground)' }}
+          >
             Finalizar Compra
           </h1>
         </div>
@@ -1232,7 +1338,10 @@ export function CheckoutPage() {
                     {deliveryType === 'delivery' && <Check className="w-3 h-3 stroke-[3]" />}
                   </div>
                   <div>
-                    <div className="flex items-center gap-1.5 font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
+                    <div
+                      className="flex items-center gap-1.5 font-semibold text-sm"
+                      style={{ color: 'var(--foreground)' }}
+                    >
                       <Truck className="w-4 h-4 text-primary" />
                       <span>Entrega</span>
                     </div>
@@ -1262,7 +1371,10 @@ export function CheckoutPage() {
                     {deliveryType === 'pickup' && <Check className="w-3 h-3 stroke-[3]" />}
                   </div>
                   <div>
-                    <div className="flex items-center gap-1.5 font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
+                    <div
+                      className="flex items-center gap-1.5 font-semibold text-sm"
+                      style={{ color: 'var(--foreground)' }}
+                    >
                       <Building2 className="w-4 h-4 text-primary" />
                       <span>Retirada no Local</span>
                     </div>
@@ -1425,30 +1537,33 @@ export function CheckoutPage() {
               </div>
 
               <div className="space-y-3">
-                {/* PIX Option */}
+                {/* Stripe Online Payment (Card, Apple Pay, Google Pay, Boleto) */}
                 <button
                   type="button"
-                  onClick={() => setPaymentMethod('pix')}
+                  onClick={() => setPaymentMethod('stripe_online')}
                   className={`w-full p-4 rounded-xl border text-left flex items-start gap-3.5 transition-all cursor-pointer ${
-                    paymentMethod === 'pix'
+                    paymentMethod === 'stripe_online'
                       ? 'border-primary ring-2 ring-primary/20 bg-primary/5'
                       : 'border-border hover:border-border/80 bg-card'
                   }`}
                 >
                   <div
                     className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 ${
-                      paymentMethod === 'pix'
+                      paymentMethod === 'stripe_online'
                         ? 'border-primary bg-primary text-white'
                         : 'border-muted-foreground/40'
                     }`}
                   >
-                    {paymentMethod === 'pix' && <Check className="w-3 h-3 stroke-[3]" />}
+                    {paymentMethod === 'stripe_online' && <Check className="w-3 h-3 stroke-[3]" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
-                        <QrCode className="w-4 h-4 text-primary" />
-                        <span>PIX</span>
+                      <div
+                        className="flex items-center gap-2 font-semibold text-sm"
+                        style={{ color: 'var(--foreground)' }}
+                      >
+                        <CreditCard className="w-4 h-4 text-primary" />
+                        <span>Cartão / Apple Pay / Google Pay / Boleto</span>
                       </div>
                       <span
                         className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
@@ -1457,11 +1572,12 @@ export function CheckoutPage() {
                           color: 'var(--success)',
                         }}
                       >
-                        Aprovação Imediata
+                        Recomendado
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Pague com QR Code ou Copia e Cola antes da confirmação final do pedido.
+                      Pague com cartão de crédito/débito, Apple Pay, Google Pay ou Boleto.
+                      Processado com segurança pelo Stripe.
                     </p>
                   </div>
                 </button>
@@ -1483,11 +1599,16 @@ export function CheckoutPage() {
                         : 'border-muted-foreground/40'
                     }`}
                   >
-                    {paymentMethod === 'cash_on_delivery' && <Check className="w-3 h-3 stroke-[3]" />}
+                    {paymentMethod === 'cash_on_delivery' && (
+                      <Check className="w-3 h-3 stroke-[3]" />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
+                      <div
+                        className="flex items-center gap-2 font-semibold text-sm"
+                        style={{ color: 'var(--foreground)' }}
+                      >
                         <Banknote className="w-4 h-4 text-primary" />
                         <span>Dinheiro na entrega</span>
                       </div>
@@ -1506,28 +1627,6 @@ export function CheckoutPage() {
                     </p>
                   </div>
                 </button>
-
-                {/* Cartão de Crédito Disabled */}
-                <div
-                  className="p-4 rounded-xl border border-dashed flex items-start gap-3.5 opacity-60 cursor-not-allowed"
-                  style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}
-                >
-                  <div className="w-5 h-5 rounded-full border border-muted-foreground/30 flex items-center justify-center mt-0.5 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 font-medium text-sm text-muted-foreground">
-                        <CreditCard className="w-4 h-4" />
-                        <span>Cartão de Crédito</span>
-                      </div>
-                      <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-muted text-muted-foreground border">
-                        Em breve
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Pagamento parcelado no cartão de crédito estará disponível em breve.
-                    </p>
-                  </div>
-                </div>
               </div>
             </section>
 
@@ -1579,7 +1678,10 @@ export function CheckoutPage() {
                 boxShadow: 'var(--shadow-sm)',
               }}
             >
-              <div className="flex items-center justify-between border-b pb-4" style={{ borderColor: 'var(--border)' }}>
+              <div
+                className="flex items-center justify-between border-b pb-4"
+                style={{ borderColor: 'var(--border)' }}
+              >
                 <h2 className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
                   Resumo da Compra
                 </h2>
@@ -1613,7 +1715,10 @@ export function CheckoutPage() {
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-xs sm:text-sm truncate" style={{ color: 'var(--foreground)' }}>
+                      <p
+                        className="font-semibold text-xs sm:text-sm truncate"
+                        style={{ color: 'var(--foreground)' }}
+                      >
                         {item.product?.name || 'Produto'}
                       </p>
                       <p className="text-xs text-muted-foreground">
@@ -1622,7 +1727,10 @@ export function CheckoutPage() {
                     </div>
 
                     {/* Subtotal */}
-                    <div className="text-right font-semibold text-xs sm:text-sm" style={{ color: 'var(--foreground)' }}>
+                    <div
+                      className="text-right font-semibold text-xs sm:text-sm"
+                      style={{ color: 'var(--foreground)' }}
+                    >
                       {formatBRL((item.product?.price || 0) * item.quantity)}
                     </div>
                   </div>
@@ -1630,7 +1738,10 @@ export function CheckoutPage() {
               </div>
 
               {/* Values Breakdown */}
-              <div className="space-y-2.5 pt-4 border-t text-sm" style={{ borderColor: 'var(--border)' }}>
+              <div
+                className="space-y-2.5 pt-4 border-t text-sm"
+                style={{ borderColor: 'var(--border)' }}
+              >
                 <div className="flex justify-between text-muted-foreground">
                   <span>Subtotal ({cart.items.reduce((s, i) => s + i.quantity, 0)} itens)</span>
                   <span>{formatBRL(subtotal)}</span>
@@ -1663,10 +1774,10 @@ export function CheckoutPage() {
                     <Loader2 className="w-5 h-5 animate-spin" />
                     <span>Processando pedido...</span>
                   </>
-                ) : paymentMethod === 'pix' ? (
+                ) : paymentMethod === 'stripe_online' ? (
                   <>
-                    <QrCode className="w-5 h-5" />
-                    <span>Pagar com PIX ({formatBRL(total)})</span>
+                    <CreditCard className="w-5 h-5" />
+                    <span>Continuar para Pagamento ({formatBRL(total)})</span>
                   </>
                 ) : (
                   <>
@@ -1906,4 +2017,3 @@ export function CheckoutPage() {
     </div>
   );
 }
-
