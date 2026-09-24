@@ -242,6 +242,9 @@ export type Database = {
           payment_method: string | null
           payment_status: string
           pickup_address: string | null
+          pix_copy_paste: string | null
+          pix_expires_at: string | null
+          pix_qr_code_url: string | null
           shipping_address_id: string | null
           shipping_cost: number
           status: string
@@ -259,6 +262,9 @@ export type Database = {
           payment_method?: string | null
           payment_status?: string
           pickup_address?: string | null
+          pix_copy_paste?: string | null
+          pix_expires_at?: string | null
+          pix_qr_code_url?: string | null
           shipping_address_id?: string | null
           shipping_cost?: number
           status?: string
@@ -276,6 +282,9 @@ export type Database = {
           payment_method?: string | null
           payment_status?: string
           pickup_address?: string | null
+          pix_copy_paste?: string | null
+          pix_expires_at?: string | null
+          pix_qr_code_url?: string | null
           shipping_address_id?: string | null
           shipping_cost?: number
           status?: string
@@ -501,6 +510,10 @@ export type Database = {
       }
       admin_update_payment_status: {
         Args: { p_new_payment_status: string; p_order_id: string }
+        Returns: Json
+      }
+      confirm_stripe_payment: {
+        Args: { p_event_id: string; p_order_id: string; p_payment_intent_id: string }
         Returns: Json
       }
       get_cart_user: { Args: { cart_uuid: string }; Returns: string }
