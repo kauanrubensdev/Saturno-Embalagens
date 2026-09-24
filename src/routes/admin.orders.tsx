@@ -26,12 +26,16 @@ import {
   Calendar,
   Eye,
   RefreshCw,
+  Banknote,
+  CreditCard,
+  QrCode,
+  DollarSign,
 } from 'lucide-react';
 
 // ─── Domain types ────────────────────────────────────────────────────────────
 
 type OrderStatus = 'pending' | 'confirmed' | 'preparing' | 'shipped' | 'delivered' | 'cancelled';
-type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
+type PaymentStatus = 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded';
 type PaymentMethod = 'pix' | 'credit_card' | 'cash_on_delivery' | null;
 type DeliveryType = 'delivery' | 'pickup';
 
@@ -119,17 +123,20 @@ const ALL_STATUS_CONFIGS: Record<OrderStatus, StatusConfig> = {
   cancelled: CANCELLED_STATUS_CONFIG,
 };
 
-const PAYMENT_STATUSES: { value: PaymentStatus; label: string }[] = [
-  { value: 'pending',  label: 'Aguardando'  },
-  { value: 'paid',     label: 'Pago'        },
-  { value: 'failed',   label: 'Falhou'      },
-  { value: 'refunded', label: 'Reembolsado' },
-];
+// ─── Payment definitions ──────────────────────────────────────────────────────
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   pix: 'PIX',
   credit_card: 'Cartão de Crédito',
-  cash_on_delivery: 'Dinheiro na Entrega',
+  cash_on_delivery: 'Pagamento na entrega',
+};
+
+const PAYMENT_STATUS_CONFIGS: Record<PaymentStatus, { label: string; bg: string; text: string; border: string }> = {
+  pending:   { label: 'Pendente',    bg: 'rgba(251,191,36,0.12)', text: '#d97706', border: 'rgba(251,191,36,0.3)' },
+  paid:      { label: 'Pago',        bg: 'rgba(22,163,74,0.12)',  text: '#16a34a', border: 'rgba(22,163,74,0.3)'  },
+  failed:    { label: 'Falhou',      bg: 'rgba(220,38,38,0.12)',  text: '#dc2626', border: 'rgba(220,38,38,0.3)'  },
+  cancelled: { label: 'Cancelado',   bg: 'rgba(107,114,128,0.12)', text: '#6b7280', border: 'rgba(107,114,128,0.3)' },
+  refunded:  { label: 'Reembolsado', bg: 'rgba(139,92,246,0.12)', text: '#7c3aed', border: 'rgba(139,92,246,0.3)' },
 };
 
 const DELIVERY_TYPE_LABELS: Record<string, string> = {
@@ -150,6 +157,18 @@ function formatDate(iso: string): string {
 
 function shortId(id: string): string {
   return `#${id.slice(0, 8).toUpperCase()}`;
+}
+
+function getPaymentIcon(method: PaymentMethod) {
+  switch (method) {
+    case 'pix':
+      return QrCode;
+    case 'credit_card':
+      return CreditCard;
+    case 'cash_on_delivery':
+    default:
+      return Banknote;
+  }
 }
 
 // ─── Route ───────────────────────────────────────────────────────────────────
@@ -188,8 +207,9 @@ function AdminOrdersPage() {
   const [cancelItems, setCancelItems] = useState<OrderItem[]>([]);
   const [loadingCancelItems, setLoadingCancelItems] = useState(false);
 
-  // status update in flight (tracks order ID being updated)
+  // status updates in flight
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  const [updatingPaymentOrderId, setUpdatingPaymentOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchOrders();
@@ -277,7 +297,6 @@ function AdminOrdersPage() {
     try {
       setUpdatingOrderId(orderId);
 
-      // Call secure RPC
       const { data, error: rpcError } = await supabase.rpc('admin_update_order_status', {
         p_order_id: orderId,
         p_new_status: newStatus,
@@ -310,6 +329,45 @@ function AdminOrdersPage() {
       toast.error(err.message || 'Erro ao atualizar status do pedido.');
     } finally {
       setUpdatingOrderId(null);
+    }
+  };
+
+  // ── Update payment status via RPC ────────────────────────────────────────
+  const handlePaymentStatusUpdate = async (orderId: string, newPaymentStatus: PaymentStatus) => {
+    try {
+      setUpdatingPaymentOrderId(orderId);
+
+      const { data, error: rpcError } = await supabase.rpc('admin_update_payment_status', {
+        p_order_id: orderId,
+        p_new_payment_status: newPaymentStatus,
+      });
+
+      if (rpcError) {
+        // Fallback to direct update if RPC is not yet loaded
+        const { error: directErr } = await supabase
+          .from('orders')
+          .update({ payment_status: newPaymentStatus, updated_at: new Date().toISOString() })
+          .eq('id', orderId);
+
+        if (directErr) throw directErr;
+      }
+
+      toast.success(`Status de pagamento atualizado para "${PAYMENT_STATUS_CONFIGS[newPaymentStatus]?.label || newPaymentStatus}"`);
+
+      // Optimistic state update
+      setOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, payment_status: newPaymentStatus } : o))
+      );
+
+      // Update detail modal if open
+      if (selectedOrder?.id === orderId) {
+        setSelectedOrder((prev) => (prev ? { ...prev, payment_status: newPaymentStatus } : prev));
+      }
+    } catch (err: any) {
+      console.error('[ADMIN-ORDERS] handlePaymentStatusUpdate error:', err);
+      toast.error(err.message || 'Erro ao atualizar status de pagamento.');
+    } finally {
+      setUpdatingPaymentOrderId(null);
     }
   };
 
@@ -354,7 +412,7 @@ function AdminOrdersPage() {
               Gestão de Pedidos
             </h1>
             <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>
-              Acompanhe, atualize e gerencie os pedidos da loja com controle de estoque automático.
+              Acompanhe, atualize e gerencie os pedidos da loja com controle de estoque e pagamentos.
             </p>
           </div>
           <button
@@ -479,8 +537,9 @@ function AdminOrdersPage() {
                     <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left text-muted-foreground">Cliente</th>
                     <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left text-muted-foreground">Data</th>
                     <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left text-muted-foreground">Entrega</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left text-muted-foreground">Pagamento</th>
                     <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left text-muted-foreground">Total</th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left text-muted-foreground min-w-[220px]">Alterar Status</th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left text-muted-foreground min-w-[200px]">Status do Pedido</th>
                     <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-right text-muted-foreground">Ações</th>
                   </tr>
                 </thead>
@@ -490,6 +549,9 @@ function AdminOrdersPage() {
                     const isCancelled = order.status === 'cancelled';
                     const currentCfg = ALL_STATUS_CONFIGS[order.status] || ALL_STATUS_CONFIGS.pending;
                     const StatusIcon = currentCfg.icon;
+
+                    const PaymentIcon = getPaymentIcon(order.payment_method);
+                    const paymentStatusCfg = PAYMENT_STATUS_CONFIGS[order.payment_status] || PAYMENT_STATUS_CONFIGS.pending;
 
                     return (
                       <tr
@@ -535,6 +597,28 @@ function AdminOrdersPage() {
                           </div>
                         </td>
 
+                        {/* Pagamento (Método + Status) */}
+                        <td className="px-4 py-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--foreground)' }}>
+                              <PaymentIcon className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                              <span className="truncate max-w-[140px]">
+                                {order.payment_method ? PAYMENT_METHOD_LABELS[order.payment_method] : 'Pagamento na entrega'}
+                              </span>
+                            </div>
+                            <span
+                              className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                              style={{
+                                backgroundColor: paymentStatusCfg.bg,
+                                color: paymentStatusCfg.text,
+                                border: `1px solid ${paymentStatusCfg.border}`,
+                              }}
+                            >
+                              {paymentStatusCfg.label}
+                            </span>
+                          </div>
+                        </td>
+
                         {/* Total */}
                         <td className="px-4 py-3">
                           <span className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>
@@ -557,13 +641,12 @@ function AdminOrdersPage() {
                                 <Ban className="w-3.5 h-3.5" />
                                 Cancelado
                               </span>
-                              <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                                Estoque devolvido
+                              <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                                Devolvido
                               </span>
                             </div>
                           ) : (
                             <div className="flex items-center gap-2">
-                              {/* Status progression select */}
                               <div className="relative">
                                 <select
                                   disabled={isUpdating}
@@ -652,6 +735,9 @@ function AdminOrdersPage() {
                 const currentCfg = ALL_STATUS_CONFIGS[order.status] || ALL_STATUS_CONFIGS.pending;
                 const StatusIcon = currentCfg.icon;
 
+                const PaymentIcon = getPaymentIcon(order.payment_method);
+                const paymentStatusCfg = PAYMENT_STATUS_CONFIGS[order.payment_status] || PAYMENT_STATUS_CONFIGS.pending;
+
                 return (
                   <div
                     key={order.id}
@@ -681,6 +767,26 @@ function AdminOrdersPage() {
                           {DELIVERY_TYPE_LABELS[order.delivery_type]}
                         </span>
                       </div>
+                    </div>
+
+                    {/* Payment Info in Card */}
+                    <div className="p-2.5 rounded-xl border flex items-center justify-between text-xs" style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}>
+                      <div className="flex items-center gap-1.5">
+                        <PaymentIcon className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                        <span className="font-medium" style={{ color: 'var(--foreground)' }}>
+                          {order.payment_method ? PAYMENT_METHOD_LABELS[order.payment_method] : 'Pagamento na entrega'}
+                        </span>
+                      </div>
+                      <span
+                        className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                        style={{
+                          backgroundColor: paymentStatusCfg.bg,
+                          color: paymentStatusCfg.text,
+                          border: `1px solid ${paymentStatusCfg.border}`,
+                        }}
+                      >
+                        {paymentStatusCfg.label}
+                      </span>
                     </div>
 
                     {/* Status Changer Bar */}
@@ -1001,6 +1107,65 @@ function AdminOrdersPage() {
                 )}
               </div>
 
+              {/* Visual Payment Section */}
+              <section className="space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <DollarSign className="w-3.5 h-3.5 text-primary" />
+                  <span>Pagamento</span>
+                </h3>
+                <div
+                  className="p-4 rounded-2xl border space-y-3"
+                  style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Método de Pagamento */}
+                    <div>
+                      <span className="text-muted-foreground text-xs block mb-1">Método:</span>
+                      <div className="flex items-center gap-2 font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
+                        {(() => {
+                          const Icon = getPaymentIcon(selectedOrder.payment_method);
+                          return <Icon className="w-4 h-4 text-primary" />;
+                        })()}
+                        <span>
+                          {selectedOrder.payment_method
+                            ? PAYMENT_METHOD_LABELS[selectedOrder.payment_method]
+                            : 'Pagamento na entrega'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Status do Pagamento (com controle para Admin) */}
+                    <div>
+                      <span className="text-muted-foreground text-xs block mb-1">Status do Pagamento:</span>
+                      <div className="flex items-center gap-2">
+                        <select
+                          disabled={updatingPaymentOrderId === selectedOrder.id}
+                          value={selectedOrder.payment_status}
+                          onChange={(e) =>
+                            handlePaymentStatusUpdate(selectedOrder.id, e.target.value as PaymentStatus)
+                          }
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition-all disabled:opacity-50 focus:outline-none focus:ring-2"
+                          style={{
+                            backgroundColor: PAYMENT_STATUS_CONFIGS[selectedOrder.payment_status]?.bg || 'var(--muted)',
+                            color: PAYMENT_STATUS_CONFIGS[selectedOrder.payment_status]?.text || 'var(--foreground)',
+                            borderColor: PAYMENT_STATUS_CONFIGS[selectedOrder.payment_status]?.border || 'var(--border)',
+                          }}
+                        >
+                          <option value="pending">Pendente</option>
+                          <option value="paid">Pago</option>
+                          <option value="failed">Falhou</option>
+                          <option value="cancelled">Cancelado</option>
+                          <option value="refunded">Reembolsado</option>
+                        </select>
+                        {updatingPaymentOrderId === selectedOrder.id && (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
               {/* Customer info */}
               <section className="space-y-2">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -1023,12 +1188,6 @@ function AdminOrdersPage() {
                     <span className="text-muted-foreground block text-[11px]">Data de criação:</span>
                     <span className="font-medium" style={{ color: 'var(--foreground)' }}>
                       {formatDate(selectedOrder.created_at)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block text-[11px]">Forma de Pagamento:</span>
-                    <span className="font-medium" style={{ color: 'var(--foreground)' }}>
-                      {selectedOrder.payment_method ? PAYMENT_METHOD_LABELS[selectedOrder.payment_method] : 'Dinheiro na entrega'}
                     </span>
                   </div>
                 </div>

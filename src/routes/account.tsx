@@ -12,10 +12,13 @@ import {
   Truck,
   Building2,
   Banknote,
+  CreditCard,
+  QrCode,
   ChevronRight,
   Package,
   Loader2,
   Calendar,
+  DollarSign,
 } from 'lucide-react';
 
 export const Route = createFileRoute('/account')({
@@ -65,12 +68,26 @@ interface CustomerOrder {
 }
 
 const ORDER_STATUS_LABELS: Record<string, { label: string; bg: string; text: string }> = {
-  pending: { label: 'Pendente', bg: 'rgba(251,191,36,0.12)', text: '#d97706' },
+  pending:   { label: 'Pendente',   bg: 'rgba(251,191,36,0.12)', text: '#d97706' },
   confirmed: { label: 'Confirmado', bg: 'rgba(59,130,246,0.12)', text: '#2563eb' },
   preparing: { label: 'Em preparo', bg: 'rgba(139,92,246,0.12)', text: '#7c3aed' },
-  shipped: { label: 'Enviado', bg: 'rgba(234,88,12,0.12)', text: '#ea580c' },
-  delivered: { label: 'Entregue', bg: 'rgba(22,163,74,0.12)', text: 'var(--success)' },
-  cancelled: { label: 'Cancelado', bg: 'rgba(220,38,38,0.12)', text: 'var(--destructive)' },
+  shipped:   { label: 'Enviado',    bg: 'rgba(234,88,12,0.12)',  text: '#ea580c' },
+  delivered: { label: 'Entregue',   bg: 'rgba(22,163,74,0.12)',  text: '#16a34a' },
+  cancelled: { label: 'Cancelado',  bg: 'rgba(220,38,38,0.12)',  text: '#dc2626' },
+};
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  pix: 'PIX',
+  credit_card: 'Cartão de Crédito',
+  cash_on_delivery: 'Pagamento na entrega',
+};
+
+const PAYMENT_STATUS_CONFIGS: Record<string, { label: string; bg: string; text: string; border: string }> = {
+  pending:   { label: 'Pendente',    bg: 'rgba(251,191,36,0.12)', text: '#d97706', border: 'rgba(251,191,36,0.3)' },
+  paid:      { label: 'Pago',        bg: 'rgba(22,163,74,0.12)',  text: '#16a34a', border: 'rgba(22,163,74,0.3)'  },
+  failed:    { label: 'Falhou',      bg: 'rgba(220,38,38,0.12)',  text: '#dc2626', border: 'rgba(220,38,38,0.3)'  },
+  cancelled: { label: 'Cancelado',   bg: 'rgba(107,114,128,0.12)', text: '#6b7280', border: 'rgba(107,114,128,0.3)' },
+  refunded:  { label: 'Reembolsado', bg: 'rgba(139,92,246,0.12)', text: '#7c3aed', border: 'rgba(139,92,246,0.3)' },
 };
 
 function formatCurrency(val: number) {
@@ -87,9 +104,21 @@ function formatDate(iso: string) {
   }).format(new Date(iso));
 }
 
+function getPaymentIcon(method: string | null) {
+  switch (method) {
+    case 'pix':
+      return QrCode;
+    case 'credit_card':
+      return CreditCard;
+    case 'cash_on_delivery':
+    default:
+      return Banknote;
+  }
+}
+
 function AccountPage() {
   const { authReady, user, profile, refreshProfile, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'profile' | 'orders'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'orders'>('orders');
 
   // Profile form state
   const [name, setName] = useState('');
@@ -212,22 +241,6 @@ function AccountPage() {
           <div className="flex gap-2 border-b mb-6 pb-2" style={{ borderColor: 'var(--border)' }}>
             <button
               type="button"
-              onClick={() => setActiveTab('profile')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
-                activeTab === 'profile'
-                  ? 'text-white'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              style={{
-                backgroundColor: activeTab === 'profile' ? 'var(--primary)' : 'transparent',
-              }}
-            >
-              <User className="w-4 h-4" />
-              <span>Dados Pessoais</span>
-            </button>
-
-            <button
-              type="button"
               onClick={() => setActiveTab('orders')}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
                 activeTab === 'orders'
@@ -252,85 +265,25 @@ function AccountPage() {
                 </span>
               )}
             </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('profile')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
+                activeTab === 'profile'
+                  ? 'text-white'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              style={{
+                backgroundColor: activeTab === 'profile' ? 'var(--primary)' : 'transparent',
+              }}
+            >
+              <User className="w-4 h-4" />
+              <span>Dados Pessoais</span>
+            </button>
           </div>
 
-          {/* TAB 1: DADOS PESSOAIS */}
-          {activeTab === 'profile' && (
-            <div
-              className="rounded-2xl p-6 border"
-              style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-            >
-              <h2 className="text-base font-bold mb-4" style={{ color: 'var(--foreground)' }}>
-                Informações de Perfil
-              </h2>
-
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--foreground)' }}>
-                    Nome
-                  </label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required
-                    className="w-full h-11 px-4 rounded-xl border text-sm transition-colors focus:outline-none focus:ring-2"
-                    style={{
-                      borderColor: 'var(--border)',
-                      backgroundColor: 'var(--background)',
-                      color: 'var(--foreground)',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--foreground)' }}>
-                    Telefone
-                  </label>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="(00) 00000-0000"
-                    className="w-full h-11 px-4 rounded-xl border text-sm transition-colors focus:outline-none focus:ring-2"
-                    style={{
-                      borderColor: 'var(--border)',
-                      backgroundColor: 'var(--background)',
-                      color: 'var(--foreground)',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold mb-1.5 text-muted-foreground">
-                    E-mail
-                  </label>
-                  <input
-                    type="email"
-                    value={user?.email || ''}
-                    disabled
-                    className="w-full h-11 px-4 rounded-xl border text-sm cursor-not-allowed opacity-80"
-                    style={{
-                      borderColor: 'var(--border)',
-                      backgroundColor: 'var(--muted)',
-                      color: 'var(--muted-foreground)',
-                    }}
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="w-full h-11 rounded-xl font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
-                  style={{ backgroundColor: 'var(--primary)' }}
-                >
-                  {saving ? 'Salvando...' : 'Salvar alterações'}
-                </button>
-              </form>
-            </div>
-          )}
-
-          {/* TAB 2: MEUS PEDIDOS */}
+          {/* TAB 1: MEUS PEDIDOS */}
           {activeTab === 'orders' && (
             <div className="space-y-4">
               {loadingOrders ? (
@@ -373,6 +326,9 @@ function AccountPage() {
                       bg: 'var(--muted)',
                       text: 'var(--foreground)',
                     };
+                  const paymentCfg =
+                    PAYMENT_STATUS_CONFIGS[ord.payment_status] || PAYMENT_STATUS_CONFIGS.pending;
+                  const PaymentIcon = getPaymentIcon(ord.payment_method);
                   const isExpanded = expandedOrderId === ord.id;
 
                   return (
@@ -386,8 +342,8 @@ function AccountPage() {
                         onClick={() => setExpandedOrderId(isExpanded ? null : ord.id)}
                         className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-muted/30 transition-colors"
                       >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
+                        <div className="space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="font-bold text-sm" style={{ color: 'var(--foreground)' }}>
                               #{ord.id.slice(0, 8).toUpperCase()}
                             </span>
@@ -396,6 +352,16 @@ function AccountPage() {
                               style={{ backgroundColor: statusInfo.bg, color: statusInfo.text }}
                             >
                               {statusInfo.label}
+                            </span>
+                            <span
+                              className="text-[10px] font-semibold px-2 py-0.5 rounded-full border"
+                              style={{
+                                backgroundColor: paymentCfg.bg,
+                                color: paymentCfg.text,
+                                borderColor: paymentCfg.border,
+                              }}
+                            >
+                              Pagamento: {paymentCfg.label}
                             </span>
                           </div>
                           <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -471,7 +437,8 @@ function AccountPage() {
                             className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t"
                             style={{ borderColor: 'var(--border)' }}
                           >
-                            <div className="p-3 rounded-xl bg-card border" style={{ borderColor: 'var(--border)' }}>
+                            {/* Entrega */}
+                            <div className="p-3.5 rounded-xl bg-card border" style={{ borderColor: 'var(--border)' }}>
                               <p className="font-semibold text-xs mb-1" style={{ color: 'var(--foreground)' }}>
                                 {ord.delivery_type === 'delivery' ? 'Endereço de Entrega' : 'Local de Retirada'}
                               </p>
@@ -490,14 +457,33 @@ function AccountPage() {
                               )}
                             </div>
 
-                            <div className="p-3 rounded-xl bg-card border" style={{ borderColor: 'var(--border)' }}>
-                              <p className="font-semibold text-xs mb-1" style={{ color: 'var(--foreground)' }}>
+                            {/* Pagamento com Método e Status */}
+                            <div className="p-3.5 rounded-xl bg-card border space-y-1.5" style={{ borderColor: 'var(--border)' }}>
+                              <p className="font-semibold text-xs" style={{ color: 'var(--foreground)' }}>
                                 Pagamento
                               </p>
-                              <p className="text-xs text-muted-foreground">
-                                Dinheiro na entrega
-                              </p>
-                              <p className="text-[11px] text-muted-foreground mt-1">
+                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <PaymentIcon className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                                <span>
+                                  {ord.payment_method
+                                    ? PAYMENT_METHOD_LABELS[ord.payment_method]
+                                    : 'Pagamento na entrega'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-xs">
+                                <span className="text-muted-foreground">Status:</span>
+                                <span
+                                  className="px-2 py-0.5 rounded-full text-[10px] font-semibold border"
+                                  style={{
+                                    backgroundColor: paymentCfg.bg,
+                                    color: paymentCfg.text,
+                                    borderColor: paymentCfg.border,
+                                  }}
+                                >
+                                  {paymentCfg.label}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground">
                                 Frete: Grátis (R$ 0,00)
                               </p>
                             </div>
@@ -515,6 +501,82 @@ function AccountPage() {
                   );
                 })
               )}
+            </div>
+          )}
+
+          {/* TAB 2: DADOS PESSOAIS */}
+          {activeTab === 'profile' && (
+            <div
+              className="rounded-2xl p-6 border"
+              style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+            >
+              <h2 className="text-base font-bold mb-4" style={{ color: 'var(--foreground)' }}>
+                Informações de Perfil
+              </h2>
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--foreground)' }}>
+                    Nome
+                  </label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    className="w-full h-11 px-4 rounded-xl border text-sm transition-colors focus:outline-none focus:ring-2"
+                    style={{
+                      borderColor: 'var(--border)',
+                      backgroundColor: 'var(--background)',
+                      color: 'var(--foreground)',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--foreground)' }}>
+                    Telefone
+                  </label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="(00) 00000-0000"
+                    className="w-full h-11 px-4 rounded-xl border text-sm transition-colors focus:outline-none focus:ring-2"
+                    style={{
+                      borderColor: 'var(--border)',
+                      backgroundColor: 'var(--background)',
+                      color: 'var(--foreground)',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1.5 text-muted-foreground">
+                    E-mail
+                  </label>
+                  <input
+                    type="email"
+                    value={user?.email || ''}
+                    disabled
+                    className="w-full h-11 px-4 rounded-xl border text-sm cursor-not-allowed opacity-80"
+                    style={{
+                      borderColor: 'var(--border)',
+                      backgroundColor: 'var(--muted)',
+                      color: 'var(--muted-foreground)',
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="w-full h-11 rounded-xl font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                  style={{ backgroundColor: 'var(--primary)' }}
+                >
+                  {saving ? 'Salvando...' : 'Salvar alterações'}
+                </button>
+              </form>
             </div>
           )}
         </div>

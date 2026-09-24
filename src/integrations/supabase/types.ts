@@ -499,6 +499,10 @@ export type Database = {
         Args: { p_new_status: string; p_order_id: string }
         Returns: Json
       }
+      admin_update_payment_status: {
+        Args: { p_new_payment_status: string; p_order_id: string }
+        Returns: Json
+      }
       get_cart_user: { Args: { cart_uuid: string }; Returns: string }
       get_order_user: { Args: { order_uuid: string }; Returns: string }
       is_admin: { Args: never; Returns: boolean }
