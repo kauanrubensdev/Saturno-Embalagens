@@ -25,6 +25,8 @@ import {
   Smartphone,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import type { Profile } from '@/types/auth';
+import type { User } from '@supabase/supabase-js';
 import { loadStripe, StripeElementsOptions } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
@@ -135,6 +137,8 @@ function GooglePayIcon({ className = 'w-4 h-4' }: { className?: string }) {
 
 interface StripePaymentFormProps {
   stripePaymentState: StripePaymentState;
+  customerProfile: Profile | null;
+  customerUser: { email?: string } | null;
   onPaymentConfirmed: () => void;
   onBoletoIssued: (pdfUrl: string | null, hostedUrl: string | null) => void;
   onChangeMethod: () => void;
@@ -143,6 +147,8 @@ interface StripePaymentFormProps {
 
 function StripePaymentForm({
   stripePaymentState,
+  customerProfile,
+  customerUser,
   onPaymentConfirmed,
   onBoletoIssued,
   onChangeMethod,
@@ -173,8 +179,17 @@ function StripePaymentForm({
       });
 
       if (error) {
-        setPaymentError(error.message || 'Erro ao processar o pagamento.');
-        toast.error(error.message || 'Falha no pagamento. Verifique os dados e tente novamente.');
+        let errorMsg = error.message || 'Erro ao processar o pagamento.';
+        const lowerMsg = errorMsg.toLowerCase();
+        if (
+          lowerMsg.includes('the boleto tax id cannot match your legal entity tax id') ||
+          lowerMsg.includes('tax id cannot match')
+        ) {
+          errorMsg =
+            'O CPF/CNPJ informado pertence à loja emissora. Informe seu próprio CPF ou CNPJ de comprador.';
+        }
+        setPaymentError(errorMsg);
+        toast.error(errorMsg);
         return;
       }
 
@@ -204,9 +219,18 @@ function StripePaymentForm({
         }
       }
     } catch (err: any) {
-      console.error('[STRIPE-PAYMENT-FORM] Erro inesperado:', err);
-      setPaymentError(err.message || 'Erro inesperado ao processar pagamento.');
-      toast.error('Erro ao processar pagamento. Tente novamente.');
+      console.error('[STRIPE-PAYMENT-FORM] Falha na confirmação do pagamento.');
+      let errorMsg = err?.message || 'Erro inesperado ao processar pagamento.';
+      if (
+        typeof errorMsg === 'string' &&
+        (errorMsg.toLowerCase().includes('the boleto tax id cannot match your legal entity tax id') ||
+          errorMsg.toLowerCase().includes('tax id cannot match'))
+      ) {
+        errorMsg =
+          'O CPF/CNPJ informado pertence à loja emissora. Informe seu próprio CPF ou CNPJ de comprador.';
+      }
+      setPaymentError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -243,19 +267,67 @@ function StripePaymentForm({
       };
     }
     if (selectedMethod === 'boleto') {
-      return {
-        layout: 'tabs' as const,
+      const shippingAddress = stripePaymentState.orderData?.shipping_address;
+      const billingDetails: Record<string, any> = {};
+
+      if (customerProfile?.name) {
+        billingDetails['name'] = customerProfile.name;
+      }
+      if (customerUser?.email) {
+        billingDetails['email'] = customerUser.email;
+      }
+      if (customerProfile?.phone) {
+        billingDetails['phone'] = customerProfile.phone;
+      }
+      if (shippingAddress) {
+        const addressObj: Record<string, string> = {
+          country: 'BR',
+        };
+        if (shippingAddress.street) {
+          addressObj['line1'] = `${shippingAddress.street}${shippingAddress.number ? `, ${shippingAddress.number}` : ''}`;
+        }
+        const line2 = [shippingAddress.complement, shippingAddress.neighborhood]
+          .filter(Boolean)
+          .join(' - ');
+        if (line2) {
+          addressObj['line2'] = line2;
+        }
+        if (shippingAddress.city) {
+          addressObj['city'] = shippingAddress.city;
+        }
+        if (shippingAddress.state) {
+          addressObj['state'] = shippingAddress.state;
+        }
+        if (shippingAddress.zip_code) {
+          addressObj['postal_code'] = shippingAddress.zip_code;
+        }
+        billingDetails['address'] = addressObj;
+      }
+
+      const options: any = {
+        layout: 'tabs',
         paymentMethodOrder: ['boleto'],
         wallets: {
-          applePay: 'never' as const,
-          googlePay: 'never' as const,
+          applePay: 'never',
+          googlePay: 'never',
         },
       };
+
+      if (Object.keys(billingDetails).length > 0) {
+        options.defaultValues = { billingDetails };
+      }
+
+      return options;
     }
     return {
       layout: 'tabs' as const,
     };
-  }, [selectedMethod]);
+  }, [
+    selectedMethod,
+    customerProfile?.name,
+    customerUser?.email,
+    stripePaymentState.orderData?.shipping_address,
+  ]);
 
   const buttonLabel = useMemo(() => {
     if (selectedMethod === 'boleto') {
@@ -274,21 +346,35 @@ function StripePaymentForm({
     <form onSubmit={handleSubmit} className="space-y-5">
       {selectedMethod === 'boleto' && (
         <div
-          className="p-3.5 rounded-xl text-xs border space-y-1"
+          className="p-4 rounded-xl text-xs border space-y-2.5"
           style={{
             backgroundColor: 'rgba(59, 130, 246, 0.06)',
             borderColor: 'rgba(59, 130, 246, 0.2)',
             color: 'var(--foreground)',
           }}
         >
-          <p className="font-semibold flex items-center gap-1.5 text-primary">
+          <div className="flex items-center gap-2 font-semibold text-primary text-sm">
             <FileText className="w-4 h-4" />
-            Informações do Boleto
+            <span>Informações para Emissão do Boleto</span>
+          </div>
+          <p className="text-muted-foreground leading-relaxed">
+            Preencha os dados solicitados abaixo para gerar seu boleto bancário. O documento estará disponível para visualização e download logo após a confirmação.
           </p>
-          <p className="text-muted-foreground">
-            Preencha os dados abaixo (nome, CPF/CNPJ e endereço) para a emissão do boleto bancário.
-            O documento será gerado logo após clicar no botão abaixo.
-          </p>
+          <div
+            className="p-3 rounded-lg text-xs border space-y-1"
+            style={{
+              backgroundColor: 'rgba(234, 179, 8, 0.08)',
+              borderColor: 'rgba(234, 179, 8, 0.25)',
+              color: 'var(--foreground)',
+            }}
+          >
+            <p className="font-semibold text-amber-700 dark:text-amber-400">
+              ⚠️ Atenção ao Documento (CPF/CNPJ):
+            </p>
+            <p className="text-muted-foreground">
+              Informe seu próprio CPF ou CNPJ como documento do comprador. Não informe o CPF/CNPJ da Saturno Embalagens.
+            </p>
+          </div>
         </div>
       )}
 
@@ -355,7 +441,7 @@ function StripePaymentForm({
 // ── Main CheckoutPage ────────────────────────────────────────────────────────
 
 export function CheckoutPage() {
-  const { authReady, user } = useAuth();
+  const { authReady, user, profile } = useAuth();
   const { cart, loading: cartLoading, clearCart, getSubtotal } = useCart();
   const navigate = useNavigate();
 
@@ -1163,6 +1249,8 @@ export function CheckoutPage() {
                 <Elements options={elementsOptions} stripe={getStripe()!}>
                   <StripePaymentForm
                     stripePaymentState={stripePaymentState}
+                    customerProfile={profile}
+                    customerUser={user}
                     onPaymentConfirmed={handlePaymentConfirmed}
                     onBoletoIssued={handleBoletoIssued}
                     onChangeMethod={handleChangeMethod}
