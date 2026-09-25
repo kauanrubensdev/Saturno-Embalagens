@@ -6,6 +6,8 @@ import { corsHeaders } from '../_shared/cors.ts';
 
 interface CreatePixRequestBody {
   order_id?: string;
+  orderId?: string;
+  id?: string;
 }
 
 interface AbacateCustomerPayload {
@@ -69,7 +71,7 @@ serve(async (req: Request) => {
     if (!abacateApiKey) {
       console.error('[CREATE-ABACATE-PIX] ABACATEPAY_API_KEY não configurada no servidor.');
       return new Response(
-        JSON.stringify({ error: 'Configuração do servidor incompleta.' }),
+        JSON.stringify({ error: 'Configuração do servidor incompleta (ABACATEPAY_API_KEY).' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -79,7 +81,7 @@ serve(async (req: Request) => {
     if (!supabaseUrl || !supabaseServiceKey) {
       console.error('[CREATE-ABACATE-PIX] Variáveis de ambiente Supabase não configuradas.');
       return new Response(
-        JSON.stringify({ error: 'Configuração do servidor incompleta.' }),
+        JSON.stringify({ error: 'Configuração do servidor incompleta (SUPABASE_URL/SERVICE_KEY).' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -87,6 +89,7 @@ serve(async (req: Request) => {
     // ── 2. Authenticate caller via Supabase JWT ──────────────────────────────
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
+      console.warn('[CREATE-ABACATE-PIX] Cabeçalho Authorization ausente.');
       return new Response(
         JSON.stringify({ error: 'Cabeçalho de autorização não fornecido.' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -101,6 +104,7 @@ serve(async (req: Request) => {
     } = await supabaseClient.auth.getUser(token);
 
     if (userError || !user) {
+      console.warn('[CREATE-ABACATE-PIX] Falha na autenticação do token JWT:', userError?.message);
       return new Response(
         JSON.stringify({ error: 'Usuário não autenticado ou token inválido.' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -109,41 +113,52 @@ serve(async (req: Request) => {
 
     // ── 3. Parse and validate request body ───────────────────────────────────
     const body: CreatePixRequestBody = await req.json().catch(() => ({}));
-    const { order_id } = body;
+    const rawOrderId = body.order_id || body.orderId || body.id;
 
-    if (!order_id || typeof order_id !== 'string') {
+    if (!rawOrderId || typeof rawOrderId !== 'string' || !rawOrderId.trim()) {
+      console.warn('[CREATE-ABACATE-PIX] Payload inválido, order_id ausente:', body);
       return new Response(
         JSON.stringify({ error: 'ID do pedido (order_id) é obrigatório.' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
+    const order_id = rawOrderId.trim();
+
     // ── 4. Fetch order from database — NEVER trust amount from client ─────────
     const { data: order, error: orderError } = await supabaseClient
       .from('orders')
-      .select(`
-        id,
-        user_id,
-        total,
-        payment_method,
-        payment_status,
-        abacate_pix_id,
-        abacate_pix_br_code,
-        abacate_pix_qr_code,
-        abacate_pix_expires_at
-      `)
+      .select('*')
       .eq('id', order_id)
-      .single();
+      .maybeSingle();
 
-    if (orderError || !order) {
+    if (orderError) {
+      console.error('[CREATE-ABACATE-PIX] Erro no banco de dados ao buscar pedido:', {
+        order_id,
+        code: orderError.code,
+        message: orderError.message,
+        details: orderError.details,
+      });
       return new Response(
-        JSON.stringify({ error: 'Pedido não encontrado.' }),
+        JSON.stringify({
+          error: 'Erro ao consultar o pedido no banco de dados.',
+          details: orderError.message,
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!order) {
+      console.warn(`[CREATE-ABACATE-PIX] Pedido não encontrado no banco com ID: "${order_id}"`);
+      return new Response(
+        JSON.stringify({ error: `Pedido não encontrado (${order_id}).` }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     // ── 5. Ownership verification: ensure order belongs to authenticated user ─
     if (order.user_id !== user.id) {
+      console.warn(`[CREATE-ABACATE-PIX] Acesso negado: pedido ${order.id} pertence a ${order.user_id}, usuário autenticado é ${user.id}`);
       return new Response(
         JSON.stringify({ error: 'Acesso negado: o pedido não pertence ao usuário autenticado.' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -152,6 +167,7 @@ serve(async (req: Request) => {
 
     // ── 6. Validate order status ─────────────────────────────────────────────
     if (!PAYABLE_STATUSES.includes(order.payment_status)) {
+      console.warn(`[CREATE-ABACATE-PIX] Status do pedido ${order.id} incompatível: ${order.payment_status}`);
       return new Response(
         JSON.stringify({
           error: `O pedido não pode receber uma nova cobrança. Status atual: ${order.payment_status}.`,
@@ -162,7 +178,6 @@ serve(async (req: Request) => {
 
     // ── 7. Validate & ensure payment_method is abacate_pix ───────────────────
     if (order.payment_method !== 'abacate_pix') {
-      // If order was created under a different method but is still pending, update it
       const { error: updateMethodErr } = await supabaseClient
         .from('orders')
         .update({
@@ -172,36 +187,36 @@ serve(async (req: Request) => {
         .eq('id', order.id);
 
       if (updateMethodErr) {
-        console.error('[CREATE-ABACATE-PIX] Erro ao atualizar payment_method do pedido:', updateMethodErr.message);
+        console.warn('[CREATE-ABACATE-PIX] Aviso ao atualizar payment_method do pedido:', updateMethodErr.message);
       }
     }
 
     // ── 8. Idempotency check: Reuse existing active PIX billing if valid ──────
-    if (
-      order.abacate_pix_id &&
-      order.abacate_pix_br_code &&
-      order.abacate_pix_expires_at
-    ) {
-      const expiresAtDate = new Date(order.abacate_pix_expires_at);
+    const existingPixId = order.abacate_pix_id;
+    const existingBrCode = order.abacate_pix_br_code;
+    const existingExpiresAt = order.abacate_pix_expires_at;
+
+    if (existingPixId && existingBrCode && existingExpiresAt) {
+      const expiresAtDate = new Date(existingExpiresAt);
       const isExpired = isNaN(expiresAtDate.getTime()) || expiresAtDate.getTime() <= Date.now();
 
       if (!isExpired) {
-        console.log(`[CREATE-ABACATE-PIX] Reutilizando cobrança PIX existente ${order.abacate_pix_id} para o pedido ${order.id}.`);
+        console.log(`[CREATE-ABACATE-PIX] Reutilizando cobrança PIX existente ${existingPixId} para o pedido ${order.id}.`);
         return new Response(
           JSON.stringify({
             success: true,
             reused: true,
             data: {
-              id: order.abacate_pix_id,
-              brCode: order.abacate_pix_br_code,
-              brCodeBase64: order.abacate_pix_qr_code,
-              expiresAt: order.abacate_pix_expires_at,
+              id: existingPixId,
+              brCode: existingBrCode,
+              brCodeBase64: order.abacate_pix_qr_code || null,
+              expiresAt: existingExpiresAt,
             },
           }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      console.log(`[CREATE-ABACATE-PIX] Cobrança PIX anterior ${order.abacate_pix_id} expirou. Gerando nova cobrança para o pedido ${order.id}.`);
+      console.log(`[CREATE-ABACATE-PIX] Cobrança PIX anterior ${existingPixId} expirou. Gerando nova cobrança para o pedido ${order.id}.`);
     }
 
     // ── 9. Safe conversion: BRL (NUMERIC) to integer cents ───────────────────
@@ -240,7 +255,6 @@ serve(async (req: Request) => {
       customerObj.email = user.email.trim();
     }
     if (profile?.phone && typeof profile.phone === 'string') {
-      // Clean phone to numeric only if present
       const cleanPhone = profile.phone.replace(/\D/g, '');
       if (cleanPhone.length >= 10) {
         customerObj.cellphone = cleanPhone;
@@ -299,16 +313,18 @@ serve(async (req: Request) => {
     const pixData = abacateJson.data;
 
     // ── 13. Persist PIX data on public.orders ────────────────────────────────
+    const updatePayload: Record<string, unknown> = {
+      abacate_pix_id: pixData.id,
+      abacate_pix_br_code: pixData.brCode,
+      abacate_pix_qr_code: pixData.brCodeBase64 || null,
+      abacate_pix_expires_at: pixData.expiresAt || null,
+      payment_method: 'abacate_pix',
+      updated_at: new Date().toISOString(),
+    };
+
     const { error: updateOrderError } = await supabaseClient
       .from('orders')
-      .update({
-        abacate_pix_id: pixData.id,
-        abacate_pix_br_code: pixData.brCode,
-        abacate_pix_qr_code: pixData.brCodeBase64 || null,
-        abacate_pix_expires_at: pixData.expiresAt || null,
-        payment_method: 'abacate_pix',
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('id', order.id);
 
     if (updateOrderError) {
