@@ -231,7 +231,7 @@ function AdminOrdersPage() {
           id, user_id, status, payment_status, payment_method,
           subtotal, shipping_cost, total,
           delivery_type, shipping_address_id, pickup_address,
-          customer_note, created_at, updated_at, abacate_pix_id,
+          customer_note, created_at, updated_at,
           profile:profiles!orders_user_id_fkey ( id, name, phone ),
           shipping_address:addresses!orders_shipping_address_id_fkey (
             id, street, number, complement, neighborhood, city, state, zip_code
@@ -241,9 +241,10 @@ function AdminOrdersPage() {
 
       if (fetchError) throw fetchError;
       setOrders((data as unknown as Order[]) || []);
-    } catch (err) {
+    } catch (err: any) {
       console.error('[ADMIN-ORDERS] fetchOrders error:', err);
-      setError('Erro ao carregar pedidos. Verifique se a policy RLS de admin está ativa.');
+      const errMsg = err?.message || err?.details || err?.hint || 'Erro desconhecido ao carregar pedidos.';
+      setError(`Erro do Supabase: ${errMsg} (Code: ${err?.code})`);
     } finally {
       setLoading(false);
     }
