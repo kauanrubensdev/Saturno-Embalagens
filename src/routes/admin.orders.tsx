@@ -80,7 +80,7 @@ interface Order {
   customer_note: string | null;
   created_at: string;
   updated_at: string;
-  abacate_pix_id: string | null;
+  abacate_pix_id?: string | null;
   // joined
   profile?: CustomerProfile | null;
   shipping_address?: Address | null;
@@ -232,6 +232,7 @@ function AdminOrdersPage() {
           subtotal, shipping_cost, total,
           delivery_type, shipping_address_id, pickup_address,
           customer_note, created_at, updated_at,
+          abacate_pix_id,
           profile:profiles!orders_user_id_fkey ( id, name, phone ),
           shipping_address:addresses!orders_shipping_address_id_fkey (
             id, street, number, complement, neighborhood, city, state, zip_code
