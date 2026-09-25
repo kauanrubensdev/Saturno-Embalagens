@@ -125,8 +125,38 @@ interface StripePaymentState {
   boletoHostedUrl: string | null;
 }
 
-const PICKUP_ADDRESS_TEXT =
+interface DeliverySettingsConfig {
+  delivery_enabled: boolean;
+  pickup_enabled: boolean;
+  shipping_cost: number;
+  pickup_address: string;
+}
+
+interface FreeShippingConfig {
+  enabled: boolean;
+  cost?: number;
+}
+
+interface ShippingZone {
+  id: string;
+  name: string;
+  min_distance_km: number;
+  max_distance_km: number | null;
+  price: number;
+  is_active: boolean;
+}
+
+const DEFAULT_PICKUP_ADDRESS =
   'R. Urupema, nº 150 - São Cosme de Baixo, Santa Luzia - MG, 33130-140';
+
+const DEFAULT_DELIVERY_SETTINGS: DeliverySettingsConfig = {
+  delivery_enabled: true,
+  pickup_enabled: true,
+  shipping_cost: 0,
+  pickup_address: DEFAULT_PICKUP_ADDRESS,
+};
+
+const PICKUP_ADDRESS_TEXT = DEFAULT_PICKUP_ADDRESS;
 
 // ── Brand Icons ─────────────────────────────────────────────────────────────
 
@@ -876,11 +906,30 @@ function AbacatePixPaymentScreen({
           </div>
 
           <div
-            className="pt-3 border-t flex justify-between font-bold text-sm"
+            className="pt-3 border-t space-y-2 text-xs sm:text-sm"
             style={{ borderColor: 'var(--border)' }}
           >
-            <span style={{ color: 'var(--foreground)' }}>Total</span>
-            <span className="text-primary text-base font-black">{formatBRL(pixState.total)}</span>
+            <div className="flex justify-between text-muted-foreground">
+              <span>Subtotal</span>
+              <span>{formatBRL(pixState.orderData.subtotal)}</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span>{pixState.orderData.delivery_type === 'pickup' ? 'Retirada' : 'Entrega'}</span>
+              {pixState.orderData.shipping_cost === 0 ? (
+                <span className="text-success font-medium">Grátis</span>
+              ) : (
+                <span className="font-medium" style={{ color: 'var(--foreground)' }}>
+                  {formatBRL(pixState.orderData.shipping_cost)}
+                </span>
+              )}
+            </div>
+            <div
+              className="pt-2 border-t flex justify-between font-bold text-sm"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <span style={{ color: 'var(--foreground)' }}>Total</span>
+              <span className="text-primary text-base font-black">{formatBRL(pixState.total)}</span>
+            </div>
           </div>
         </div>
 
@@ -937,6 +986,12 @@ export function CheckoutPage() {
   const [selectedAddressId, setSelectedAddressId] = useState<string>('');
   const [loadingAddresses, setLoadingAddresses] = useState(true);
 
+  // Store delivery settings & shipping zones
+  const [deliveryConfig, setDeliveryConfig] = useState<DeliverySettingsConfig>(DEFAULT_DELIVERY_SETTINGS);
+  const [freeShippingConfig, setFreeShippingConfig] = useState<FreeShippingConfig>({ enabled: false, cost: 0 });
+  const [shippingZones, setShippingZones] = useState<ShippingZone[]>([]);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+
   // New address modal
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
@@ -962,6 +1017,86 @@ export function CheckoutPage() {
 
   // Stripe confirmation state
   const pollingRef = useRef<number | null>(null);
+
+  // ── Fetch store delivery settings & active shipping zones ─────────────────
+  useEffect(() => {
+    const fetchStoreSettings = async () => {
+      try {
+        setLoadingSettings(true);
+        const [settingsRes, zonesRes] = await Promise.all([
+          supabase.from('settings').select('*'),
+          supabase.from('shipping_zones').select('*').eq('is_active', true).order('min_distance_km', { ascending: true }),
+        ]);
+
+        if (zonesRes.data) {
+          setShippingZones((zonesRes.data as ShippingZone[]) || []);
+        }
+
+        if (settingsRes.data && settingsRes.data.length > 0) {
+          const settingsMap = new Map<string, any>();
+          settingsRes.data.forEach((row) => {
+            settingsMap.set(row.key, row.value);
+          });
+
+          const savedDelivery = settingsMap.get('delivery_settings');
+          const legacyFreeShipping = settingsMap.get('free_shipping');
+          const legacyPickup = settingsMap.get('pickup_address');
+
+          let deliveryEnabled = true;
+          let pickupEnabled = true;
+          let shippingCost = 0;
+          let pickupAddress = DEFAULT_PICKUP_ADDRESS;
+
+          if (savedDelivery) {
+            deliveryEnabled = savedDelivery.delivery_enabled ?? true;
+            pickupEnabled = savedDelivery.pickup_enabled ?? true;
+            shippingCost = typeof savedDelivery.shipping_cost === 'number' ? savedDelivery.shipping_cost : 0;
+            if (savedDelivery.pickup_address && typeof savedDelivery.pickup_address === 'string' && savedDelivery.pickup_address.trim()) {
+              pickupAddress = savedDelivery.pickup_address;
+            }
+          }
+
+          if (legacyPickup) {
+            if (typeof legacyPickup === 'string' && legacyPickup.trim()) {
+              pickupAddress = legacyPickup;
+            } else if (typeof legacyPickup === 'object' && legacyPickup?.street) {
+              pickupAddress = `${legacyPickup.street}, nº ${legacyPickup.number || ''} - ${legacyPickup.neighborhood || ''}, ${legacyPickup.city || ''} - ${legacyPickup.state || ''}, ${legacyPickup.zip_code || ''}`;
+            }
+          }
+
+          let freeShipping = { enabled: false, cost: shippingCost };
+          if (legacyFreeShipping) {
+            freeShipping = {
+              enabled: Boolean(legacyFreeShipping.enabled),
+              cost: typeof legacyFreeShipping.cost === 'number' ? legacyFreeShipping.cost : shippingCost,
+            };
+          }
+
+          setDeliveryConfig({
+            delivery_enabled: deliveryEnabled,
+            pickup_enabled: pickupEnabled,
+            shipping_cost: shippingCost,
+            pickup_address: pickupAddress,
+          });
+
+          setFreeShippingConfig(freeShipping);
+
+          // Auto-select receipt method if only one is enabled
+          if (!deliveryEnabled && pickupEnabled) {
+            setDeliveryType('pickup');
+          } else if (deliveryEnabled && !pickupEnabled) {
+            setDeliveryType('delivery');
+          }
+        }
+      } catch (err) {
+        console.error('[CHECKOUT] Erro ao carregar configurações de entrega:', err);
+      } finally {
+        setLoadingSettings(false);
+      }
+    };
+
+    fetchStoreSettings();
+  }, []);
 
   // ── Fetch addresses ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1140,8 +1275,19 @@ export function CheckoutPage() {
   };
 
   // ── Calculations ──────────────────────────────────────────────────────────
+  const isFreeShippingActive = freeShippingConfig.enabled || deliveryConfig.shipping_cost === 0;
+
+  const shippingCost = useMemo(() => {
+    if (deliveryType === 'pickup') {
+      return 0;
+    }
+    if (isFreeShippingActive) {
+      return 0;
+    }
+    return deliveryConfig.shipping_cost || 0;
+  }, [deliveryType, isFreeShippingActive, deliveryConfig.shipping_cost]);
+
   const subtotal = getSubtotal();
-  const shippingCost = 0;
   const total = subtotal + shippingCost;
 
   const selectedAddress = useMemo(() => {
@@ -1259,6 +1405,21 @@ export function CheckoutPage() {
       return;
     }
 
+    if (!deliveryConfig.delivery_enabled && !deliveryConfig.pickup_enabled) {
+      toast.error('Nenhuma opção de recebimento está disponível no momento.');
+      return;
+    }
+
+    if (deliveryType === 'delivery' && !deliveryConfig.delivery_enabled) {
+      toast.error('A opção de entrega está desativada no momento.');
+      return;
+    }
+
+    if (deliveryType === 'pickup' && !deliveryConfig.pickup_enabled) {
+      toast.error('A opção de retirada está desativada no momento.');
+      return;
+    }
+
     if (deliveryType === 'delivery' && !selectedAddressId) {
       toast.error('Por favor, selecione ou cadastre um endereço de entrega.');
       return;
@@ -1305,14 +1466,59 @@ export function CheckoutPage() {
           }
         }
 
-        // 2. COMPUTE SNAPSHOT TOTALS (from live DB prices)
+        // 2. REVALIDATE SETTINGS AND COMPUTE SNAPSHOT TOTALS DIRECTLY FROM DATABASE
+        const { data: dbSettings, error: settingsErr } = await supabase
+          .from('settings')
+          .select('*');
+
+        if (settingsErr) {
+          console.warn('[CHECKOUT] Aviso ao buscar settings no banco:', settingsErr.message);
+        }
+
+        let verifiedShipping = 0;
+        let verifiedPickupAddress = deliveryConfig.pickup_address || DEFAULT_PICKUP_ADDRESS;
+
+        if (dbSettings && dbSettings.length > 0) {
+          const settingsMap = new Map<string, any>();
+          dbSettings.forEach((row) => settingsMap.set(row.key, row.value));
+
+          const liveDelivery = settingsMap.get('delivery_settings');
+          const liveFreeShipping = settingsMap.get('free_shipping');
+          const livePickup = settingsMap.get('pickup_address');
+
+          const liveDeliveryEnabled = liveDelivery?.delivery_enabled ?? true;
+          const livePickupEnabled = liveDelivery?.pickup_enabled ?? true;
+
+          if (deliveryType === 'delivery' && !liveDeliveryEnabled) {
+            throw new Error('A opção de entrega foi desativada pela loja. Atualize a página.');
+          }
+          if (deliveryType === 'pickup' && !livePickupEnabled) {
+            throw new Error('A opção de retirada foi desativada pela loja. Atualize a página.');
+          }
+
+          if (livePickup && typeof livePickup === 'string' && livePickup.trim()) {
+            verifiedPickupAddress = livePickup;
+          } else if (liveDelivery?.pickup_address && typeof liveDelivery.pickup_address === 'string' && liveDelivery.pickup_address.trim()) {
+            verifiedPickupAddress = liveDelivery.pickup_address;
+          }
+
+          if (deliveryType === 'pickup') {
+            verifiedShipping = 0;
+          } else {
+            const isLiveFree = liveFreeShipping?.enabled === true;
+            const liveCost = typeof liveDelivery?.shipping_cost === 'number' ? liveDelivery.shipping_cost : 0;
+            verifiedShipping = isLiveFree ? 0 : liveCost;
+          }
+        } else {
+          verifiedShipping = deliveryType === 'pickup' ? 0 : (isFreeShippingActive ? 0 : (deliveryConfig.shipping_cost || 0));
+        }
+
         const verifiedSubtotal = cart.items.reduce((sum, item) => {
           const liveProd = dbProducts.find((p) => p.id === item.product_id);
           const unitPrice = liveProd ? liveProd.price : item.product.price;
           return sum + unitPrice * item.quantity;
         }, 0);
 
-        const verifiedShipping = 0;
         verifiedTotal = verifiedSubtotal + verifiedShipping;
 
         // 3. CREATE ORDER IN public.orders
@@ -1320,7 +1526,7 @@ export function CheckoutPage() {
           user_id: user.id,
           delivery_type: deliveryType,
           shipping_address_id: deliveryType === 'delivery' ? selectedAddressId : null,
-          pickup_address: deliveryType === 'pickup' ? PICKUP_ADDRESS_TEXT : null,
+          pickup_address: deliveryType === 'pickup' ? verifiedPickupAddress : null,
           payment_method: dbPaymentMethod,
           payment_status: 'pending',
           subtotal: verifiedSubtotal,
@@ -1399,7 +1605,7 @@ export function CheckoutPage() {
           payment_status: 'pending',
           customer_note: customerNote.trim() || null,
           shipping_address: deliveryType === 'delivery' ? selectedAddress : null,
-          pickup_address: deliveryType === 'pickup' ? PICKUP_ADDRESS_TEXT : null,
+          pickup_address: deliveryType === 'pickup' ? verifiedPickupAddress : null,
           items: orderItemsPayload.map((it) => ({
             product_name: it.product_name,
             product_price: it.product_price,
@@ -1920,11 +2126,30 @@ export function CheckoutPage() {
             </div>
 
             <div
-              className="pt-3 border-t flex justify-between font-bold text-sm"
+              className="pt-3 border-t space-y-2 text-xs sm:text-sm"
               style={{ borderColor: 'var(--border)' }}
             >
-              <span style={{ color: 'var(--foreground)' }}>Total</span>
-              <span className="text-primary text-base font-black">{formatBRL(orderTotal)}</span>
+              <div className="flex justify-between text-muted-foreground">
+                <span>Subtotal</span>
+                <span>{formatBRL(orderData.subtotal)}</span>
+              </div>
+              <div className="flex justify-between text-muted-foreground">
+                <span>{orderData.delivery_type === 'pickup' ? 'Retirada' : 'Entrega'}</span>
+                {orderData.shipping_cost === 0 ? (
+                  <span className="text-success font-medium">Grátis</span>
+                ) : (
+                  <span className="font-medium" style={{ color: 'var(--foreground)' }}>
+                    {formatBRL(orderData.shipping_cost)}
+                  </span>
+                )}
+              </div>
+              <div
+                className="pt-2 border-t flex justify-between font-bold text-sm"
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <span style={{ color: 'var(--foreground)' }}>Total</span>
+                <span className="text-primary text-base font-black">{formatBRL(orderTotal)}</span>
+              </div>
             </div>
           </div>
 
@@ -2058,8 +2283,14 @@ export function CheckoutPage() {
                 <span>{formatBRL(completedOrder.subtotal)}</span>
               </div>
               <div className="flex justify-between text-muted-foreground">
-                <span>Frete</span>
-                <span className="text-success font-medium">Grátis</span>
+                <span>{completedOrder.delivery_type === 'pickup' ? 'Retirada' : 'Entrega'}</span>
+                {completedOrder.shipping_cost === 0 ? (
+                  <span className="text-success font-medium">Grátis</span>
+                ) : (
+                  <span className="font-medium" style={{ color: 'var(--foreground)' }}>
+                    {formatBRL(completedOrder.shipping_cost)}
+                  </span>
+                )}
               </div>
               <div
                 className="flex justify-between text-base font-bold pt-2 border-t"
@@ -2103,8 +2334,8 @@ export function CheckoutPage() {
                     CEP: {completedOrder.shipping_address.zip_code}
                   </p>
                 ) : (
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {PICKUP_ADDRESS_TEXT}
+                  <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
+                    {completedOrder.pickup_address || DEFAULT_PICKUP_ADDRESS}
                   </p>
                 )}
               </div>
@@ -2336,206 +2567,261 @@ export function CheckoutPage() {
                 </h2>
               </div>
 
-              {/* Delivery / Pickup radio buttons */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
-                <button
-                  type="button"
-                  onClick={() => setDeliveryType('delivery')}
-                  className={`p-4 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
-                    deliveryType === 'delivery'
-                      ? 'border-primary ring-2 ring-primary/20'
-                      : 'border-border hover:border-border/80'
-                  }`}
-                  style={{ backgroundColor: 'var(--card)' }}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 ${
-                      deliveryType === 'delivery'
-                        ? 'border-primary bg-primary text-white'
-                        : 'border-muted-foreground/40'
-                    }`}
-                  >
-                    {deliveryType === 'delivery' && <Check className="w-3 h-3 stroke-[3]" />}
-                  </div>
-                  <div>
-                    <div
-                      className="flex items-center gap-1.5 font-semibold text-sm"
-                      style={{ color: 'var(--foreground)' }}
-                    >
-                      <Truck className="w-4 h-4 text-primary" />
-                      <span>Entrega</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Receba no seu endereço cadastrado
-                    </p>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setDeliveryType('pickup')}
-                  className={`p-4 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
-                    deliveryType === 'pickup'
-                      ? 'border-primary ring-2 ring-primary/20'
-                      : 'border-border hover:border-border/80'
-                  }`}
-                  style={{ backgroundColor: 'var(--card)' }}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 ${
-                      deliveryType === 'pickup'
-                        ? 'border-primary bg-primary text-white'
-                        : 'border-muted-foreground/40'
-                    }`}
-                  >
-                    {deliveryType === 'pickup' && <Check className="w-3 h-3 stroke-[3]" />}
-                  </div>
-                  <div>
-                    <div
-                      className="flex items-center gap-1.5 font-semibold text-sm"
-                      style={{ color: 'var(--foreground)' }}
-                    >
-                      <Building2 className="w-4 h-4 text-primary" />
-                      <span>Retirada no Local</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Retire direto em nossa fábrica
-                    </p>
-                  </div>
-                </button>
-              </div>
-
-              {/* Conditional content based on deliveryType */}
-              {deliveryType === 'delivery' ? (
-                <div className="space-y-4 pt-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Selecione o endereço de entrega:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setIsAddressModalOpen(true)}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Novo endereço
-                    </button>
-                  </div>
-
-                  {loadingAddresses ? (
-                    <div className="p-6 text-center text-xs text-muted-foreground">
-                      <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-primary" />
-                      Carregando endereços...
-                    </div>
-                  ) : addresses.length === 0 ? (
-                    <div
-                      className="p-5 rounded-xl border border-dashed text-center space-y-3"
-                      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--muted)' }}
-                    >
-                      <MapPin className="w-8 h-8 mx-auto text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
-                          Nenhum endereço cadastrado
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Cadastre um endereço para receber seu pedido.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsAddressModalOpen(true)}
-                        className="inline-flex items-center justify-center py-2 px-4 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90 cursor-pointer"
-                        style={{ backgroundColor: 'var(--primary)' }}
-                      >
-                        <Plus className="w-3.5 h-3.5 mr-1" />
-                        Cadastrar Endereço
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-2.5">
-                      {addresses.map((addr) => (
-                        <label
-                          key={addr.id}
-                          className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition-all ${
-                            selectedAddressId === addr.id
-                              ? 'border-primary bg-primary/5'
-                              : 'border-border hover:border-border/80'
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="address_selection"
-                            checked={selectedAddressId === addr.id}
-                            onChange={() => setSelectedAddressId(addr.id)}
-                            className="mt-1 accent-primary"
-                          />
-                          <div className="flex-1 min-w-0 text-xs sm:text-sm">
-                            <div className="flex items-center gap-2">
-                              <p className="font-semibold" style={{ color: 'var(--foreground)' }}>
-                                {addr.street}, nº {addr.number}
-                              </p>
-                              {addr.is_default && (
-                                <span
-                                  className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                                  style={{
-                                    backgroundColor: 'var(--muted)',
-                                    color: 'var(--muted-foreground)',
-                                  }}
-                                >
-                                  Padrão
-                                </span>
-                              )}
-                            </div>
-                            {addr.complement && (
-                              <p className="text-muted-foreground text-xs mt-0.5">
-                                Complemento: {addr.complement}
-                              </p>
-                            )}
-                            <p className="text-muted-foreground text-xs mt-0.5">
-                              {addr.neighborhood} — {addr.city}/{addr.state} • CEP: {addr.zip_code}
-                            </p>
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-                  )}
+              {loadingSettings ? (
+                <div className="p-6 text-center text-xs text-muted-foreground">
+                  <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-primary" />
+                  Carregando opções de entrega...
                 </div>
-              ) : (
-                /* Pickup info box */
+              ) : !deliveryConfig.delivery_enabled && !deliveryConfig.pickup_enabled ? (
                 <div
-                  className="p-4 rounded-xl border space-y-3"
+                  className="p-4 rounded-xl border flex items-start gap-3"
                   style={{
-                    backgroundColor: 'var(--muted)',
-                    borderColor: 'var(--border)',
+                    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                    borderColor: 'rgba(239, 68, 68, 0.25)',
+                    color: '#dc2626',
                   }}
                 >
-                  <div className="flex items-start gap-3">
-                    <Building2 className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                    <div className="text-xs sm:text-sm space-y-1">
-                      <p className="font-bold" style={{ color: 'var(--foreground)' }}>
-                        Fábrica Saturno Embalagens
-                      </p>
-                      <p className="text-muted-foreground leading-relaxed">
-                        R. Urupema, nº 150 - São Cosme de Baixo
-                        <br />
-                        Santa Luzia - MG • CEP 33130-140
-                      </p>
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground pt-1">
-                        <Clock className="w-3.5 h-3.5 text-primary" />
-                        <span>Retirada: Segunda a Sexta, das 08h às 17h</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div
-                    className="text-[11px] p-2.5 rounded-lg font-medium"
-                    style={{
-                      backgroundColor: 'rgba(59, 130, 246, 0.08)',
-                      color: 'var(--primary)',
-                    }}
-                  >
-                    ℹ️ Você receberá uma notificação quando seu pedido estiver pronto para retirada.
+                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                  <div className="space-y-1 text-xs sm:text-sm">
+                    <p className="font-bold">Nenhuma opção de recebimento disponível</p>
+                    <p className="text-muted-foreground leading-relaxed">
+                      No momento, tanto a entrega quanto a retirada no local estão desativadas nas configurações da loja. Entre em contato com o atendimento para concluir sua compra.
+                    </p>
                   </div>
                 </div>
+              ) : (
+                <>
+                  {/* Delivery / Pickup radio buttons */}
+                  <div
+                    className={`grid gap-3 mb-6 ${
+                      deliveryConfig.delivery_enabled && deliveryConfig.pickup_enabled
+                        ? 'grid-cols-1 sm:grid-cols-2'
+                        : 'grid-cols-1'
+                    }`}
+                  >
+                    {deliveryConfig.delivery_enabled && (
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryType('delivery')}
+                        className={`p-4 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                          deliveryType === 'delivery'
+                            ? 'border-primary ring-2 ring-primary/20'
+                            : 'border-border hover:border-border/80'
+                        }`}
+                        style={{ backgroundColor: 'var(--card)' }}
+                      >
+                        <div
+                          className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 ${
+                            deliveryType === 'delivery'
+                              ? 'border-primary bg-primary text-white'
+                              : 'border-muted-foreground/40'
+                          }`}
+                        >
+                          {deliveryType === 'delivery' && <Check className="w-3 h-3 stroke-[3]" />}
+                        </div>
+                        <div>
+                          <div
+                            className="flex items-center gap-1.5 font-semibold text-sm"
+                            style={{ color: 'var(--foreground)' }}
+                          >
+                            <Truck className="w-4 h-4 text-primary" />
+                            <span>Entrega</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Receba no seu endereço cadastrado
+                          </p>
+                        </div>
+                      </button>
+                    )}
+
+                    {deliveryConfig.pickup_enabled && (
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryType('pickup')}
+                        className={`p-4 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                          deliveryType === 'pickup'
+                            ? 'border-primary ring-2 ring-primary/20'
+                            : 'border-border hover:border-border/80'
+                        }`}
+                        style={{ backgroundColor: 'var(--card)' }}
+                      >
+                        <div
+                          className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 ${
+                            deliveryType === 'pickup'
+                              ? 'border-primary bg-primary text-white'
+                              : 'border-muted-foreground/40'
+                          }`}
+                        >
+                          {deliveryType === 'pickup' && <Check className="w-3 h-3 stroke-[3]" />}
+                        </div>
+                        <div>
+                          <div
+                            className="flex items-center gap-1.5 font-semibold text-sm"
+                            style={{ color: 'var(--foreground)' }}
+                          >
+                            <Building2 className="w-4 h-4 text-primary" />
+                            <span>Retirada no Local</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Retire direto em nossa fábrica (Grátis)
+                          </p>
+                        </div>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Conditional content based on deliveryType */}
+                  {deliveryType === 'delivery' && deliveryConfig.delivery_enabled ? (
+                    <div className="space-y-4 pt-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          Selecione o endereço de entrega:
+                        </span>
+                        <div className="flex items-center gap-3">
+                          <Link
+                            to="/account"
+                            className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors no-underline hidden sm:inline"
+                          >
+                            Gerenciar em Minha Conta
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => setIsAddressModalOpen(true)}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            Novo endereço
+                          </button>
+                        </div>
+                      </div>
+
+                      {loadingAddresses ? (
+                        <div className="p-6 text-center text-xs text-muted-foreground">
+                          <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-primary" />
+                          Carregando endereços...
+                        </div>
+                      ) : addresses.length === 0 ? (
+                        <div
+                          className="p-5 rounded-xl border border-dashed text-center space-y-3"
+                          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--muted)' }}
+                        >
+                          <MapPin className="w-8 h-8 mx-auto text-muted-foreground" />
+                          <div>
+                            <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
+                              Nenhum endereço cadastrado
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Cadastre um endereço para receber seu pedido ou adicione em Minha Conta.
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setIsAddressModalOpen(true)}
+                              className="inline-flex items-center justify-center py-2 px-4 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90 cursor-pointer"
+                              style={{ backgroundColor: 'var(--primary)' }}
+                            >
+                              <Plus className="w-3.5 h-3.5 mr-1" />
+                              Cadastrar Endereço
+                            </button>
+                            <Link
+                              to="/account"
+                              className="inline-flex items-center justify-center py-2 px-4 rounded-xl text-xs font-semibold border transition-all hover:opacity-90 no-underline"
+                              style={{
+                                backgroundColor: 'var(--card)',
+                                borderColor: 'var(--border)',
+                                color: 'var(--foreground)',
+                              }}
+                            >
+                              Ir para Minha Conta
+                            </Link>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2.5">
+                          {addresses.map((addr) => (
+                            <label
+                              key={addr.id}
+                              className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition-all ${
+                                selectedAddressId === addr.id
+                                  ? 'border-primary bg-primary/5'
+                                  : 'border-border hover:border-border/80'
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name="address_selection"
+                                checked={selectedAddressId === addr.id}
+                                onChange={() => setSelectedAddressId(addr.id)}
+                                className="mt-1 accent-primary"
+                              />
+                              <div className="flex-1 min-w-0 text-xs sm:text-sm">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                                    {addr.street}, nº {addr.number}
+                                  </p>
+                                  {addr.is_default && (
+                                    <span
+                                      className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                                      style={{
+                                        backgroundColor: 'var(--muted)',
+                                        color: 'var(--muted-foreground)',
+                                      }}
+                                    >
+                                      Padrão
+                                    </span>
+                                  )}
+                                </div>
+                                {addr.complement && (
+                                  <p className="text-muted-foreground text-xs mt-0.5">
+                                    Complemento: {addr.complement}
+                                  </p>
+                                )}
+                                <p className="text-muted-foreground text-xs mt-0.5">
+                                  {addr.neighborhood} — {addr.city}/{addr.state} • CEP: {addr.zip_code}
+                                </p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : deliveryType === 'pickup' && deliveryConfig.pickup_enabled ? (
+                    /* Pickup info box */
+                    <div
+                      className="p-4 rounded-xl border space-y-3"
+                      style={{
+                        backgroundColor: 'var(--muted)',
+                        borderColor: 'var(--border)',
+                      }}
+                    >
+                      <div className="flex items-start gap-3">
+                        <Building2 className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
+                        <div className="text-xs sm:text-sm space-y-1">
+                          <p className="font-bold" style={{ color: 'var(--foreground)' }}>
+                            Endereço para retirada
+                          </p>
+                          <p className="text-muted-foreground leading-relaxed whitespace-pre-line">
+                            {deliveryConfig.pickup_address || DEFAULT_PICKUP_ADDRESS}
+                          </p>
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground pt-1">
+                            <Clock className="w-3.5 h-3.5 text-primary" />
+                            <span>Retirada: Segunda a Sexta, das 08h às 17h</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className="text-[11px] p-2.5 rounded-lg font-medium"
+                        style={{
+                          backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                          color: 'var(--primary)',
+                        }}
+                      >
+                        ℹ️ Você receberá uma notificação quando seu pedido estiver pronto para retirada.
+                      </div>
+                    </div>
+                  ) : null}
+                </>
               )}
             </section>
 
@@ -2763,8 +3049,14 @@ export function CheckoutPage() {
                 </div>
 
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Frete</span>
-                  <span className="text-success font-semibold">Grátis</span>
+                  <span>{deliveryType === 'pickup' ? 'Retirada' : 'Entrega'}</span>
+                  {shippingCost === 0 ? (
+                    <span className="text-success font-semibold">Grátis</span>
+                  ) : (
+                    <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                      {formatBRL(shippingCost)}
+                    </span>
+                  )}
                 </div>
 
                 <div
@@ -2780,7 +3072,12 @@ export function CheckoutPage() {
               <button
                 type="button"
                 onClick={handleFinalizeOrder}
-                disabled={isSubmitting || (deliveryType === 'delivery' && !selectedAddressId)}
+                disabled={
+                  isSubmitting ||
+                  loadingSettings ||
+                  (!deliveryConfig.delivery_enabled && !deliveryConfig.pickup_enabled) ||
+                  (deliveryType === 'delivery' && !selectedAddressId)
+                }
                 className="w-full py-3.5 px-6 rounded-xl font-bold text-white text-sm transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
                 style={{ backgroundColor: 'var(--primary)' }}
               >
@@ -2789,6 +3086,8 @@ export function CheckoutPage() {
                     <Loader2 className="w-5 h-5 animate-spin" />
                     <span>Processando pedido...</span>
                   </>
+                ) : !deliveryConfig.delivery_enabled && !deliveryConfig.pickup_enabled ? (
+                  <span>Recebimento Indisponível</span>
                 ) : paymentMethod !== 'cash_on_delivery' ? (
                   <>
                     <CreditCard className="w-5 h-5" />
@@ -2802,7 +3101,7 @@ export function CheckoutPage() {
                 )}
               </button>
 
-              {deliveryType === 'delivery' && !selectedAddressId && (
+              {deliveryConfig.delivery_enabled && deliveryType === 'delivery' && !selectedAddressId && (
                 <p className="text-xs text-destructive text-center">
                   Selecione ou cadastre um endereço de entrega para finalizar.
                 </p>
