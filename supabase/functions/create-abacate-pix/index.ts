@@ -14,6 +14,7 @@ interface AbacateCustomerPayload {
   name?: string;
   email?: string;
   cellphone?: string;
+  taxId?: string;
 }
 
 interface AbacateTransparentData {
@@ -22,7 +23,8 @@ interface AbacateTransparentData {
   expiresIn: number;
   customer?: AbacateCustomerPayload;
   metadata?: {
-    orderId: string;
+    pedidoId: string;
+    [key: string]: unknown;
   };
 }
 
@@ -48,8 +50,8 @@ interface AbacateApiResponse {
 // Allowed order payment statuses that can generate a PIX billing
 const PAYABLE_STATUSES = ['pending', 'failed'];
 
-// AbacatePay PIX billing expiration in seconds (30 minutes)
-const PIX_EXPIRATION_SECONDS = 1800;
+// AbacatePay PIX billing expiration in seconds (1 hour / 3600 seconds)
+const PIX_EXPIRATION_SECONDS = 3600;
 
 serve(async (req: Request) => {
   // Handle CORS preflight
@@ -248,10 +250,10 @@ serve(async (req: Request) => {
       .maybeSingle();
 
     const customerObj: AbacateCustomerPayload = {};
-    if (profile?.name && typeof profile.name === 'string') {
+    if (profile?.name && typeof profile.name === 'string' && profile.name.trim()) {
       customerObj.name = profile.name.trim();
     }
-    if (user.email && typeof user.email === 'string') {
+    if (user.email && typeof user.email === 'string' && user.email.trim()) {
       customerObj.email = user.email.trim();
     }
     if (profile?.phone && typeof profile.phone === 'string') {
@@ -265,7 +267,7 @@ serve(async (req: Request) => {
       customerPayload = customerObj;
     }
 
-    // ── 11. Build AbacatePay request payload ─────────────────────────────────
+    // ── 11. Build AbacatePay request payload (POST /v2/transparents/create) ───
     const abacatePayload: AbacateCreateTransparentRequest = {
       method: 'PIX',
       data: {
@@ -273,7 +275,7 @@ serve(async (req: Request) => {
         description: `Pedido Saturno Embalagens #${order.id.slice(0, 8).toUpperCase()}`,
         expiresIn: PIX_EXPIRATION_SECONDS,
         metadata: {
-          orderId: order.id,
+          pedidoId: order.id,
         },
       },
     };
@@ -305,6 +307,7 @@ serve(async (req: Request) => {
       return new Response(
         JSON.stringify({
           error: 'Não foi possível gerar a cobrança PIX no momento. Tente novamente em instantes.',
+          details: abacateJson.error || `HTTP ${abacateRes.status}`,
         }),
         { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
