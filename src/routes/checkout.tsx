@@ -344,40 +344,6 @@ function StripePaymentForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {selectedMethod === 'boleto' && (
-        <div
-          className="p-4 rounded-xl text-xs border space-y-2.5"
-          style={{
-            backgroundColor: 'rgba(59, 130, 246, 0.06)',
-            borderColor: 'rgba(59, 130, 246, 0.2)',
-            color: 'var(--foreground)',
-          }}
-        >
-          <div className="flex items-center gap-2 font-semibold text-primary text-sm">
-            <FileText className="w-4 h-4" />
-            <span>Informações para Emissão do Boleto</span>
-          </div>
-          <p className="text-muted-foreground leading-relaxed">
-            Preencha os dados solicitados abaixo para gerar seu boleto bancário. O documento estará disponível para visualização e download logo após a confirmação.
-          </p>
-          <div
-            className="p-3 rounded-lg text-xs border space-y-1"
-            style={{
-              backgroundColor: 'rgba(234, 179, 8, 0.08)',
-              borderColor: 'rgba(234, 179, 8, 0.25)',
-              color: 'var(--foreground)',
-            }}
-          >
-            <p className="font-semibold text-amber-700 dark:text-amber-400">
-              ⚠️ Atenção ao Documento (CPF/CNPJ):
-            </p>
-            <p className="text-muted-foreground">
-              Informe seu próprio CPF ou CNPJ como documento do comprador. Não informe o CPF/CNPJ da Saturno Embalagens.
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* Stripe Payment Element Placeholder while loading */}
       {!paymentReady && (
         <div
@@ -503,6 +469,8 @@ export function CheckoutPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<CompletedOrderData | null>(null);
   const [stripePaymentState, setStripePaymentState] = useState<StripePaymentState | null>(null);
+  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
+  const [pendingOrderData, setPendingOrderData] = useState<CompletedOrderData | null>(null);
 
   // Stripe confirmation state
   const pollingRef = useRef<number | null>(null);
@@ -742,19 +710,29 @@ export function CheckoutPage() {
 
   // ── Payment confirmed callback ─────────────────────────────────────────────
   const handlePaymentConfirmed = useCallback(() => {
+    void clearCart();
+    setPendingOrderId(null);
+    setPendingOrderData(null);
     setStripePaymentState((prev) => (prev ? { ...prev, isPaid: true } : null));
-  }, []);
+  }, [clearCart]);
 
   // ── Boleto issued callback ─────────────────────────────────────────────────
-  const handleBoletoIssued = useCallback((pdfUrl: string | null, hostedUrl: string | null) => {
-    setStripePaymentState((prev) =>
-      prev ? { ...prev, boletoPdfUrl: pdfUrl, boletoHostedUrl: hostedUrl } : null
-    );
-  }, []);
+  const handleBoletoIssued = useCallback(
+    (pdfUrl: string | null, hostedUrl: string | null) => {
+      void clearCart();
+      setPendingOrderId(null);
+      setPendingOrderData(null);
+      setStripePaymentState((prev) =>
+        prev ? { ...prev, boletoPdfUrl: pdfUrl, boletoHostedUrl: hostedUrl } : null
+      );
+    },
+    [clearCart]
+  );
 
   // ── Handle Change Method from Stripe screen ───────────────────────────────
   const handleChangeMethod = useCallback(() => {
     setStripePaymentState(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
   // ── Label helper ──────────────────────────────────────────────────────────
@@ -811,135 +789,161 @@ export function CheckoutPage() {
     setIsSubmitting(true);
 
     try {
-      // 1. REVALIDATE STOCK & STATUS DIRECTLY FROM DATABASE
-      const productIds = cart.items.map((i) => i.product_id);
-      const { data: dbProducts, error: prodErr } = await supabase
-        .from('products')
-        .select('id, name, price, stock_quantity, is_active')
-        .in('id', productIds);
-
-      if (prodErr || !dbProducts) {
-        throw new Error('Não foi possível verificar a disponibilidade dos produtos.');
-      }
-
-      for (const item of cart.items) {
-        const liveProd = dbProducts.find((p) => p.id === item.product_id);
-        if (!liveProd || !liveProd.is_active) {
-          throw new Error(`O produto "${item.product?.name || 'Item'}" não está mais disponível.`);
-        }
-        if (liveProd.stock_quantity < item.quantity) {
-          throw new Error(
-            `Estoque insuficiente para "${liveProd.name}". Disponível: ${liveProd.stock_quantity}, solicitado: ${item.quantity}.`
-          );
-        }
-      }
-
-      // 2. COMPUTE SNAPSHOT TOTALS (from live DB prices)
-      const verifiedSubtotal = cart.items.reduce((sum, item) => {
-        const liveProd = dbProducts.find((p) => p.id === item.product_id);
-        const unitPrice = liveProd ? liveProd.price : item.product.price;
-        return sum + unitPrice * item.quantity;
-      }, 0);
-
-      const verifiedShipping = 0;
-      const verifiedTotal = verifiedSubtotal + verifiedShipping;
-
-      // 3. CREATE ORDER IN public.orders
-      // DB constraint allows 'stripe_online' or 'cash_on_delivery'
       const dbPaymentMethod =
         paymentMethod === 'cash_on_delivery' ? 'cash_on_delivery' : 'stripe_online';
-
-      const orderPayload = {
-        user_id: user.id,
-        delivery_type: deliveryType,
-        shipping_address_id: deliveryType === 'delivery' ? selectedAddressId : null,
-        pickup_address: deliveryType === 'pickup' ? PICKUP_ADDRESS_TEXT : null,
-        payment_method: dbPaymentMethod,
-        payment_status: 'pending',
-        subtotal: verifiedSubtotal,
-        shipping_cost: verifiedShipping,
-        total: verifiedTotal,
-        customer_note: customerNote.trim() || null,
-        status: 'pending',
-      };
-
-      const { data: createdOrder, error: orderErr } = await supabase
-        .from('orders')
-        .insert(orderPayload)
-        .select()
-        .single();
-
-      if (orderErr || !createdOrder) {
-        throw new Error(orderErr?.message || 'Erro ao criar pedido no banco de dados.');
-      }
-
-      // 4. CREATE ORDER ITEMS (SNAPSHOT)
-      const orderItemsPayload = cart.items.map((item) => {
-        const liveProd = dbProducts.find((p) => p.id === item.product_id)!;
-        return {
-          order_id: createdOrder.id,
-          product_id: item.product_id,
-          product_name: liveProd.name,
-          product_price: liveProd.price,
-          quantity: item.quantity,
-          total_price: liveProd.price * item.quantity,
-        };
-      });
-
-      const { error: itemsErr } = await supabase.from('order_items').insert(orderItemsPayload);
-      if (itemsErr) {
-        throw new Error('Falha ao registrar os itens do pedido: ' + itemsErr.message);
-      }
-
-      // 5. UPDATE STOCK & REGISTER MOVEMENTS
-      for (const item of cart.items) {
-        const liveProd = dbProducts.find((p) => p.id === item.product_id)!;
-        const newStock = Math.max(0, liveProd.stock_quantity - item.quantity);
-
-        const { error: stockUpdateErr } = await supabase
-          .from('products')
-          .update({ stock_quantity: newStock })
-          .eq('id', item.product_id);
-
-        if (stockUpdateErr) {
-          console.warn('[CHECKOUT] Aviso ao atualizar estoque:', stockUpdateErr.message);
-        }
-
-        const { error: movErr } = await supabase.from('stock_movements').insert({
-          product_id: item.product_id,
-          quantity: item.quantity,
-          movement_type: 'out',
-          reason: `Pedido #${createdOrder.id.slice(0, 8).toUpperCase()}`,
-          reference: createdOrder.id,
-          performed_by: user.id,
-        });
-
-        if (movErr) {
-          console.warn('[CHECKOUT] Aviso ao inserir stock_movements:', movErr.message);
-        }
-      }
-
       const paymentMethodLabel = getPaymentMethodDisplayLabel(paymentMethod);
 
-      const completedOrderData: CompletedOrderData = {
-        id: createdOrder.id,
-        created_at: createdOrder.created_at,
-        total: verifiedTotal,
-        subtotal: verifiedSubtotal,
-        shipping_cost: verifiedShipping,
-        delivery_type: deliveryType,
-        payment_method: paymentMethodLabel,
-        payment_status: 'pending',
-        customer_note: customerNote.trim() || null,
-        shipping_address: deliveryType === 'delivery' ? selectedAddress : null,
-        pickup_address: deliveryType === 'pickup' ? PICKUP_ADDRESS_TEXT : null,
-        items: orderItemsPayload.map((it) => ({
-          product_name: it.product_name,
-          product_price: it.product_price,
-          quantity: it.quantity,
-          total_price: it.total_price,
-        })),
-      };
+      let targetOrderId = pendingOrderId;
+      let completedOrderData = pendingOrderData;
+      let verifiedTotal = total;
+
+      // If an order has not been created yet for this checkout session:
+      if (!targetOrderId || !completedOrderData) {
+        // 1. REVALIDATE STOCK & STATUS DIRECTLY FROM DATABASE
+        const productIds = cart.items.map((i) => i.product_id);
+        const { data: dbProducts, error: prodErr } = await supabase
+          .from('products')
+          .select('id, name, price, stock_quantity, is_active')
+          .in('id', productIds);
+
+        if (prodErr || !dbProducts) {
+          throw new Error('Não foi possível verificar a disponibilidade dos produtos.');
+        }
+
+        for (const item of cart.items) {
+          const liveProd = dbProducts.find((p) => p.id === item.product_id);
+          if (!liveProd || !liveProd.is_active) {
+            throw new Error(`O produto "${item.product?.name || 'Item'}" não está mais disponível.`);
+          }
+          if (liveProd.stock_quantity < item.quantity) {
+            throw new Error(
+              `Estoque insuficiente para "${liveProd.name}". Disponível: ${liveProd.stock_quantity}, solicitado: ${item.quantity}.`
+            );
+          }
+        }
+
+        // 2. COMPUTE SNAPSHOT TOTALS (from live DB prices)
+        const verifiedSubtotal = cart.items.reduce((sum, item) => {
+          const liveProd = dbProducts.find((p) => p.id === item.product_id);
+          const unitPrice = liveProd ? liveProd.price : item.product.price;
+          return sum + unitPrice * item.quantity;
+        }, 0);
+
+        const verifiedShipping = 0;
+        verifiedTotal = verifiedSubtotal + verifiedShipping;
+
+        // 3. CREATE ORDER IN public.orders
+        const orderPayload = {
+          user_id: user.id,
+          delivery_type: deliveryType,
+          shipping_address_id: deliveryType === 'delivery' ? selectedAddressId : null,
+          pickup_address: deliveryType === 'pickup' ? PICKUP_ADDRESS_TEXT : null,
+          payment_method: dbPaymentMethod,
+          payment_status: 'pending',
+          subtotal: verifiedSubtotal,
+          shipping_cost: verifiedShipping,
+          total: verifiedTotal,
+          customer_note: customerNote.trim() || null,
+          status: 'pending',
+        };
+
+        const { data: createdOrder, error: orderErr } = await supabase
+          .from('orders')
+          .insert(orderPayload)
+          .select()
+          .single();
+
+        if (orderErr || !createdOrder) {
+          throw new Error(orderErr?.message || 'Erro ao criar pedido no banco de dados.');
+        }
+
+        targetOrderId = createdOrder.id;
+
+        // 4. CREATE ORDER ITEMS (SNAPSHOT)
+        const orderItemsPayload = cart.items.map((item) => {
+          const liveProd = dbProducts.find((p) => p.id === item.product_id)!;
+          return {
+            order_id: createdOrder.id,
+            product_id: item.product_id,
+            product_name: liveProd.name,
+            product_price: liveProd.price,
+            quantity: item.quantity,
+            total_price: liveProd.price * item.quantity,
+          };
+        });
+
+        const { error: itemsErr } = await supabase.from('order_items').insert(orderItemsPayload);
+        if (itemsErr) {
+          throw new Error('Falha ao registrar os itens do pedido: ' + itemsErr.message);
+        }
+
+        // 5. UPDATE STOCK & REGISTER MOVEMENTS
+        for (const item of cart.items) {
+          const liveProd = dbProducts.find((p) => p.id === item.product_id)!;
+          const newStock = Math.max(0, liveProd.stock_quantity - item.quantity);
+
+          const { error: stockUpdateErr } = await supabase
+            .from('products')
+            .update({ stock_quantity: newStock })
+            .eq('id', item.product_id);
+
+          if (stockUpdateErr) {
+            console.warn('[CHECKOUT] Aviso ao atualizar estoque:', stockUpdateErr.message);
+          }
+
+          const { error: movErr } = await supabase.from('stock_movements').insert({
+            product_id: item.product_id,
+            quantity: item.quantity,
+            movement_type: 'out',
+            reason: `Pedido #${createdOrder.id.slice(0, 8).toUpperCase()}`,
+            reference: createdOrder.id,
+            performed_by: user.id,
+          });
+
+          if (movErr) {
+            console.warn('[CHECKOUT] Aviso ao inserir stock_movements:', movErr.message);
+          }
+        }
+
+        completedOrderData = {
+          id: createdOrder.id,
+          created_at: createdOrder.created_at,
+          total: verifiedTotal,
+          subtotal: verifiedSubtotal,
+          shipping_cost: verifiedShipping,
+          delivery_type: deliveryType,
+          payment_method: paymentMethodLabel,
+          payment_status: 'pending',
+          customer_note: customerNote.trim() || null,
+          shipping_address: deliveryType === 'delivery' ? selectedAddress : null,
+          pickup_address: deliveryType === 'pickup' ? PICKUP_ADDRESS_TEXT : null,
+          items: orderItemsPayload.map((it) => ({
+            product_name: it.product_name,
+            product_price: it.product_price,
+            quantity: it.quantity,
+            total_price: it.total_price,
+          })),
+        };
+
+        setPendingOrderId(targetOrderId);
+        setPendingOrderData(completedOrderData);
+      } else {
+        // If order already exists in state, update payment_method if changed
+        await supabase
+          .from('orders')
+          .update({
+            payment_method: dbPaymentMethod,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', targetOrderId);
+
+        completedOrderData = {
+          ...completedOrderData,
+          payment_method: paymentMethodLabel,
+        };
+        setPendingOrderData(completedOrderData);
+        verifiedTotal = completedOrderData.total;
+      }
 
       // 6. BRANCH: online payment (Stripe) vs cash_on_delivery
       if (paymentMethod !== 'cash_on_delivery') {
@@ -950,7 +954,7 @@ export function CheckoutPage() {
           'create-stripe-payment',
           {
             body: {
-              order_id: createdOrder.id,
+              order_id: targetOrderId,
               payment_method: paymentMethod,
             },
             headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
@@ -960,15 +964,12 @@ export function CheckoutPage() {
         if (paymentErr || !paymentRes?.client_secret) {
           console.error('[CHECKOUT] Erro na Edge Function create-stripe-payment:', paymentErr);
           throw new Error(
-            'Pedido registrado, mas não foi possível inicializar o ambiente de pagamento. Tente novamente em instantes.'
+            'Não foi possível inicializar o ambiente de pagamento. Tente novamente em instantes.'
           );
         }
 
-        // 7. CLEAR CART only AFTER payment preparation has succeeded
-        await clearCart();
-
         setStripePaymentState({
-          orderId: createdOrder.id,
+          orderId: targetOrderId,
           total: verifiedTotal,
           clientSecret: paymentRes.client_secret,
           selectedMethod: paymentMethod,
@@ -978,11 +979,13 @@ export function CheckoutPage() {
           boletoHostedUrl: null,
         });
 
-        toast.success('Pedido criado! Prossiga com o pagamento.');
+        toast.success('Ambiente de pagamento carregado.');
       } else {
         // Cash on delivery — clear cart and confirm order immediately
         await clearCart();
         setCompletedOrder(completedOrderData);
+        setPendingOrderId(null);
+        setPendingOrderData(null);
         toast.success('Pedido finalizado com sucesso!');
       }
 
