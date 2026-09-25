@@ -23,6 +23,8 @@ import {
   ExternalLink,
   ArrowLeft,
   Smartphone,
+  QrCode,
+  Copy,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { Profile } from '@/types/auth';
@@ -58,6 +60,7 @@ export const Route = createFileRoute('/checkout')({
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type PaymentMethodOption =
+  | 'abacate_pix'
   | 'card'
   | 'apple_pay'
   | 'google_pay'
@@ -95,6 +98,17 @@ interface CompletedOrderData {
     quantity: number;
     total_price: number;
   }[];
+}
+
+/** State for orders paying via AbacatePay PIX */
+export interface AbacatePixPaymentState {
+  orderId: string;
+  total: number;
+  pixId: string;
+  brCode: string;
+  qrCodeBase64: string | null;
+  expiresAt: string | null;
+  orderData: CompletedOrderData;
 }
 
 /** State for orders that require online payment via Stripe */
@@ -526,6 +540,388 @@ function StripePaymentForm({
   );
 }
 
+// ── AbacatePixPaymentScreen Component ────────────────────────────────────────
+
+interface AbacatePixPaymentScreenProps {
+  pixState: AbacatePixPaymentState;
+  onChangeMethod: () => void;
+  onRegeneratePix: () => Promise<void>;
+  formatBRL: (val: number) => string;
+}
+
+function AbacatePixPaymentScreen({
+  pixState,
+  onChangeMethod,
+  onRegeneratePix,
+  formatBRL,
+}: AbacatePixPaymentScreenProps) {
+  const [copied, setCopied] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [timeLeftSeconds, setTimeLeftSeconds] = useState<number | null>(() => {
+    if (!pixState.expiresAt) return null;
+    const diff = Math.floor((new Date(pixState.expiresAt).getTime() - Date.now()) / 1000);
+    return Math.max(0, diff);
+  });
+
+  // Countdown timer
+  useEffect(() => {
+    if (!pixState.expiresAt) return;
+
+    const updateTimer = () => {
+      const diff = Math.floor((new Date(pixState.expiresAt!).getTime() - Date.now()) / 1000);
+      setTimeLeftSeconds(Math.max(0, diff));
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [pixState.expiresAt]);
+
+  const isExpired = timeLeftSeconds !== null && timeLeftSeconds <= 0;
+
+  const formattedTimeLeft = useMemo(() => {
+    if (timeLeftSeconds === null) return null;
+    const minutes = Math.floor(timeLeftSeconds / 60);
+    const seconds = timeLeftSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }, [timeLeftSeconds]);
+
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(pixState.brCode);
+      setCopied(true);
+      toast.success('Código PIX copiado!');
+      setTimeout(() => setCopied(false), 3000);
+    } catch {
+      toast.error('Erro ao copiar código. Selecione o texto e copie manualmente.');
+    }
+  };
+
+  const handleRegenerate = async () => {
+    setIsRegenerating(true);
+    try {
+      await onRegeneratePix();
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  const qrImageSrc = useMemo(() => {
+    if (!pixState.qrCodeBase64) return null;
+    if (pixState.qrCodeBase64.startsWith('data:') || pixState.qrCodeBase64.startsWith('http')) {
+      return pixState.qrCodeBase64;
+    }
+    return `data:image/png;base64,${pixState.qrCodeBase64}`;
+  }, [pixState.qrCodeBase64]);
+
+  return (
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+      <Header showNav />
+
+      <main className="flex-1 max-w-2xl mx-auto px-4 py-6 sm:py-10 w-full">
+        {/* Status Card */}
+        <div
+          className="rounded-2xl p-6 sm:p-8 text-center mb-6 border"
+          style={{
+            backgroundColor: 'var(--card)',
+            borderColor: 'var(--border)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+        >
+          <div
+            className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 text-primary"
+            style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)' }}
+          >
+            <QrCode className="w-8 h-8 sm:w-10 sm:h-10" />
+          </div>
+
+          <span
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider mb-2 text-primary"
+            style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)' }}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            Pagamento Instantâneo PIX
+          </span>
+
+          <h1
+            className="text-xl sm:text-2xl font-bold mb-2"
+            style={{ color: 'var(--foreground)' }}
+          >
+            Pagamento via PIX
+          </h1>
+
+          <p className="text-xs sm:text-sm text-muted-foreground max-w-md mx-auto">
+            Escaneie o QR Code usando o aplicativo do seu banco ou utilize o PIX Copia e Cola.
+          </p>
+
+          {/* Order metadata badges */}
+          <div
+            className="flex flex-wrap items-center justify-center gap-2 sm:gap-4 mt-4 pt-4 border-t"
+            style={{ borderColor: 'var(--border)' }}
+          >
+            <div
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold"
+              style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
+            >
+              <span>Pedido: </span>
+              <span className="text-primary font-mono font-bold">
+                #{pixState.orderId.slice(0, 8).toUpperCase()}
+              </span>
+            </div>
+            <div
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold"
+              style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
+            >
+              <span>Valor: </span>
+              <span className="text-primary font-bold">{formatBRL(pixState.total)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* PIX Details Card */}
+        <div
+          className="rounded-2xl p-5 sm:p-6 mb-6 border space-y-6"
+          style={{
+            backgroundColor: 'var(--card)',
+            borderColor: 'var(--border)',
+          }}
+        >
+          {/* Expiration warning / timer */}
+          {isExpired ? (
+            <div
+              className="p-4 rounded-xl border text-xs sm:text-sm flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left"
+              style={{
+                backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                borderColor: 'rgba(239, 68, 68, 0.25)',
+                color: '#dc2626',
+              }}
+            >
+              <div className="flex items-center gap-2 font-semibold">
+                <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-500" />
+                <span>Este código PIX expirou.</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleRegenerate}
+                disabled={isRegenerating}
+                className="py-2 px-4 rounded-xl text-xs font-bold text-white transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer flex-shrink-0"
+                style={{ backgroundColor: 'var(--primary)' }}
+              >
+                {isRegenerating ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Gerando...</span>
+                  </>
+                ) : (
+                  <span>Gerar novo PIX</span>
+                )}
+              </button>
+            </div>
+          ) : formattedTimeLeft ? (
+            <div
+              className="p-3 rounded-xl border text-xs flex items-center justify-center gap-2 font-medium"
+              style={{
+                backgroundColor: 'rgba(59, 130, 246, 0.06)',
+                borderColor: 'rgba(59, 130, 246, 0.2)',
+                color: 'var(--primary)',
+              }}
+            >
+              <Clock className="w-4 h-4" />
+              <span>Este PIX expira em: </span>
+              <strong className="font-mono text-sm">{formattedTimeLeft}</strong>
+            </div>
+          ) : null}
+
+          {/* QR Code Section */}
+          <div className="text-center space-y-3">
+            <h2 className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>
+              1. Escaneie o QR Code
+            </h2>
+            <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+              Abra o app do seu banco, escolha <strong>Pagar com PIX</strong> e aponte a câmera para o QR Code:
+            </p>
+
+            <div className="flex justify-center pt-2">
+              <div
+                className={`p-4 rounded-2xl border bg-white inline-block shadow-sm transition-opacity ${
+                  isExpired ? 'opacity-30 grayscale' : 'opacity-100'
+                }`}
+              >
+                {qrImageSrc ? (
+                  <img
+                    src={qrImageSrc}
+                    alt="QR Code PIX AbacatePay"
+                    className="w-48 h-48 sm:w-56 sm:h-56 object-contain block mx-auto"
+                  />
+                ) : (
+                  <div className="w-48 h-48 sm:w-56 sm:h-56 flex flex-col items-center justify-center text-muted-foreground gap-2">
+                    <QrCode className="w-12 h-12" />
+                    <span className="text-xs">QR Code indisponível</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* PIX Copia e Cola Section */}
+          <div className="space-y-3 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+            <h2 className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>
+              2. PIX Copia e Cola
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Se preferir pagar pelo celular ou computador, copie o código abaixo:
+            </p>
+
+            <div className="space-y-2">
+              <div
+                className="p-3 rounded-xl border text-xs font-mono break-all max-h-24 overflow-y-auto select-all"
+                style={{
+                  backgroundColor: 'var(--muted)',
+                  borderColor: 'var(--border)',
+                  color: 'var(--foreground)',
+                }}
+              >
+                {pixState.brCode}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCopyCode}
+                disabled={isExpired}
+                className={`w-full py-3 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                  copied
+                    ? 'bg-green-600 text-white hover:bg-green-700'
+                    : 'text-white hover:opacity-90'
+                }`}
+                style={{
+                  backgroundColor: copied ? '#16a34a' : 'var(--primary)',
+                }}
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-4 h-4 stroke-[3]" />
+                    <span>Código PIX copiado!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    <span>Copiar Código PIX</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Status feedback box */}
+          <div
+            className="p-4 rounded-xl border text-xs flex items-center gap-3"
+            style={{
+              backgroundColor: 'rgba(59, 130, 246, 0.06)',
+              borderColor: 'rgba(59, 130, 246, 0.2)',
+            }}
+          >
+            <Loader2 className="w-4 h-4 text-primary animate-spin flex-shrink-0" />
+            <div className="space-y-0.5">
+              <p className="font-semibold text-primary">
+                Aguardando confirmação do pagamento...
+              </p>
+              <p className="text-muted-foreground">
+                O status do seu pedido será atualizado após a liquidação da transferência.
+              </p>
+            </div>
+          </div>
+
+          {/* Change payment method button */}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={onChangeMethod}
+              className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Trocar forma de pagamento</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Order Summary */}
+        <div
+          className="rounded-2xl p-5 sm:p-6 mb-6 border space-y-4 text-xs sm:text-sm"
+          style={{
+            backgroundColor: 'var(--card)',
+            borderColor: 'var(--border)',
+          }}
+        >
+          <h2 className="font-bold text-base" style={{ color: 'var(--foreground)' }}>
+            Detalhes do Pedido
+          </h2>
+
+          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+            {pixState.orderData.items.map((item, idx) => (
+              <div key={idx} className="py-2.5 flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate" style={{ color: 'var(--foreground)' }}>
+                    {item.product_name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {item.quantity} un. × {formatBRL(item.product_price)}
+                  </p>
+                </div>
+                <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                  {formatBRL(item.total_price)}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div
+            className="pt-3 border-t flex justify-between font-bold text-sm"
+            style={{ borderColor: 'var(--border)' }}
+          >
+            <span style={{ color: 'var(--foreground)' }}>Total</span>
+            <span className="text-primary text-base font-black">{formatBRL(pixState.total)}</span>
+          </div>
+        </div>
+
+        {/* Navigation */}
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <Link
+            to="/account"
+            className="inline-flex items-center justify-center py-3 px-6 rounded-xl font-semibold text-white transition-all hover:opacity-90"
+            style={{ backgroundColor: 'var(--primary)' }}
+          >
+            <FileText className="w-4 h-4 mr-2" />
+            Ver meus pedidos
+          </Link>
+          <Link
+            to="/"
+            className="inline-flex items-center justify-center py-3 px-6 rounded-xl font-medium transition-all hover:opacity-80 border"
+            style={{
+              backgroundColor: 'var(--card)',
+              borderColor: 'var(--border)',
+              color: 'var(--foreground)',
+            }}
+          >
+            Voltar para o início
+          </Link>
+        </div>
+      </main>
+
+      <footer
+        className="border-t mt-12"
+        style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+      >
+        <div className="max-w-5xl mx-auto px-4 py-8 text-center">
+          <p className="text-xs text-muted-foreground">
+            © 2026 Saturno Embalagens. Todos os direitos reservados.
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
 // ── Main CheckoutPage ────────────────────────────────────────────────────────
 
 export function CheckoutPage() {
@@ -535,7 +931,7 @@ export function CheckoutPage() {
 
   // Form states
   const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup'>('delivery');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodOption>('card');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodOption>('abacate_pix');
   const [customerNote, setCustomerNote] = useState('');
   const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string>('');
@@ -560,6 +956,7 @@ export function CheckoutPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<CompletedOrderData | null>(null);
   const [stripePaymentState, setStripePaymentState] = useState<StripePaymentState | null>(null);
+  const [abacatePixState, setAbacatePixState] = useState<AbacatePixPaymentState | null>(null);
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
   const [pendingOrderData, setPendingOrderData] = useState<CompletedOrderData | null>(null);
 
@@ -781,9 +1178,56 @@ export function CheckoutPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
+  // ── Handle Change Method from PIX screen ──────────────────────────────────
+  const handlePixChangeMethod = useCallback(() => {
+    setAbacatePixState(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  // ── Handle Regenerate PIX ─────────────────────────────────────────────────
+  const handleRegeneratePix = useCallback(async () => {
+    if (!abacatePixState) return;
+    const targetOrderId = abacatePixState.orderId;
+    const session = await supabase.auth.getSession();
+    const accessToken = session.data?.session?.access_token;
+
+    const { data: pixRes, error: pixErr } = await supabase.functions.invoke(
+      'create-abacate-pix',
+      {
+        body: {
+          order_id: targetOrderId,
+        },
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      }
+    );
+
+    if (pixErr || !pixRes?.success || !pixRes?.data?.brCode) {
+      console.error('[CHECKOUT] Erro ao regenerar PIX:', pixErr || pixRes?.error);
+      toast.error('Não foi possível gerar novo PIX. Tente novamente.');
+      return;
+    }
+
+    const pixData = pixRes.data;
+    setAbacatePixState((prev) =>
+      prev
+        ? {
+            ...prev,
+            pixId: pixData.id,
+            brCode: pixData.brCode,
+            qrCodeBase64: pixData.brCodeBase64 || null,
+            expiresAt: pixData.expiresAt || null,
+          }
+        : null
+    );
+
+    toast.success('Novo código PIX gerado com sucesso!');
+  }, [abacatePixState]);
+
   // ── Label helper ──────────────────────────────────────────────────────────
   const getPaymentMethodDisplayLabel = (method: PaymentMethodOption) => {
     switch (method) {
+      case 'abacate_pix':
+        return 'PIX';
       case 'card':
         return 'Cartão de Crédito / Débito';
       case 'apple_pay':
@@ -825,7 +1269,11 @@ export function CheckoutPage() {
 
     try {
       const dbPaymentMethod =
-        paymentMethod === 'cash_on_delivery' ? 'cash_on_delivery' : 'stripe_online';
+        paymentMethod === 'cash_on_delivery'
+          ? 'cash_on_delivery'
+          : paymentMethod === 'abacate_pix'
+            ? 'abacate_pix'
+            : 'stripe_online';
       const paymentMethodLabel = getPaymentMethodDisplayLabel(paymentMethod);
 
       let targetOrderId = pendingOrderId;
@@ -980,8 +1428,41 @@ export function CheckoutPage() {
         verifiedTotal = completedOrderData.total;
       }
 
-      // 6. BRANCH: online payment (Stripe) vs cash_on_delivery
-      if (paymentMethod !== 'cash_on_delivery') {
+      // 6. BRANCH: AbacatePay PIX vs Stripe vs cash_on_delivery
+      if (paymentMethod === 'abacate_pix') {
+        const session = await supabase.auth.getSession();
+        const accessToken = session.data?.session?.access_token;
+
+        const { data: pixRes, error: pixErr } = await supabase.functions.invoke(
+          'create-abacate-pix',
+          {
+            body: {
+              order_id: targetOrderId,
+            },
+            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+          }
+        );
+
+        if (pixErr || !pixRes?.success || !pixRes?.data?.brCode) {
+          console.error('[CHECKOUT] Erro na Edge Function create-abacate-pix:', pixErr || pixRes?.error);
+          throw new Error(
+            'Não foi possível gerar a cobrança PIX. Tente novamente ou escolha outra forma de pagamento.'
+          );
+        }
+
+        const pixData = pixRes.data;
+        setAbacatePixState({
+          orderId: targetOrderId,
+          total: verifiedTotal,
+          pixId: pixData.id,
+          brCode: pixData.brCode,
+          qrCodeBase64: pixData.brCodeBase64 || null,
+          expiresAt: pixData.expiresAt || null,
+          orderData: completedOrderData,
+        });
+
+        toast.success('Cobrança PIX gerada com sucesso!');
+      } else if (paymentMethod !== 'cash_on_delivery') {
         const session = await supabase.auth.getSession();
         const accessToken = session.data?.session?.access_token;
 
@@ -1112,10 +1593,12 @@ export function CheckoutPage() {
 
             <div className="space-y-2">
               <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
-                Preparando seu pagamento...
+                {paymentMethod === 'abacate_pix' ? 'Gerando seu PIX...' : 'Preparando seu pagamento...'}
               </h1>
               <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto">
-                Estamos preparando seu pedido. Aguarde alguns instantes.
+                {paymentMethod === 'abacate_pix'
+                  ? 'Estamos preparando sua cobrança. Aguarde alguns instantes.'
+                  : 'Estamos preparando seu pedido. Aguarde alguns instantes.'}
               </p>
             </div>
 
@@ -1137,6 +1620,18 @@ export function CheckoutPage() {
           </div>
         </main>
       </div>
+    );
+  }
+
+  // ── ABACATEPAY PIX PAYMENT SCREEN ─────────────────────────────────────────
+  if (abacatePixState) {
+    return (
+      <AbacatePixPaymentScreen
+        pixState={abacatePixState}
+        onChangeMethod={handlePixChangeMethod}
+        onRegeneratePix={handleRegeneratePix}
+        formatBRL={formatBRL}
+      />
     );
   }
 
@@ -1745,6 +2240,14 @@ export function CheckoutPage() {
     unavailableBadge?: string | undefined;
     badge?: string | undefined;
   }[] = [
+    {
+      id: 'abacate_pix',
+      title: 'PIX',
+      description: 'Pagamento instantâneo via PIX com QR Code e Copia e Cola.',
+      icon: <QrCode className="w-4 h-4 text-primary" />,
+      isAvailable: true,
+      badge: 'Instantâneo',
+    },
     {
       id: 'card',
       title: 'Cartão',
