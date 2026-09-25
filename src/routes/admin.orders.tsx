@@ -36,7 +36,7 @@ import {
 
 type OrderStatus = 'pending' | 'confirmed' | 'preparing' | 'shipped' | 'delivered' | 'cancelled';
 type PaymentStatus = 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded';
-type PaymentMethod = 'pix' | 'credit_card' | 'cash_on_delivery' | null;
+type PaymentMethod = 'pix' | 'abacate_pix' | 'credit_card' | 'cash_on_delivery' | null;
 type DeliveryType = 'delivery' | 'pickup';
 
 interface OrderItem {
@@ -80,6 +80,7 @@ interface Order {
   customer_note: string | null;
   created_at: string;
   updated_at: string;
+  abacate_pix_id: string | null;
   // joined
   profile?: CustomerProfile | null;
   shipping_address?: Address | null;
@@ -127,6 +128,7 @@ const ALL_STATUS_CONFIGS: Record<OrderStatus, StatusConfig> = {
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   pix: 'PIX',
+  abacate_pix: 'PIX (AbacatePay)',
   credit_card: 'Cartão de Crédito',
   cash_on_delivery: 'Pagamento na entrega',
 };
@@ -162,6 +164,7 @@ function shortId(id: string): string {
 function getPaymentIcon(method: PaymentMethod) {
   switch (method) {
     case 'pix':
+    case 'abacate_pix':
       return QrCode;
     case 'credit_card':
       return CreditCard;
@@ -210,6 +213,7 @@ function AdminOrdersPage() {
   // status updates in flight
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [updatingPaymentOrderId, setUpdatingPaymentOrderId] = useState<string | null>(null);
+  const [simulatingPixId, setSimulatingPixId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchOrders();
@@ -227,7 +231,7 @@ function AdminOrdersPage() {
           id, user_id, status, payment_status, payment_method,
           subtotal, shipping_cost, total,
           delivery_type, shipping_address_id, pickup_address,
-          customer_note, created_at, updated_at,
+          customer_note, created_at, updated_at, abacate_pix_id,
           profile:profiles!orders_user_id_fkey ( id, name, phone ),
           shipping_address:addresses!orders_shipping_address_id_fkey (
             id, street, number, complement, neighborhood, city, state, zip_code
@@ -368,6 +372,42 @@ function AdminOrdersPage() {
       toast.error(err.message || 'Erro ao atualizar status de pagamento.');
     } finally {
       setUpdatingPaymentOrderId(null);
+    }
+  };
+
+  // ── Simulate PIX Payment (DevMode) ───────────────────────────────────────
+  const handleSimulatePix = async (orderId: string) => {
+    if (!window.confirm('Atenção (DEV): Deseja simular o pagamento PIX para este pedido?')) return;
+
+    try {
+      setSimulatingPixId(orderId);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Usuário não autenticado.');
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/simulate-abacate-payment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ order_id: orderId }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Erro desconhecido na simulação.');
+      }
+
+      toast.success(data.message || 'Simulação aceita. Aguarde a confirmação automática pelo webhook.');
+      
+      // We don't change the status manually here, wait for webhook. 
+      // User can press the manual refresh button or wait.
+    } catch (err: any) {
+      console.error('[ADMIN-ORDERS] handleSimulatePix error:', err);
+      toast.error(err.message || 'Falha ao simular pagamento.');
+    } finally {
+      setSimulatingPixId(null);
     }
   };
 
@@ -1163,6 +1203,30 @@ function AdminOrdersPage() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Dev Mode Simulation Button */}
+                  {selectedOrder.payment_method === 'abacate_pix' && selectedOrder.abacate_pix_id && selectedOrder.payment_status !== 'paid' && (
+                    <div className="pt-3 border-t mt-3 flex justify-end" style={{ borderColor: 'var(--border)' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleSimulatePix(selectedOrder.id)}
+                        disabled={simulatingPixId === selectedOrder.id}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-primary bg-primary/10 hover:bg-primary/20 transition-colors cursor-pointer"
+                      >
+                        {simulatingPixId === selectedOrder.id ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Simulando pagamento...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            SIMULAR PAGAMENTO PIX (DEV)
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </section>
 
