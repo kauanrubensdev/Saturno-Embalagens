@@ -216,7 +216,7 @@ function StripePaymentForm({
   const paymentElementOptions = useMemo(() => {
     if (selectedMethod === 'card') {
       return {
-        layout: 'accordion' as const,
+        layout: 'tabs' as const,
         paymentMethodOrder: ['card'],
         wallets: {
           applePay: 'never' as const,
@@ -226,8 +226,7 @@ function StripePaymentForm({
     }
     if (selectedMethod === 'apple_pay') {
       return {
-        layout: 'accordion' as const,
-        paymentMethodOrder: ['card'],
+        layout: 'tabs' as const,
         wallets: {
           applePay: 'auto' as const,
           googlePay: 'never' as const,
@@ -236,8 +235,7 @@ function StripePaymentForm({
     }
     if (selectedMethod === 'google_pay') {
       return {
-        layout: 'accordion' as const,
-        paymentMethodOrder: ['card'],
+        layout: 'tabs' as const,
         wallets: {
           googlePay: 'auto' as const,
           applePay: 'never' as const,
@@ -246,7 +244,7 @@ function StripePaymentForm({
     }
     if (selectedMethod === 'boleto') {
       return {
-        layout: 'accordion' as const,
+        layout: 'tabs' as const,
         paymentMethodOrder: ['boleto'],
         wallets: {
           applePay: 'never' as const,
@@ -255,7 +253,7 @@ function StripePaymentForm({
       };
     }
     return {
-      layout: 'accordion' as const,
+      layout: 'tabs' as const,
     };
   }, [selectedMethod]);
 
@@ -844,7 +842,10 @@ export function CheckoutPage() {
         const { data: paymentRes, error: paymentErr } = await supabase.functions.invoke(
           'create-stripe-payment',
           {
-            body: { order_id: createdOrder.id },
+            body: {
+              order_id: createdOrder.id,
+              payment_method: paymentMethod,
+            },
             headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
           }
         );

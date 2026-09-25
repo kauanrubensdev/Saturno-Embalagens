@@ -58,7 +58,7 @@ serve(async (req: Request) => {
 
     // ── 3. Parse & validate request body ────────────────────────────────────
     const body = await req.json().catch(() => ({}));
-    const { order_id } = body;
+    const { order_id, payment_method } = body;
 
     if (!order_id) {
       return new Response(
@@ -66,6 +66,20 @@ serve(async (req: Request) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    // ── Whitelist & map payment methods ─────────────────────────────────────
+    // Allowed methods from frontend: 'card', 'boleto', 'apple_pay', 'google_pay'
+    // 'pix' is explicitly NOT allowed.
+    const ALLOWED_METHODS = ['card', 'boleto', 'apple_pay', 'google_pay'];
+    const selectedMethod =
+      typeof payment_method === 'string' && ALLOWED_METHODS.includes(payment_method)
+        ? payment_method
+        : 'card';
+
+    // Map strictly to Stripe payment_method_types:
+    // - 'boleto' -> ['boleto']
+    // - 'card', 'apple_pay', 'google_pay' -> ['card']
+    const targetPaymentMethodTypes = selectedMethod === 'boleto' ? ['boleto'] : ['card'];
 
     // ── 4. Fetch order — NEVER trust amount from frontend ────────────────────
     const { data: order, error: orderError } = await supabaseClient
@@ -99,7 +113,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // ── 7. Idempotency — reuse existing PaymentIntent if still usable ────────
+    // ── 7. Idempotency — reuse/update existing PaymentIntent if still usable ─
     const stripe = new Stripe(stripeSecretKey, {
       apiVersion: '2024-06-20',
       httpClient: Stripe.createFetchHttpClient(),
@@ -114,21 +128,42 @@ serve(async (req: Request) => {
           existing.status === 'requires_confirmation' ||
           existing.status === 'requires_action'
         ) {
-          console.log(
-            `[CREATE-STRIPE-PAYMENT] Reutilizando PaymentIntent existente ${existing.id} para pedido ${order.id}.`
-          );
-          return new Response(
-            JSON.stringify({ success: true, client_secret: existing.client_secret }),
-            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          const currentTypes = existing.payment_method_types || [];
+          const isMatching =
+            currentTypes.length === targetPaymentMethodTypes.length &&
+            targetPaymentMethodTypes.every((t) => currentTypes.includes(t));
+
+          if (isMatching) {
+            console.log(
+              `[CREATE-STRIPE-PAYMENT] Reutilizando PaymentIntent existente ${existing.id} para pedido ${order.id}.`
+            );
+            return new Response(
+              JSON.stringify({ success: true, client_secret: existing.client_secret }),
+              { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          } else if (existing.status === 'requires_payment_method') {
+            console.log(
+              `[CREATE-STRIPE-PAYMENT] Atualizando payment_method_types do PaymentIntent ${existing.id} para ${JSON.stringify(targetPaymentMethodTypes)}.`
+            );
+            const updated = await stripe.paymentIntents.update(existing.id, {
+              payment_method_types: targetPaymentMethodTypes,
+              metadata: {
+                ...existing.metadata,
+                selected_method: selectedMethod,
+              },
+            });
+            return new Response(
+              JSON.stringify({ success: true, client_secret: updated.client_secret }),
+              { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
         }
-        // Otherwise fall through to create a new one
         console.log(
           `[CREATE-STRIPE-PAYMENT] PaymentIntent ${existing.id} em status '${existing.status}', criando novo.`
         );
       } catch (retrieveErr: any) {
         console.warn(
-          `[CREATE-STRIPE-PAYMENT] Não foi possível recuperar PaymentIntent existente: ${retrieveErr.message}`
+          `[CREATE-STRIPE-PAYMENT] Não foi possível recuperar/atualizar PaymentIntent existente: ${retrieveErr.message}`
         );
       }
     }
@@ -146,21 +181,17 @@ serve(async (req: Request) => {
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountInCents,
       currency: 'brl',
-      // automatic_payment_methods lets Stripe present whichever methods are
-      // enabled on the Dashboard (Cards, Apple Pay, Google Pay, Boleto, etc.)
-      // PIX is NOT enabled on this account yet, so it will not appear.
-      automatic_payment_methods: {
-        enabled: true,
-      },
+      payment_method_types: targetPaymentMethodTypes,
       metadata: {
         order_id: order.id,
         user_id: user.id,
         app: 'SaturnoEmbalagens',
+        selected_method: selectedMethod,
       },
     });
 
     console.log(
-      `[CREATE-STRIPE-PAYMENT] PaymentIntent criado: ${paymentIntent.id} para pedido ${order.id}.`
+      `[CREATE-STRIPE-PAYMENT] PaymentIntent criado: ${paymentIntent.id} com métodos ${JSON.stringify(targetPaymentMethodTypes)} para pedido ${order.id}.`
     );
 
     // ── 9. Persist payment_intent_id on the order ────────────────────────────
