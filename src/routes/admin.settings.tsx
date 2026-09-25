@@ -37,6 +37,11 @@ import {
   Banknote,
   QrCode,
   ShieldCheck,
+  Plus,
+  Pencil,
+  Trash2,
+  Navigation,
+  Loader2,
 } from 'lucide-react';
 
 export const Route = createFileRoute('/admin/settings')({
@@ -81,6 +86,27 @@ interface OrdersStockSettings {
   stock_control: boolean;
 }
 
+interface ShippingZone {
+  id: string;
+  name: string;
+  min_distance_km: number;
+  max_distance_km: number | null;
+  price: number;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface ShippingZoneFormData {
+  id?: string;
+  name: string;
+  min_distance_km: number;
+  max_distance_km: number | null;
+  has_no_max: boolean;
+  price: number;
+  is_active: boolean;
+}
+
 const DEFAULT_STORE_INFO: StoreInfoSettings = {
   name: 'Saturno Embalagens',
   description: 'Embalagens para delivery com qualidade e praticidade.',
@@ -108,13 +134,17 @@ const DEFAULT_ORDERS_STOCK: OrdersStockSettings = {
   stock_control: true,
 };
 
+const INITIAL_ZONE_FORM: ShippingZoneFormData = {
+  name: '',
+  min_distance_km: 0,
+  max_distance_km: 10,
+  has_no_max: false,
+  price: 0,
+  is_active: true,
+};
+
 // ============================================================
-// AdminSwitch — switch com cores explícitas da identidade visual
-// Usado exclusivamente em /admin/settings para garantir contraste
-// máximo em ambos os temas (dark/light) sem afetar outros usos
-// do componente Switch global.
-// ON:  trilho laranja (#FF4103) + bolinha branca
-// OFF: trilho cinza-escuro semi-opaco + bolinha cinza-clara
+// AdminSwitch — switch com cores da identidade visual
 // ============================================================
 interface AdminSwitchProps {
   id?: string;
@@ -136,7 +166,6 @@ function AdminSwitch({ id, checked, onCheckedChange, disabled = false }: AdminSw
       style={{
         backgroundColor: checked ? '#FF4103' : 'rgba(100,116,139,0.55)',
         border: checked ? '2px solid #FF4103' : '2px solid rgba(148,163,184,0.6)',
-        focusRingColor: '#FF4103',
       }}
     >
       <span
@@ -159,6 +188,14 @@ function AdminSettingsPage() {
   const [payments, setPayments] = useState<PaymentSettings>(DEFAULT_PAYMENTS);
   const [ordersStock, setOrdersStock] = useState<OrdersStockSettings>(DEFAULT_ORDERS_STOCK);
 
+  // Shipping Zones state
+  const [shippingZones, setShippingZones] = useState<ShippingZone[]>([]);
+  const [loadingZones, setLoadingZones] = useState(false);
+  const [isZoneModalOpen, setIsZoneModalOpen] = useState(false);
+  const [zoneForm, setZoneForm] = useState<ShippingZoneFormData>(INITIAL_ZONE_FORM);
+  const [savingZone, setSavingZone] = useState(false);
+  const [deletingZoneId, setDeletingZoneId] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [savingSection, setSavingSection] = useState<string | null>(null);
   const [savingAll, setSavingAll] = useState(false);
@@ -170,20 +207,27 @@ function AdminSettingsPage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
+  // ── Fetch Settings and Shipping Zones ─────────────────────────────────────
   const fetchSettings = useCallback(async () => {
     try {
       setLoading(true);
       setFetchError(null);
 
-      const { data, error } = await supabase
-        .from('settings')
-        .select('*');
+      const [settingsRes, zonesRes] = await Promise.all([
+        supabase.from('settings').select('*'),
+        supabase.from('shipping_zones').select('*').order('min_distance_km', { ascending: true }),
+      ]);
 
-      if (error) throw error;
+      if (settingsRes.error) throw settingsRes.error;
+      if (zonesRes.error) {
+        console.warn('[ADMIN-SETTINGS] shipping_zones fetch error:', zonesRes.error.message);
+      } else {
+        setShippingZones((zonesRes.data as ShippingZone[]) || []);
+      }
 
-      if (data && data.length > 0) {
+      if (settingsRes.data && settingsRes.data.length > 0) {
         const settingsMap = new Map<string, any>();
-        data.forEach((row) => {
+        settingsRes.data.forEach((row) => {
           settingsMap.set(row.key, row.value);
         });
 
@@ -277,7 +321,6 @@ function AdminSettingsPage() {
 
       if (section === 'store') {
         await saveSettingKey('store_info', storeInfo);
-        // Also keep legacy store_name synchronized for backward compatibility
         await saveSettingKey('store_name', { pt: storeInfo.name });
       } else if (section === 'delivery') {
         await saveSettingKey('delivery_settings', delivery);
@@ -326,7 +369,146 @@ function AdminSettingsPage() {
     }
   };
 
-  // Password reset handlers
+  // ── Shipping Zones Handlers ───────────────────────────────────────────────
+
+  const handleOpenNewZone = () => {
+    setZoneForm(INITIAL_ZONE_FORM);
+    setIsZoneModalOpen(true);
+  };
+
+  const handleOpenEditZone = (zone: ShippingZone) => {
+    setZoneForm({
+      id: zone.id,
+      name: zone.name,
+      min_distance_km: zone.min_distance_km,
+      max_distance_km: zone.max_distance_km,
+      has_no_max: zone.max_distance_km === null,
+      price: zone.price,
+      is_active: zone.is_active,
+    });
+    setIsZoneModalOpen(true);
+  };
+
+  const handleToggleZoneActive = async (zone: ShippingZone) => {
+    const newStatus = !zone.is_active;
+    try {
+      setShippingZones((prev) =>
+        prev.map((z) => (z.id === zone.id ? { ...z, is_active: newStatus } : z))
+      );
+
+      const { error } = await supabase
+        .from('shipping_zones')
+        .update({ is_active: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', zone.id);
+
+      if (error) throw error;
+      toast.success(`Zona "${zone.name}" ${newStatus ? 'ativada' : 'desativada'}.`);
+    } catch (err: any) {
+      setShippingZones((prev) =>
+        prev.map((z) => (z.id === zone.id ? { ...z, is_active: zone.is_active } : z))
+      );
+      toast.error('Erro ao atualizar status da zona.');
+    }
+  };
+
+  const handleSaveZone = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!zoneForm.name.trim()) {
+      toast.error('O nome da zona é obrigatório.');
+      return;
+    }
+    if (zoneForm.min_distance_km < 0) {
+      toast.error('A distância mínima não pode ser negativa.');
+      return;
+    }
+    if (!zoneForm.has_no_max && zoneForm.max_distance_km !== null && zoneForm.max_distance_km < zoneForm.min_distance_km) {
+      toast.error('A distância máxima não pode ser menor que a distância mínima.');
+      return;
+    }
+    if (zoneForm.price < 0) {
+      toast.error('O valor do frete não pode ser negativo.');
+      return;
+    }
+
+    try {
+      setSavingZone(true);
+      const payload = {
+        name: zoneForm.name.trim(),
+        min_distance_km: zoneForm.min_distance_km,
+        max_distance_km: zoneForm.has_no_max ? null : zoneForm.max_distance_km,
+        price: zoneForm.price,
+        is_active: zoneForm.is_active,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (zoneForm.id) {
+        // Update
+        const { data, error } = await supabase
+          .from('shipping_zones')
+          .update(payload)
+          .eq('id', zoneForm.id)
+          .select()
+          .single();
+
+        if (error) throw error;
+        toast.success('Zona de frete atualizada com sucesso.');
+        setShippingZones((prev) =>
+          prev.map((z) => (z.id === zoneForm.id ? (data as ShippingZone) : z))
+        );
+      } else {
+        // Insert
+        const { data, error } = await supabase
+          .from('shipping_zones')
+          .insert({
+            name: payload.name,
+            min_distance_km: payload.min_distance_km,
+            max_distance_km: payload.max_distance_km,
+            price: payload.price,
+            is_active: payload.is_active,
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        toast.success('Zona de frete criada com sucesso.');
+        setShippingZones((prev) =>
+          [...prev, data as ShippingZone].sort((a, b) => a.min_distance_km - b.min_distance_km)
+        );
+      }
+
+      setIsZoneModalOpen(false);
+    } catch (err: any) {
+      console.error('[SHIPPING-ZONE-SAVE] Erro:', err);
+      toast.error(err.message || 'Erro ao salvar zona de frete.');
+    } finally {
+      setSavingZone(false);
+    }
+  };
+
+  const handleDeleteZone = async (zone: ShippingZone) => {
+    const confirmed = window.confirm(`Deseja realmente excluir a zona de frete "${zone.name}"?`);
+    if (!confirmed) return;
+
+    try {
+      setDeletingZoneId(zone.id);
+      const { error } = await supabase
+        .from('shipping_zones')
+        .delete()
+        .eq('id', zone.id);
+
+      if (error) throw error;
+      toast.success(`Zona "${zone.name}" excluída com sucesso.`);
+      setShippingZones((prev) => prev.filter((z) => z.id !== zone.id));
+    } catch (err: any) {
+      console.error('[SHIPPING-ZONE-DELETE] Erro:', err);
+      toast.error('Erro ao excluir zona de frete.');
+    } finally {
+      setDeletingZoneId(null);
+    }
+  };
+
+  // ── Password Reset Handlers ───────────────────────────────────────────────
+
   const handleSendResetEmail = async () => {
     if (!user?.email) return;
     try {
@@ -413,7 +595,7 @@ function AdminSettingsPage() {
             <Button
               onClick={handleSaveAll}
               disabled={loading || savingAll}
-              className="h-10 px-4 text-xs sm:text-sm font-semibold shadow-sm"
+              className="h-10 px-4 text-xs sm:text-sm font-semibold shadow-sm cursor-pointer"
               style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
             >
               <Save className="w-4 h-4 mr-1.5" />
@@ -501,7 +683,7 @@ function AdminSettingsPage() {
                   size="sm"
                   onClick={() => handleSaveSection('store')}
                   disabled={savingSection === 'store' || savingAll}
-                  className="self-end sm:self-auto h-9 px-3.5 text-xs sm:text-sm"
+                  className="self-end sm:self-auto h-9 px-3.5 text-xs sm:text-sm cursor-pointer"
                   style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
                 >
                   <Save className="w-3.5 h-3.5 mr-1.5" />
@@ -592,9 +774,10 @@ function AdminSettingsPage() {
             {/* 2. ENTREGA E RETIRADA */}
             {/* ============================================================ */}
             <section
-              className="rounded-2xl border p-5 sm:p-6 shadow-sm transition-all"
+              className="rounded-2xl border p-5 sm:p-6 shadow-sm transition-all space-y-6"
               style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
             >
+              {/* Header da Seção de Entrega */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-start sm:items-center gap-3">
                   <div
@@ -608,7 +791,7 @@ function AdminSettingsPage() {
                       Entrega e retirada
                     </h2>
                     <p className="text-xs sm:text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                      Opções de despacho, endereço de retirada e regras de frete
+                      Opções de despacho, endereço de retirada no balcão e zonas de entrega
                     </p>
                   </div>
                 </div>
@@ -617,27 +800,28 @@ function AdminSettingsPage() {
                   size="sm"
                   onClick={() => handleSaveSection('delivery')}
                   disabled={savingSection === 'delivery' || savingAll}
-                  className="self-end sm:self-auto h-9 px-3.5 text-xs sm:text-sm"
+                  className="self-end sm:self-auto h-9 px-3.5 text-xs sm:text-sm cursor-pointer"
                   style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
                 >
                   <Save className="w-3.5 h-3.5 mr-1.5" />
-                  {savingSection === 'delivery' ? 'Salvando...' : 'Salvar entrega'}
+                  {savingSection === 'delivery' ? 'Salvando...' : 'Salvar configurações'}
                 </Button>
               </div>
 
-              <div className="mt-5 space-y-4">
-                {/* Toggles */}
+              {/* Toggles e Configurações Gerais */}
+              <div className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Toggle Entrega */}
                   <div
                     className="flex items-center justify-between p-4 rounded-xl border"
                     style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
                   >
                     <div className="space-y-0.5 pr-2">
                       <Label htmlFor="toggle-delivery" className="text-sm font-semibold cursor-pointer block" style={{ color: 'var(--foreground)' }}>
-                        Entrega
+                        Entrega no endereço
                       </Label>
                       <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                        Permite envio de pedidos no endereço do cliente
+                        Permite envio de pedidos diretamente no endereço do cliente
                       </p>
                     </div>
                     <AdminSwitch
@@ -647,6 +831,7 @@ function AdminSettingsPage() {
                     />
                   </div>
 
+                  {/* Toggle Retirada */}
                   <div
                     className="flex items-center justify-between p-4 rounded-xl border"
                     style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
@@ -656,7 +841,7 @@ function AdminSettingsPage() {
                         Retirada no local
                       </Label>
                       <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                        Permite que o cliente retire o pedido na loja
+                        Permite que o cliente retire o pedido pronto na loja física
                       </p>
                     </div>
                     <AdminSwitch
@@ -667,7 +852,7 @@ function AdminSettingsPage() {
                   </div>
                 </div>
 
-                {/* Frete Info Card */}
+                {/* Frete Padrão Info Card */}
                 <div
                   className="p-4 rounded-xl border space-y-3"
                   style={{ backgroundColor: 'var(--muted)/40', borderColor: 'var(--border)' }}
@@ -686,8 +871,8 @@ function AdminSettingsPage() {
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       <span>
                         {delivery.shipping_cost === 0
-                          ? 'O frete está configurado como gratuito.'
-                          : `Taxa fixa de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(delivery.shipping_cost)}`}
+                          ? 'O frete padrão está configurado como gratuito.'
+                          : `Taxa padrão de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(delivery.shipping_cost)}`}
                       </span>
                     </div>
                   </div>
@@ -695,7 +880,7 @@ function AdminSettingsPage() {
                   <div className="pt-2 border-t flex flex-col sm:flex-row sm:items-center gap-3" style={{ borderColor: 'var(--border)' }}>
                     <div className="w-full sm:w-48">
                       <Label htmlFor="shipping-cost-input" className="text-xs font-medium mb-1 block" style={{ color: 'var(--foreground)' }}>
-                        Ajustar taxa (R$)
+                        Ajustar taxa padrão (R$)
                       </Label>
                       <Input
                         id="shipping-cost-input"
@@ -713,7 +898,7 @@ function AdminSettingsPage() {
                       />
                     </div>
                     <p className="text-xs flex-1" style={{ color: 'var(--muted-foreground)' }}>
-                      Defina 0 para frete grátis geral. Cálculo de distância por CEP e zonas complexas poderão ser ativados em expansões futuras.
+                      Defina 0 para frete grátis por padrão. Caso nenhuma zona de frete específica se aplique, esse valor será utilizado.
                     </p>
                   </div>
                 </div>
@@ -737,6 +922,185 @@ function AdminSettingsPage() {
                     Endereço exibido aos clientes no checkout quando selecionarem &quot;Retirada no Local&quot;.
                   </p>
                 </div>
+              </div>
+
+              {/* ── Sub-seção: Zonas de Entrega e Tarifas (shipping_zones) ── */}
+              <div className="pt-4 border-t space-y-4" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-bold flex items-center gap-2" style={{ color: 'var(--foreground)' }}>
+                      <Navigation className="w-4 h-4 text-primary" />
+                      <span>Zonas de entrega e tarifas</span>
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Configure regras de entrega baseadas em faixas de distância em quilômetros.
+                    </p>
+                  </div>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleOpenNewZone}
+                    className="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-semibold shadow-xs cursor-pointer self-start sm:self-auto"
+                    style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Adicionar zona</span>
+                  </Button>
+                </div>
+
+                {loadingZones ? (
+                  <div className="py-6 text-center text-xs text-muted-foreground">
+                    <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-primary" />
+                    Carregando zonas de entrega...
+                  </div>
+                ) : shippingZones.length === 0 ? (
+                  <div
+                    className="p-6 rounded-xl border text-center space-y-2"
+                    style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
+                  >
+                    <p className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
+                      Nenhuma zona de entrega configurada
+                    </p>
+                    <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                      As entregas utilizarão a taxa de frete padrão configurada acima. Você pode criar faixas de distância específicas para cobrar valores diferentes conforme a distância.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Desktop Table View */}
+                    <div className="hidden sm:block overflow-hidden rounded-xl border" style={{ borderColor: 'var(--border)' }}>
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr style={{ backgroundColor: 'var(--muted)' }}>
+                            <th className="px-4 py-3 text-left font-semibold uppercase text-muted-foreground">Nome da Zona</th>
+                            <th className="px-4 py-3 text-left font-semibold uppercase text-muted-foreground">Faixa de Distância</th>
+                            <th className="px-4 py-3 text-left font-semibold uppercase text-muted-foreground">Valor do Frete</th>
+                            <th className="px-4 py-3 text-center font-semibold uppercase text-muted-foreground">Status</th>
+                            <th className="px-4 py-3 text-right font-semibold uppercase text-muted-foreground">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody style={{ backgroundColor: 'var(--background)' }}>
+                          {shippingZones.map((zone, idx) => (
+                            <tr
+                              key={zone.id}
+                              className="hover:bg-muted/20 transition-colors"
+                              style={{ borderTop: idx > 0 ? '1px solid var(--border)' : 'none' }}
+                            >
+                              <td className="px-4 py-3 font-semibold" style={{ color: 'var(--foreground)' }}>
+                                {zone.name}
+                              </td>
+                              <td className="px-4 py-3 text-muted-foreground">
+                                {zone.min_distance_km} km {zone.max_distance_km !== null ? `até ${zone.max_distance_km} km` : 'em diante (sem limite)'}
+                              </td>
+                              <td className="px-4 py-3 font-bold" style={{ color: 'var(--foreground)' }}>
+                                {zone.price === 0 ? (
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Grátis</span>
+                                ) : (
+                                  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(zone.price)
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <AdminSwitch
+                                  checked={zone.is_active}
+                                  onCheckedChange={() => handleToggleZoneActive(zone)}
+                                />
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenEditZone(zone)}
+                                    className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                                    title="Editar zona"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteZone(zone)}
+                                    disabled={deletingZoneId === zone.id}
+                                    className="p-1.5 rounded-lg text-destructive hover:bg-destructive/10 transition-colors cursor-pointer disabled:opacity-50"
+                                    title="Excluir zona"
+                                  >
+                                    {deletingZoneId === zone.id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile Cards View */}
+                    <div className="sm:hidden space-y-3">
+                      {shippingZones.map((zone) => (
+                        <div
+                          key={zone.id}
+                          className="p-3.5 rounded-xl border space-y-2.5"
+                          style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>
+                                {zone.name}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                Distância: {zone.min_distance_km} km {zone.max_distance_km !== null ? `até ${zone.max_distance_km} km` : 'em diante'}
+                              </p>
+                            </div>
+                            <AdminSwitch
+                              checked={zone.is_active}
+                              onCheckedChange={() => handleToggleZoneActive(zone)}
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-between pt-2 border-t text-xs" style={{ borderColor: 'var(--border)' }}>
+                            <div>
+                              <span className="text-muted-foreground block text-[11px]">Frete:</span>
+                              <span className="font-bold text-sm" style={{ color: 'var(--foreground)' }}>
+                                {zone.price === 0 ? (
+                                  <span className="text-emerald-600 dark:text-emerald-400">Grátis</span>
+                                ) : (
+                                  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(zone.price)
+                                )}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditZone(zone)}
+                                className="px-2.5 py-1 rounded-lg border text-xs font-medium hover:bg-muted transition-colors cursor-pointer"
+                                style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteZone(zone)}
+                                disabled={deletingZoneId === zone.id}
+                                className="p-1.5 rounded-lg text-destructive hover:bg-destructive/10 transition-colors cursor-pointer disabled:opacity-50"
+                                title="Excluir"
+                              >
+                                {deletingZoneId === zone.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </section>
 
@@ -769,7 +1133,7 @@ function AdminSettingsPage() {
                   size="sm"
                   onClick={() => handleSaveSection('payments')}
                   disabled={savingSection === 'payments' || savingAll}
-                  className="self-end sm:self-auto h-9 px-3.5 text-xs sm:text-sm"
+                  className="self-end sm:self-auto h-9 px-3.5 text-xs sm:text-sm cursor-pointer"
                   style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
                 >
                   <Save className="w-3.5 h-3.5 mr-1.5" />
@@ -795,7 +1159,7 @@ function AdminSettingsPage() {
                         PIX
                       </Label>
                       <p className="text-xs truncate" style={{ color: 'var(--muted-foreground)' }}>
-                        Pagamento instantâneo via chave PIX / QR Code
+                        Pagamento instantâneo via PIX / QR Code
                       </p>
                     </div>
                   </div>
@@ -823,7 +1187,7 @@ function AdminSettingsPage() {
                         Cartão de Crédito / Débito
                       </Label>
                       <p className="text-xs truncate" style={{ color: 'var(--muted-foreground)' }}>
-                        Pagamento via maquininha ou checkout
+                        Pagamento via checkout online ou maquininha
                       </p>
                     </div>
                   </div>
@@ -893,7 +1257,7 @@ function AdminSettingsPage() {
                   size="sm"
                   onClick={() => handleSaveSection('orders')}
                   disabled={savingSection === 'orders' || savingAll}
-                  className="self-end sm:self-auto h-9 px-3.5 text-xs sm:text-sm"
+                  className="self-end sm:self-auto h-9 px-3.5 text-xs sm:text-sm cursor-pointer"
                   style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
                 >
                   <Save className="w-3.5 h-3.5 mr-1.5" />
@@ -1051,7 +1415,7 @@ function AdminSettingsPage() {
                     type="button"
                     variant="outline"
                     onClick={() => setIsPasswordModalOpen(true)}
-                    className="h-11 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
+                    className="h-11 rounded-xl text-sm font-medium flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <KeyRound className="w-4 h-4 text-amber-500" />
                     Alterar senha
@@ -1061,7 +1425,7 @@ function AdminSettingsPage() {
                     type="button"
                     variant="destructive"
                     onClick={handleLogout}
-                    className="h-11 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 shadow-sm"
+                    className="h-11 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 shadow-sm cursor-pointer"
                   >
                     <LogOut className="w-4 h-4" />
                     Sair da conta
@@ -1071,6 +1435,155 @@ function AdminSettingsPage() {
             </section>
           </div>
         )}
+
+        {/* ── Dialog Criar/Editar Zona de Frete ── */}
+        <Dialog open={isZoneModalOpen} onOpenChange={setIsZoneModalOpen}>
+          <DialogContent className="sm:max-w-md rounded-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-lg font-bold">
+                <Navigation className="w-5 h-5 text-primary" />
+                {zoneForm.id ? 'Editar Zona de Frete' : 'Nova Zona de Frete'}
+              </DialogTitle>
+              <DialogDescription className="text-xs sm:text-sm">
+                Defina o nome da zona, faixa de distância e taxa cobrada para entrega.
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleSaveZone} className="space-y-4 py-3">
+              <div>
+                <Label htmlFor="zone-name" className="text-xs sm:text-sm font-medium mb-1.5 block" style={{ color: 'var(--foreground)' }}>
+                  Nome da Zona <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="zone-name"
+                  required
+                  placeholder="Ex: Região Central (Até 5 km)"
+                  value={zoneForm.name}
+                  onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })}
+                  className="rounded-xl h-11"
+                  disabled={savingZone}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="zone-min" className="text-xs sm:text-sm font-medium mb-1.5 block" style={{ color: 'var(--foreground)' }}>
+                    Distância Mín. (km) *
+                  </Label>
+                  <Input
+                    id="zone-min"
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    required
+                    value={zoneForm.min_distance_km}
+                    onChange={(e) =>
+                      setZoneForm({ ...zoneForm, min_distance_km: Math.max(0, parseFloat(e.target.value) || 0) })
+                    }
+                    className="rounded-xl h-11"
+                    disabled={savingZone}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="zone-max" className="text-xs sm:text-sm font-medium mb-1.5 block" style={{ color: 'var(--foreground)' }}>
+                    Distância Máx. (km) {!zoneForm.has_no_max && '*'}
+                  </Label>
+                  <Input
+                    id="zone-max"
+                    type="number"
+                    min={zoneForm.min_distance_km}
+                    step="0.5"
+                    required={!zoneForm.has_no_max}
+                    disabled={zoneForm.has_no_max || savingZone}
+                    value={zoneForm.has_no_max ? '' : (zoneForm.max_distance_km ?? '')}
+                    onChange={(e) =>
+                      setZoneForm({
+                        ...zoneForm,
+                        max_distance_km: e.target.value ? parseFloat(e.target.value) : null,
+                      })
+                    }
+                    placeholder="Sem limite"
+                    className="rounded-xl h-11"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="inline-flex items-center gap-2 text-xs font-medium cursor-pointer" style={{ color: 'var(--foreground)' }}>
+                  <input
+                    type="checkbox"
+                    checked={zoneForm.has_no_max}
+                    onChange={(e) =>
+                      setZoneForm({
+                        ...zoneForm,
+                        has_no_max: e.target.checked,
+                        max_distance_km: e.target.checked ? null : 15,
+                      })
+                    }
+                    disabled={savingZone}
+                    className="w-4 h-4 rounded text-primary focus:ring-primary border-border cursor-pointer"
+                  />
+                  <span>Sem limite máximo de distância (em diante)</span>
+                </label>
+              </div>
+
+              <div>
+                <Label htmlFor="zone-price" className="text-xs sm:text-sm font-medium mb-1.5 block" style={{ color: 'var(--foreground)' }}>
+                  Valor do Frete (R$) <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="zone-price"
+                  type="number"
+                  min="0"
+                  step="0.50"
+                  required
+                  value={zoneForm.price}
+                  onChange={(e) =>
+                    setZoneForm({ ...zoneForm, price: Math.max(0, parseFloat(e.target.value) || 0) })
+                  }
+                  className="rounded-xl h-11"
+                  disabled={savingZone}
+                />
+                <span className="text-[11px] text-muted-foreground mt-1 block">
+                  Defina 0 para frete grátis nesta faixa.
+                </span>
+              </div>
+
+              <div className="pt-2 border-t flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
+                <Label htmlFor="zone-active" className="text-xs sm:text-sm font-semibold cursor-pointer" style={{ color: 'var(--foreground)' }}>
+                  Zona ativa
+                </Label>
+                <AdminSwitch
+                  id="zone-active"
+                  checked={zoneForm.is_active}
+                  onCheckedChange={(checked) => setZoneForm({ ...zoneForm, is_active: checked })}
+                  disabled={savingZone}
+                />
+              </div>
+
+              <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsZoneModalOpen(false)}
+                  disabled={savingZone}
+                  className="h-10 rounded-xl cursor-pointer"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={savingZone}
+                  className="h-10 rounded-xl font-semibold cursor-pointer"
+                  style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
+                >
+                  {savingZone ? 'Salvando...' : zoneForm.id ? 'Salvar alterações' : 'Criar zona'}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         {/* Change Password Dialog */}
         <Dialog open={isPasswordModalOpen} onOpenChange={setIsPasswordModalOpen}>
@@ -1124,7 +1637,7 @@ function AdminSettingsPage() {
                   size="sm"
                   onClick={handleSendResetEmail}
                   disabled={resettingPassword}
-                  className="w-full text-xs h-9"
+                  className="w-full text-xs h-9 cursor-pointer"
                 >
                   <Mail className="w-3.5 h-3.5 mr-1.5" />
                   Enviar e-mail de recuperação para {user?.email}
@@ -1138,7 +1651,7 @@ function AdminSettingsPage() {
                 variant="outline"
                 onClick={() => setIsPasswordModalOpen(false)}
                 disabled={resettingPassword}
-                className="h-10 rounded-xl"
+                className="h-10 rounded-xl cursor-pointer"
               >
                 Cancelar
               </Button>
@@ -1146,7 +1659,7 @@ function AdminSettingsPage() {
                 type="button"
                 onClick={handleUpdateDirectPassword}
                 disabled={resettingPassword}
-                className="h-10 rounded-xl font-semibold"
+                className="h-10 rounded-xl font-semibold cursor-pointer"
                 style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
               >
                 {resettingPassword ? 'Atualizando...' : 'Atualizar senha'}
