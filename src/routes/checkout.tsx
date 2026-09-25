@@ -28,7 +28,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import type { Profile } from '@/types/auth';
 import type { User } from '@supabase/supabase-js';
 import { loadStripe, StripeElementsOptions } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
 // ── Stripe public key — safe to expose in the frontend ──────────────────────
 const STRIPE_PUBLISHABLE_KEY =
@@ -159,8 +159,10 @@ function StripePaymentForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentReady, setPaymentReady] = useState(false);
+  const [walletAvailable, setWalletAvailable] = useState<boolean | null>(null);
 
   const selectedMethod = stripePaymentState.selectedMethod;
+  const isExpressWallet = selectedMethod === 'apple_pay' || selectedMethod === 'google_pay';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -236,7 +238,80 @@ function StripePaymentForm({
     }
   };
 
-  // Tailored PaymentElement options based on the chosen individual method
+  // Express Checkout handler for Apple Pay & Google Pay
+  const handleExpressConfirm = async (_event: any) => {
+    if (!stripe || !elements) return;
+    setIsSubmitting(true);
+    setPaymentError(null);
+
+    try {
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        clientSecret: stripePaymentState.clientSecret,
+        confirmParams: {
+          return_url: window.location.href,
+        },
+        redirect: 'if_required',
+      });
+
+      if (error) {
+        const errorMsg = error.message || 'Erro ao processar o pagamento com carteira digital.';
+        setPaymentError(errorMsg);
+        toast.error(errorMsg);
+        return;
+      }
+
+      if (paymentIntent) {
+        if (paymentIntent.status === 'succeeded') {
+          onPaymentConfirmed();
+          toast.success('Pagamento confirmado com sucesso!');
+        } else if (paymentIntent.status === 'processing') {
+          toast.info('Seu pagamento está sendo processado.');
+        }
+      }
+    } catch (err: any) {
+      console.error('[STRIPE-EXPRESS-CONFIRM] Erro ao confirmar pagamento:', err);
+      const errorMsg = err?.message || 'Erro inesperado ao processar pagamento.';
+      setPaymentError(errorMsg);
+      toast.error(errorMsg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleExpressReady = (event: any) => {
+    setPaymentReady(true);
+    const methods = event?.availablePaymentMethods;
+    if (selectedMethod === 'apple_pay') {
+      setWalletAvailable(Boolean(methods?.applePay));
+    } else if (selectedMethod === 'google_pay') {
+      setWalletAvailable(Boolean(methods?.googlePay));
+    } else {
+      setWalletAvailable(true);
+    }
+  };
+
+  const expressCheckoutOptions = useMemo(() => {
+    const isApplePay = selectedMethod === 'apple_pay';
+    const isGooglePay = selectedMethod === 'google_pay';
+    return {
+      buttonTheme: {
+        applePay: 'black' as const,
+        googlePay: 'black' as const,
+      },
+      buttonHeight: 48,
+      paymentMethods: {
+        applePay: isApplePay ? ('always' as const) : ('never' as const),
+        googlePay: isGooglePay ? ('always' as const) : ('never' as const),
+        link: 'never' as const,
+        paypal: 'never' as const,
+        amazonPay: 'never' as const,
+        klarna: 'never' as const,
+      },
+    };
+  }, [selectedMethod]);
+
+  // Tailored PaymentElement options based on the chosen individual method (Card or Boleto)
   const paymentElementOptions = useMemo(() => {
     if (selectedMethod === 'card') {
       return {
@@ -245,24 +320,6 @@ function StripePaymentForm({
         wallets: {
           applePay: 'never' as const,
           googlePay: 'never' as const,
-        },
-      };
-    }
-    if (selectedMethod === 'apple_pay') {
-      return {
-        layout: 'tabs' as const,
-        wallets: {
-          applePay: 'auto' as const,
-          googlePay: 'never' as const,
-        },
-      };
-    }
-    if (selectedMethod === 'google_pay') {
-      return {
-        layout: 'tabs' as const,
-        wallets: {
-          googlePay: 'auto' as const,
-          applePay: 'never' as const,
         },
       };
     }
@@ -333,18 +390,12 @@ function StripePaymentForm({
     if (selectedMethod === 'boleto') {
       return `Gerar Boleto (${formatBRL(stripePaymentState.total)})`;
     }
-    if (selectedMethod === 'apple_pay') {
-      return `Pagar com Apple Pay (${formatBRL(stripePaymentState.total)})`;
-    }
-    if (selectedMethod === 'google_pay') {
-      return `Pagar com Google Pay (${formatBRL(stripePaymentState.total)})`;
-    }
     return `Confirmar Pagamento com Cartão (${formatBRL(stripePaymentState.total)})`;
   }, [selectedMethod, stripePaymentState.total, formatBRL]);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {/* Stripe Payment Element Placeholder while loading */}
+      {/* Stripe Loading Placeholder */}
       {!paymentReady && (
         <div
           className="p-6 rounded-xl border border-dashed flex flex-col items-center justify-center gap-3 text-center my-2"
@@ -362,10 +413,59 @@ function StripePaymentForm({
         </div>
       )}
 
-      {/* Stripe Payment Element */}
-      <div className={!paymentReady ? 'hidden' : 'block'}>
-        <PaymentElement onReady={() => setPaymentReady(true)} options={paymentElementOptions} />
-      </div>
+      {/* Express Checkout Element (Apple Pay & Google Pay) or Payment Element (Card & Boleto) */}
+      {isExpressWallet ? (
+        <div className="space-y-4">
+          <div className={!paymentReady ? 'hidden' : 'block'}>
+            <ExpressCheckoutElement
+              options={expressCheckoutOptions}
+              onConfirm={handleExpressConfirm}
+              onReady={handleExpressReady}
+            />
+          </div>
+
+          {/* Fallback guidance if wallet is not available on this specific device/browser */}
+          {paymentReady && walletAvailable === false && (
+            <div
+              className="p-4 rounded-xl border text-xs space-y-2 text-left"
+              style={{
+                backgroundColor: 'rgba(234, 179, 8, 0.08)',
+                borderColor: 'rgba(234, 179, 8, 0.3)',
+                color: '#854d0e',
+              }}
+            >
+              <div className="flex items-center gap-1.5 font-bold">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                <span>
+                  {selectedMethod === 'apple_pay'
+                    ? 'Apple Pay indisponível neste navegador ou dispositivo'
+                    : 'Google Pay indisponível neste navegador ou dispositivo'}
+                </span>
+              </div>
+              <p className="leading-relaxed">
+                {selectedMethod === 'apple_pay'
+                  ? 'Para pagar com Apple Pay, utilize o navegador Safari em um dispositivo Apple (iPhone, iPad ou Mac) com um cartão configurado na sua Carteira (Apple Wallet).'
+                  : 'Para pagar com Google Pay, utilize o Google Chrome ou um dispositivo Android com sua conta Google e um cartão cadastrado no Google Pay.'}
+              </p>
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={onChangeMethod}
+                  className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white transition-all hover:opacity-90 flex items-center justify-center gap-1.5 cursor-pointer"
+                  style={{ backgroundColor: 'var(--primary)' }}
+                >
+                  <CreditCard className="w-3.5 h-3.5" />
+                  <span>Trocar para Cartão de Crédito / Boleto</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className={!paymentReady ? 'hidden' : 'block'}>
+          <PaymentElement onReady={() => setPaymentReady(true)} options={paymentElementOptions} />
+        </div>
+      )}
 
       {paymentError && (
         <div
@@ -382,28 +482,30 @@ function StripePaymentForm({
       )}
 
       <div className="space-y-2.5 pt-2">
-        <button
-          type="submit"
-          disabled={!stripe || !elements || !paymentReady || isSubmitting}
-          className="w-full py-3.5 px-6 rounded-xl font-bold text-white text-sm transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
-          style={{ backgroundColor: 'var(--primary)' }}
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span>
-                {selectedMethod === 'boleto'
-                  ? 'Gerando boleto...'
-                  : 'Processando pagamento...'}
-              </span>
-            </>
-          ) : (
-            <>
-              <ShieldCheck className="w-5 h-5" />
-              <span>{buttonLabel}</span>
-            </>
-          )}
-        </button>
+        {!isExpressWallet && (
+          <button
+            type="submit"
+            disabled={!stripe || !elements || !paymentReady || isSubmitting}
+            className="w-full py-3.5 px-6 rounded-xl font-bold text-white text-sm transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+            style={{ backgroundColor: 'var(--primary)' }}
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>
+                  {selectedMethod === 'boleto'
+                    ? 'Gerando boleto...'
+                    : 'Processando pagamento...'}
+                </span>
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="w-5 h-5" />
+                <span>{buttonLabel}</span>
+              </>
+            )}
+          </button>
+        )}
 
         <button
           type="button"
@@ -439,17 +541,6 @@ export function CheckoutPage() {
   const [selectedAddressId, setSelectedAddressId] = useState<string>('');
   const [loadingAddresses, setLoadingAddresses] = useState(true);
 
-  // Digital wallets support detection
-  const [walletsSupport, setWalletsSupport] = useState<{
-    applePay: boolean;
-    googlePay: boolean;
-    checked: boolean;
-  }>({
-    applePay: false,
-    googlePay: false,
-    checked: false,
-  });
-
   // New address modal
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
@@ -474,51 +565,6 @@ export function CheckoutPage() {
 
   // Stripe confirmation state
   const pollingRef = useRef<number | null>(null);
-
-  // ── Detect Digital Wallets Support (Apple Pay & Google Pay) ────────────────
-  useEffect(() => {
-    let isMounted = true;
-
-    const detectWallets = async () => {
-      try {
-        const stripe = await getStripe();
-        if (!stripe) {
-          if (isMounted) setWalletsSupport({ applePay: false, googlePay: false, checked: true });
-          return;
-        }
-
-        const pr = stripe.paymentRequest({
-          country: 'BR',
-          currency: 'brl',
-          total: { label: 'Saturno Embalagens', amount: 1000 },
-          requestPayerName: true,
-          requestPayerEmail: true,
-        });
-
-        const result = (await pr.canMakePayment()) as Record<string, boolean> | null;
-        if (isMounted) {
-          const applePayAvailable = Boolean(result && result['applePay']);
-          const googlePayAvailable = Boolean(result && result['googlePay']);
-          setWalletsSupport({
-            applePay: applePayAvailable,
-            googlePay: googlePayAvailable,
-            checked: true,
-          });
-        }
-      } catch (err) {
-        console.warn('[CHECKOUT-WALLETS] Verificação de carteiras digitais:', err);
-        if (isMounted) {
-          setWalletsSupport({ applePay: false, googlePay: false, checked: true });
-        }
-      }
-    };
-
-    detectWallets();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   // ── Fetch addresses ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -771,17 +817,6 @@ export function CheckoutPage() {
 
     if (deliveryType === 'delivery' && !selectedAddressId) {
       toast.error('Por favor, selecione ou cadastre um endereço de entrega.');
-      return;
-    }
-
-    // Wallet availability validation
-    if (paymentMethod === 'apple_pay' && !walletsSupport.applePay) {
-      toast.error('Apple Pay não está disponível neste dispositivo ou navegador.');
-      return;
-    }
-
-    if (paymentMethod === 'google_pay' && !walletsSupport.googlePay) {
-      toast.error('Google Pay não está disponível neste dispositivo ou navegador.');
       return;
     }
 
@@ -1722,16 +1757,16 @@ export function CheckoutPage() {
       title: 'Apple Pay',
       description: 'Pague rapidamente usando Apple Pay.',
       icon: <ApplePayIcon className="w-4 h-4 text-primary" />,
-      isAvailable: walletsSupport.checked ? walletsSupport.applePay : true,
-      unavailableBadge: walletsSupport.checked && !walletsSupport.applePay ? 'Indisponível neste dispositivo' : undefined,
+      isAvailable: true,
+      badge: 'Carteira Digital',
     },
     {
       id: 'google_pay',
       title: 'Google Pay',
       description: 'Pague rapidamente usando Google Pay.',
       icon: <GooglePayIcon className="w-4 h-4 text-primary" />,
-      isAvailable: walletsSupport.checked ? walletsSupport.googlePay : true,
-      unavailableBadge: walletsSupport.checked && !walletsSupport.googlePay ? 'Indisponível neste navegador' : undefined,
+      isAvailable: true,
+      badge: 'Carteira Digital',
     },
     {
       id: 'boleto',
