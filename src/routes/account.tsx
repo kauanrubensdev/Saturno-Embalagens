@@ -27,8 +27,11 @@ import {
   CreditCard,
   QrCode,
   ChevronRight,
+  ChevronDown,
   Star,
-  CheckCircle2,
+  Copy,
+  AlertCircle,
+  Package,
 } from 'lucide-react';
 
 export const Route = createFileRoute('/account')({
@@ -95,9 +98,18 @@ interface CustomerOrder {
   pickup_address: string | null;
   customer_note: string | null;
   created_at: string;
+  updated_at?: string;
+  abacate_pix_id?: string | null;
+  abacate_pix_br_code?: string | null;
+  abacate_pix_qr_code?: string | null;
+  abacate_pix_expires_at?: string | null;
+  pix_copy_paste?: string | null;
+  pix_qr_code_url?: string | null;
+  pix_expires_at?: string | null;
   shipping_address?: {
     street: string;
     number: string;
+    complement?: string | null;
     neighborhood: string;
     city: string;
     state: string;
@@ -112,19 +124,20 @@ const BRAZILIAN_STATES = [
   'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'
 ];
 
-const ORDER_STATUS_LABELS: Record<string, { label: string; bg: string; text: string }> = {
-  pending:   { label: 'Pendente',   bg: 'rgba(251,191,36,0.12)', text: '#d97706' },
-  confirmed: { label: 'Confirmado', bg: 'rgba(59,130,246,0.12)', text: '#2563eb' },
-  preparing: { label: 'Em preparo', bg: 'rgba(139,92,246,0.12)', text: '#7c3aed' },
-  shipped:   { label: 'Enviado',    bg: 'rgba(234,88,12,0.12)',  text: '#ea580c' },
-  delivered: { label: 'Entregue',   bg: 'rgba(22,163,74,0.12)',  text: '#16a34a' },
-  cancelled: { label: 'Cancelado',  bg: 'rgba(220,38,38,0.12)',  text: '#dc2626' },
+const ORDER_STATUS_LABELS: Record<string, { label: string; bg: string; text: string; border: string }> = {
+  pending:   { label: 'Pendente',   bg: 'rgba(251,191,36,0.12)', text: '#d97706', border: 'rgba(251,191,36,0.3)' },
+  confirmed: { label: 'Confirmado', bg: 'rgba(59,130,246,0.12)', text: '#2563eb', border: 'rgba(59,130,246,0.3)' },
+  preparing: { label: 'Em preparo', bg: 'rgba(139,92,246,0.12)', text: '#7c3aed', border: 'rgba(139,92,246,0.3)' },
+  shipped:   { label: 'Enviado',    bg: 'rgba(234,88,12,0.12)',  text: '#ea580c', border: 'rgba(234,88,12,0.3)'  },
+  delivered: { label: 'Entregue',   bg: 'rgba(22,163,74,0.12)',  text: '#16a34a', border: 'rgba(22,163,74,0.3)'  },
+  cancelled: { label: 'Cancelado',  bg: 'rgba(220,38,38,0.12)',  text: '#dc2626', border: 'rgba(220,38,38,0.3)'  },
 };
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   pix: 'PIX',
   abacate_pix: 'PIX (AbacatePay)',
   credit_card: 'Cartão de Crédito',
+  stripe_online: 'Cartão / Digital (Stripe)',
   cash_on_delivery: 'Pagamento na entrega',
 };
 
@@ -170,6 +183,7 @@ function getPaymentIcon(method: string | null) {
     case 'abacate_pix':
       return QrCode;
     case 'credit_card':
+    case 'stripe_online':
       return CreditCard;
     case 'cash_on_delivery':
     default:
@@ -256,39 +270,43 @@ function AccountPage() {
     }
   }, [user]);
 
-  // Carregar pedidos do cliente
-  useEffect(() => {
+  // Carregar pedidos do cliente com itens e endereços
+  const fetchOrders = async () => {
     if (!user) return;
+    try {
+      setLoadingOrders(true);
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          id, user_id, status, payment_status, payment_method,
+          subtotal, shipping_cost, total, delivery_type,
+          pickup_address, customer_note, created_at, updated_at,
+          abacate_pix_id, abacate_pix_br_code, abacate_pix_qr_code, abacate_pix_expires_at,
+          pix_copy_paste, pix_qr_code_url, pix_expires_at,
+          shipping_address:addresses!orders_shipping_address_id_fkey (
+            street, number, complement, neighborhood, city, state, zip_code
+          ),
+          order_items (
+            id, product_id, product_name, product_price, quantity, total_price
+          )
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
 
-    const fetchOrders = async () => {
-      try {
-        setLoadingOrders(true);
-        const { data, error } = await supabase
-          .from('orders')
-          .select(`
-            id, user_id, status, payment_status, payment_method,
-            subtotal, shipping_cost, total, delivery_type,
-            pickup_address, customer_note, created_at,
-            shipping_address:addresses!orders_shipping_address_id_fkey (
-              street, number, neighborhood, city, state, zip_code
-            ),
-            order_items (
-              id, product_id, product_name, product_price, quantity, total_price
-            )
-          `)
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
+      if (error) throw error;
+      setOrders((data as unknown as CustomerOrder[]) || []);
+    } catch (err: any) {
+      console.error('[ACCOUNT-ORDERS] Erro ao carregar pedidos:', err);
+      toast.error('Erro ao carregar seus pedidos.');
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
 
-        if (error) throw error;
-        setOrders((data as unknown as CustomerOrder[]) || []);
-      } catch (err) {
-        console.error('[ACCOUNT] Erro ao carregar pedidos:', err);
-      } finally {
-        setLoadingOrders(false);
-      }
-    };
-
-    fetchOrders();
+  useEffect(() => {
+    if (user) {
+      fetchOrders();
+    }
   }, [user]);
 
   // Loading state enquanto auth inicializa
@@ -353,7 +371,7 @@ function AccountPage() {
   const handleOpenNewAddressForm = () => {
     setAddressForm({
       ...INITIAL_ADDRESS_FORM,
-      is_default: addresses.length === 0, // Primeiro endereço é padrão por padrão
+      is_default: addresses.length === 0,
     });
     setIsAddressFormOpen(true);
   };
@@ -413,7 +431,6 @@ function AccountPage() {
       const isFirst = addresses.length === 0;
       const willBeDefault = isFirst || addressForm.is_default;
 
-      // Se este endereço for marcado como padrão, desmarca os anteriores primeiro
       if (willBeDefault) {
         await supabase
           .from('addresses')
@@ -422,7 +439,6 @@ function AccountPage() {
       }
 
       if (addressForm.id) {
-        // Atualizar endereço existente
         const { data, error } = await supabase
           .from('addresses')
           .update({
@@ -454,7 +470,6 @@ function AccountPage() {
           return list.sort((a, b) => (b.is_default ? 1 : a.is_default ? -1 : 0));
         });
       } else {
-        // Inserir novo endereço
         const { data, error } = await supabase
           .from('addresses')
           .insert({
@@ -497,7 +512,6 @@ function AccountPage() {
     try {
       setSettingDefaultId(addressId);
 
-      // Desmarcar todos os endereços do usuário
       const { error: resetErr } = await supabase
         .from('addresses')
         .update({ is_default: false })
@@ -505,7 +519,6 @@ function AccountPage() {
 
       if (resetErr) throw resetErr;
 
-      // Marcar o selecionado como padrão
       const { error: setErr } = await supabase
         .from('addresses')
         .update({ is_default: true, updated_at: new Date().toISOString() })
@@ -552,6 +565,18 @@ function AccountPage() {
       toast.error('Erro ao excluir endereço.');
     } finally {
       setDeletingAddressId(null);
+    }
+  };
+
+  // ── Copiar Código PIX ─────────────────────────────────────────────────────
+
+  const handleCopyPix = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      toast.success('Código PIX copiado para a área de transferência!');
+    } catch (err) {
+      console.error('[COPY-PIX-ERROR]', err);
+      toast.error('Erro ao copiar código PIX.');
     }
   };
 
@@ -1313,222 +1338,368 @@ function AccountPage() {
 
           {/* ── TAB 3: MEUS PEDIDOS ── */}
           {activeTab === 'orders' && (
-            <div className="space-y-4">
-              {loadingOrders ? (
-                <div className="py-12 text-center text-sm text-muted-foreground">
-                  <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
-                  Carregando seus pedidos...
-                </div>
-              ) : orders.length === 0 ? (
-                <div
-                  className="rounded-3xl p-8 sm:p-12 border text-center space-y-4 shadow-sm"
-                  style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-                >
-                  <div
-                    className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto"
-                    style={{ backgroundColor: 'var(--muted)' }}
-                  >
-                    <ShoppingBag className="w-8 h-8 text-muted-foreground" />
-                  </div>
+            <div className="space-y-6">
+              <div
+                className="rounded-3xl p-6 sm:p-8 border shadow-sm space-y-6"
+                style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b" style={{ borderColor: 'var(--border)' }}>
                   <div>
-                    <p className="text-base font-bold" style={{ color: 'var(--foreground)' }}>
-                      Você ainda não fez nenhum pedido
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Explore nosso catálogo e faça sua primeira compra.
+                    <h2 className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
+                      Meus Pedidos
+                    </h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Acompanhe o status e histórico de todas as suas compras.
                     </p>
                   </div>
-                  <Link
-                    to="/catalog"
-                    className="inline-flex items-center justify-center py-2.5 px-6 rounded-xl font-semibold text-white text-xs transition-all hover:opacity-90 no-underline"
-                    style={{ backgroundColor: 'var(--primary)' }}
-                  >
-                    Ver Catálogo
-                  </Link>
                 </div>
-              ) : (
-                orders.map((ord) => {
-                  const statusInfo =
-                    ORDER_STATUS_LABELS[ord.status] || {
-                      label: ord.status,
-                      bg: 'var(--muted)',
-                      text: 'var(--foreground)',
-                    };
-                  const paymentCfg =
-                    PAYMENT_STATUS_CONFIGS[ord.payment_status] || PAYMENT_STATUS_CONFIGS.pending;
-                  const PaymentIcon = getPaymentIcon(ord.payment_method);
-                  const isExpanded = expandedOrderId === ord.id;
 
-                  return (
+                {loadingOrders ? (
+                  <div className="py-12 text-center text-sm text-muted-foreground">
+                    <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
+                    Carregando seus pedidos...
+                  </div>
+                ) : orders.length === 0 ? (
+                  <div
+                    className="p-8 sm:p-12 rounded-2xl border text-center space-y-4"
+                    style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
+                  >
                     <div
-                      key={ord.id}
-                      className="rounded-3xl border transition-all overflow-hidden shadow-sm"
-                      style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+                      className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto"
+                      style={{ backgroundColor: 'var(--muted)' }}
                     >
-                      {/* Order summary header */}
-                      <div
-                        onClick={() => setExpandedOrderId(isExpanded ? null : ord.id)}
-                        className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-muted/30 transition-colors"
-                      >
-                        <div className="space-y-1.5">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-mono font-bold text-sm" style={{ color: 'var(--foreground)' }}>
-                              #{ord.id.slice(0, 8).toUpperCase()}
-                            </span>
-                            <span
-                              className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full"
-                              style={{ backgroundColor: statusInfo.bg, color: statusInfo.text }}
-                            >
-                              {statusInfo.label}
-                            </span>
-                            <span
-                              className="text-[10px] font-semibold px-2 py-0.5 rounded-full border"
-                              style={{
-                                backgroundColor: paymentCfg.bg,
-                                color: paymentCfg.text,
-                                borderColor: paymentCfg.border,
-                              }}
-                            >
-                              Pagamento: {paymentCfg.label}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <Calendar className="w-3.5 h-3.5" />
-                              {formatDate(ord.created_at)}
-                            </span>
-                            <span>•</span>
-                            <span className="flex items-center gap-1">
-                              {ord.delivery_type === 'delivery' ? (
-                                <Truck className="w-3.5 h-3.5" />
-                              ) : (
-                                <Building2 className="w-3.5 h-3.5" />
-                              )}
-                              {ord.delivery_type === 'delivery' ? 'Entrega' : 'Retirada'}
-                            </span>
-                          </div>
-                        </div>
+                      <ShoppingBag className="w-7 h-7 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <p className="text-base font-bold" style={{ color: 'var(--foreground)' }}>
+                        Você ainda não fez nenhum pedido
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Explore nosso catálogo de embalagens e faça sua primeira compra.
+                      </p>
+                    </div>
+                    <Link
+                      to="/catalog"
+                      className="inline-flex items-center justify-center py-2.5 px-6 rounded-xl font-semibold text-white text-xs transition-all hover:opacity-90 no-underline shadow-sm"
+                      style={{ backgroundColor: 'var(--primary)' }}
+                    >
+                      Ver Catálogo
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {orders.map((ord) => {
+                      const statusInfo =
+                        ORDER_STATUS_LABELS[ord.status] || {
+                          label: ord.status,
+                          bg: 'var(--muted)',
+                          text: 'var(--foreground)',
+                          border: 'var(--border)',
+                        };
+                      const paymentCfg =
+                        PAYMENT_STATUS_CONFIGS[ord.payment_status] || PAYMENT_STATUS_CONFIGS.pending;
+                      const PaymentIcon = getPaymentIcon(ord.payment_method);
+                      const isExpanded = expandedOrderId === ord.id;
+                      const isPixPending =
+                        (ord.payment_method === 'abacate_pix' || ord.payment_method === 'pix') &&
+                        ord.payment_status === 'pending';
+                      const pixCode = ord.abacate_pix_br_code || ord.pix_copy_paste;
+                      const pixQrCode = ord.abacate_pix_qr_code || ord.pix_qr_code_url;
 
-                        <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-2 sm:pt-0">
-                          <div className="text-right">
-                            <span className="text-xs text-muted-foreground block">Total</span>
-                            <span className="font-bold text-sm text-primary">
-                              {formatCurrency(ord.total)}
-                            </span>
-                          </div>
-                          <ChevronRight
-                            className={`w-4 h-4 text-muted-foreground transition-transform ${
-                              isExpanded ? 'rotate-90' : ''
-                            }`}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Expanded order details */}
-                      {isExpanded && (
+                      return (
                         <div
-                          className="p-4 sm:p-5 border-t space-y-4 text-xs sm:text-sm"
+                          key={ord.id}
+                          className="rounded-2xl border transition-all overflow-hidden"
                           style={{
-                            borderColor: 'var(--border)',
                             backgroundColor: 'var(--background)',
+                            borderColor: isExpanded ? 'var(--primary)' : 'var(--border)',
                           }}
                         >
-                          {/* Items */}
-                          <div>
-                            <h4 className="font-semibold mb-2" style={{ color: 'var(--foreground)' }}>
-                              Itens do Pedido
-                            </h4>
-                            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-                              {(ord.order_items || []).map((item) => (
-                                <div
-                                  key={item.id}
-                                  className="py-2.5 flex items-center justify-between text-xs"
+                          {/* Order Header / Summary Card */}
+                          <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="space-y-2">
+                              {/* Linha superior: Identificador e Badges */}
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-mono font-bold text-sm tracking-tight" style={{ color: 'var(--foreground)' }}>
+                                  #{ord.id.slice(0, 8).toUpperCase()}
+                                </span>
+
+                                <span
+                                  className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full"
+                                  style={{
+                                    backgroundColor: statusInfo.bg,
+                                    color: statusInfo.text,
+                                    border: `1px solid ${statusInfo.border}`,
+                                  }}
                                 >
-                                  <div>
-                                    <p className="font-medium" style={{ color: 'var(--foreground)' }}>
-                                      {item.product_name}
-                                    </p>
-                                    <p className="text-muted-foreground">
-                                      {item.quantity} un. × {formatCurrency(item.product_price)}
-                                    </p>
-                                  </div>
-                                  <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
-                                    {formatCurrency(item.total_price)}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
+                                  {statusInfo.label}
+                                </span>
 
-                          {/* Reception & Payment */}
-                          <div
-                            className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t"
-                            style={{ borderColor: 'var(--border)' }}
-                          >
-                            {/* Entrega */}
-                            <div className="p-3.5 rounded-2xl bg-card border" style={{ borderColor: 'var(--border)' }}>
-                              <p className="font-semibold text-xs mb-1" style={{ color: 'var(--foreground)' }}>
-                                {ord.delivery_type === 'delivery' ? 'Endereço de Entrega' : 'Local de Retirada'}
-                              </p>
-                              {ord.delivery_type === 'delivery' && ord.shipping_address ? (
-                                <p className="text-xs text-muted-foreground leading-relaxed">
-                                  {ord.shipping_address.street}, {ord.shipping_address.number}
-                                  <br />
-                                  {ord.shipping_address.neighborhood} — {ord.shipping_address.city}/{ord.shipping_address.state}
-                                  <br />
-                                  CEP: {formatCep(ord.shipping_address.zip_code)}
-                                </p>
-                              ) : (
-                                <p className="text-xs text-muted-foreground leading-relaxed">
-                                  {ord.pickup_address || 'R. Urupema, nº 150 - Santa Luzia/MG'}
-                                </p>
-                              )}
-                            </div>
+                                <span
+                                  className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full"
+                                  style={{
+                                    backgroundColor: paymentCfg.bg,
+                                    color: paymentCfg.text,
+                                    border: `1px solid ${paymentCfg.border}`,
+                                  }}
+                                >
+                                  Pagamento: {paymentCfg.label}
+                                </span>
+                              </div>
 
-                            {/* Pagamento */}
-                            <div className="p-3.5 rounded-2xl bg-card border space-y-1.5" style={{ borderColor: 'var(--border)' }}>
-                              <p className="font-semibold text-xs" style={{ color: 'var(--foreground)' }}>
-                                Pagamento
-                              </p>
-                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                <PaymentIcon className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-                                <span>
+                              {/* Linha intermediária: Data, Entrega e Método de Pagamento */}
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="w-3.5 h-3.5" />
+                                  {formatDate(ord.created_at)}
+                                </span>
+                                <span>•</span>
+                                <span className="flex items-center gap-1">
+                                  {ord.delivery_type === 'delivery' ? (
+                                    <Truck className="w-3.5 h-3.5 text-primary" />
+                                  ) : (
+                                    <Building2 className="w-3.5 h-3.5 text-primary" />
+                                  )}
+                                  {ord.delivery_type === 'delivery' ? 'Entrega' : 'Retirada'}
+                                </span>
+                                <span>•</span>
+                                <span className="flex items-center gap-1">
+                                  <PaymentIcon className="w-3.5 h-3.5 text-primary" />
                                   {ord.payment_method
                                     ? PAYMENT_METHOD_LABELS[ord.payment_method] || ord.payment_method
                                     : 'Pagamento na entrega'}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-1.5 text-xs">
-                                <span className="text-muted-foreground">Status:</span>
-                                <span
-                                  className="px-2 py-0.5 rounded-full text-[10px] font-semibold border"
-                                  style={{
-                                    backgroundColor: paymentCfg.bg,
-                                    color: paymentCfg.text,
-                                    borderColor: paymentCfg.border,
-                                  }}
-                                >
-                                  {paymentCfg.label}
+                            </div>
+
+                            {/* Lado direito: Valor total e Botão Ver Detalhes */}
+                            <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-3 sm:pt-0">
+                              <div className="text-left sm:text-right">
+                                <span className="text-xs text-muted-foreground block">Valor Total</span>
+                                <span className="font-bold text-base text-primary">
+                                  {formatCurrency(ord.total)}
                                 </span>
                               </div>
-                              <p className="text-[11px] text-muted-foreground">
-                                Frete: {ord.shipping_cost > 0 ? formatCurrency(ord.shipping_cost) : 'Grátis (R$ 0,00)'}
-                              </p>
+
+                              <button
+                                type="button"
+                                onClick={() => setExpandedOrderId(isExpanded ? null : ord.id)}
+                                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all hover:bg-muted cursor-pointer"
+                                style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
+                              >
+                                <span>{isExpanded ? 'Ocultar detalhes' : 'Ver detalhes'}</span>
+                                {isExpanded ? (
+                                  <ChevronDown className="w-4 h-4" />
+                                ) : (
+                                  <ChevronRight className="w-4 h-4" />
+                                )}
+                              </button>
                             </div>
                           </div>
 
-                          {ord.customer_note && (
-                            <div className="p-3 rounded-2xl bg-card border text-xs" style={{ borderColor: 'var(--border)' }}>
-                              <span className="font-semibold" style={{ color: 'var(--foreground)' }}>Observações: </span>
-                              <span className="text-muted-foreground">{ord.customer_note}</span>
+                          {/* Alerta de PIX Pendente */}
+                          {isPixPending && !isExpanded && (
+                            <div
+                              className="px-4 py-2.5 border-t flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                              style={{
+                                backgroundColor: 'rgba(251, 191, 36, 0.08)',
+                                borderColor: 'rgba(251, 191, 36, 0.25)',
+                                color: '#d97706',
+                              }}
+                            >
+                              <div className="flex items-center gap-2 font-semibold">
+                                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                                <span>Pagamento PIX pendente de confirmação</span>
+                              </div>
+                              {pixCode && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyPix(pixCode)}
+                                  className="inline-flex items-center gap-1 font-semibold px-2.5 py-1 rounded-lg border bg-white dark:bg-card text-[11px] shadow-xs cursor-pointer hover:opacity-80"
+                                  style={{ borderColor: 'rgba(251, 191, 36, 0.4)', color: '#d97706' }}
+                                >
+                                  <Copy className="w-3 h-3" />
+                                  <span>Copiar código PIX</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {/* ── Visualização Detalhada do Pedido ── */}
+                          {isExpanded && (
+                            <div
+                              className="p-5 border-t space-y-5 text-xs sm:text-sm"
+                              style={{
+                                borderColor: 'var(--border)',
+                                backgroundColor: 'var(--card)',
+                              }}
+                            >
+                              {/* Box informativo de PIX Pendente dentro dos detalhes */}
+                              {isPixPending && (
+                                <div
+                                  className="p-4 rounded-2xl border space-y-3"
+                                  style={{
+                                    backgroundColor: 'rgba(251, 191, 36, 0.08)',
+                                    borderColor: 'rgba(251, 191, 36, 0.3)',
+                                  }}
+                                >
+                                  <div className="flex items-center gap-2 font-bold text-xs sm:text-sm text-[#d97706]">
+                                    <AlertCircle className="w-4 h-4" />
+                                    <span>Pagamento PIX pendente</span>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    Utilize o QR Code ou a chave Copia e Cola abaixo no aplicativo do seu banco para concluir o pagamento:
+                                  </p>
+
+                                  <div className="flex flex-col sm:flex-row items-center gap-4 pt-1">
+                                    {pixQrCode && (
+                                      <div className="p-2 bg-white rounded-xl border flex-shrink-0">
+                                        <img
+                                          src={pixQrCode.startsWith('data:') ? pixQrCode : `data:image/png;base64,${pixQrCode}`}
+                                          alt="QR Code PIX"
+                                          className="w-28 h-28 object-contain"
+                                        />
+                                      </div>
+                                    )}
+
+                                    {pixCode && (
+                                      <div className="w-full space-y-2">
+                                        <label className="block text-[11px] font-semibold text-muted-foreground">
+                                          PIX Copia e Cola:
+                                        </label>
+                                        <div className="flex items-center gap-2">
+                                          <input
+                                            type="text"
+                                            readOnly
+                                            value={pixCode}
+                                            className="w-full h-9 px-3 rounded-lg border font-mono text-xs bg-muted text-foreground"
+                                            style={{ borderColor: 'var(--border)' }}
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopyPix(pixCode)}
+                                            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-xs font-semibold text-white transition-opacity hover:opacity-90 flex-shrink-0 cursor-pointer"
+                                            style={{ backgroundColor: 'var(--primary)' }}
+                                          >
+                                            <Copy className="w-3.5 h-3.5" />
+                                            <span>Copiar</span>
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Lista de Produtos */}
+                              <div className="space-y-2">
+                                <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                                  <Package className="w-3.5 h-3.5 text-primary" />
+                                  <span>Itens do Pedido ({ord.order_items?.length || 0})</span>
+                                </h4>
+
+                                <div className="rounded-2xl border divide-y overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+                                  {(ord.order_items || []).map((item) => (
+                                    <div
+                                      key={item.id}
+                                      className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                                      style={{ backgroundColor: 'var(--background)' }}
+                                    >
+                                      <div>
+                                        <p className="font-semibold text-xs sm:text-sm" style={{ color: 'var(--foreground)' }}>
+                                          {item.product_name}
+                                        </p>
+                                        <p className="text-muted-foreground text-xs mt-0.5">
+                                          Quantidade: <strong style={{ color: 'var(--foreground)' }}>{item.quantity}</strong> · {formatCurrency(item.product_price)} cada
+                                        </p>
+                                      </div>
+                                      <div className="text-left sm:text-right">
+                                        <p className="text-xs font-bold text-primary">
+                                          Subtotal: {formatCurrency(item.total_price)}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Informações de Entrega e Pagamento */}
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                                {/* Entrega */}
+                                <div className="p-4 rounded-2xl border space-y-1.5" style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}>
+                                  <span className="text-xs font-bold text-muted-foreground flex items-center gap-1.5 uppercase tracking-wider">
+                                    {ord.delivery_type === 'delivery' ? (
+                                      <Truck className="w-3.5 h-3.5 text-primary" />
+                                    ) : (
+                                      <Building2 className="w-3.5 h-3.5 text-primary" />
+                                    )}
+                                    {ord.delivery_type === 'delivery' ? 'Endereço de Entrega' : 'Local de Retirada'}
+                                  </span>
+
+                                  {ord.delivery_type === 'delivery' && ord.shipping_address ? (
+                                    <p className="text-xs text-muted-foreground leading-relaxed pt-1">
+                                      <strong className="text-foreground">{ord.shipping_address.street}, {ord.shipping_address.number}</strong>
+                                      {ord.shipping_address.complement && ` (${ord.shipping_address.complement})`}
+                                      <br />
+                                      {ord.shipping_address.neighborhood} — {ord.shipping_address.city}/{ord.shipping_address.state}
+                                      <br />
+                                      CEP: {formatCep(ord.shipping_address.zip_code)}
+                                    </p>
+                                  ) : (
+                                    <p className="text-xs text-muted-foreground leading-relaxed pt-1">
+                                      {ord.pickup_address || 'R. Urupema, nº 150 - Santa Luzia/MG'}
+                                    </p>
+                                  )}
+                                </div>
+
+                                {/* Resumo de Valores */}
+                                <div className="p-4 rounded-2xl border space-y-2" style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}>
+                                  <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider block">
+                                    Resumo Financeiro
+                                  </span>
+
+                                  <div className="space-y-1.5 text-xs text-muted-foreground">
+                                    <div className="flex justify-between">
+                                      <span>Subtotal dos itens:</span>
+                                      <span className="font-medium" style={{ color: 'var(--foreground)' }}>
+                                        {formatCurrency(ord.subtotal)}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span>Frete:</span>
+                                      <span className="text-success font-medium">
+                                        {ord.shipping_cost > 0 ? formatCurrency(ord.shipping_cost) : 'Grátis'}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between pt-2 border-t font-bold text-sm" style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}>
+                                      <span>Total:</span>
+                                      <span className="text-primary text-base font-black">
+                                        {formatCurrency(ord.total)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Observações do Cliente */}
+                              {ord.customer_note && (
+                                <div className="p-3.5 rounded-2xl border text-xs space-y-1" style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}>
+                                  <span className="font-bold text-muted-foreground block uppercase tracking-wider text-[11px]">
+                                    Observações:
+                                  </span>
+                                  <p className="text-muted-foreground italic">
+                                    "{ord.customer_note}"
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
