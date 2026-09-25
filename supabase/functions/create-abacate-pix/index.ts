@@ -272,20 +272,18 @@ serve(async (req: Request) => {
       method: 'PIX',
       data: {
         amount: amountInCents,
-        description: `Pedido Saturno Embalagens #${order.id.slice(0, 8).toUpperCase()}`,
-        expiresIn: PIX_EXPIRATION_SECONDS,
-        metadata: {
-          pedidoId: order.id,
-        },
       },
     };
 
-    if (customerPayload) {
-      abacatePayload.data.customer = customerPayload;
-    }
+    // Temporarily disabled optional fields to isolate 422 error:
+    // description: `Pedido Saturno Embalagens #${order.id.slice(0, 8).toUpperCase()}`,
+    // expiresIn: PIX_EXPIRATION_SECONDS,
+    // metadata: { pedidoId: order.id },
+    // if (customerPayload) abacatePayload.data.customer = customerPayload;
 
     // ── 12. Call AbacatePay API ──────────────────────────────────────────────
     console.log(`[CREATE-ABACATE-PIX] Criando cobrança PIX na AbacatePay para o pedido ${order.id} (valor: ${amountInCents} centavos).`);
+    console.log(`[CREATE-ABACATE-PIX] Payload enviado: ${JSON.stringify(abacatePayload, null, 2)}`);
 
     const abacateRes = await fetch('https://api.abacatepay.com/v2/transparents/create', {
       method: 'POST',
