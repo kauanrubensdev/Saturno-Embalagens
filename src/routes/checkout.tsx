@@ -378,8 +378,28 @@ function StripePaymentForm({
         </div>
       )}
 
+      {/* Stripe Payment Element Placeholder while loading */}
+      {!paymentReady && (
+        <div
+          className="p-6 rounded-xl border border-dashed flex flex-col items-center justify-center gap-3 text-center my-2"
+          style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}
+        >
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
+              Carregando opções de pagamento...
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Inicializando ambiente seguro com a Stripe
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Stripe Payment Element */}
-      <PaymentElement onReady={() => setPaymentReady(true)} options={paymentElementOptions} />
+      <div className={!paymentReady ? 'hidden' : 'block'}>
+        <PaymentElement onReady={() => setPaymentReady(true)} options={paymentElementOptions} />
+      </div>
 
       {paymentError && (
         <div
@@ -757,6 +777,9 @@ export function CheckoutPage() {
 
   // ── Finalize order handler ─────────────────────────────────────────────────
   const handleFinalizeOrder = async () => {
+    // 1. Double-click prevention
+    if (isSubmitting) return;
+
     if (!user) {
       toast.error('Faça login para finalizar o pedido');
       navigate({ to: '/login' });
@@ -784,9 +807,10 @@ export function CheckoutPage() {
       return;
     }
 
-    try {
-      setIsSubmitting(true);
+    // Immediately start loading state BEFORE any asynchronous operation
+    setIsSubmitting(true);
 
+    try {
       // 1. REVALIDATE STOCK & STATUS DIRECTLY FROM DATABASE
       const productIds = cart.items.map((i) => i.product_id);
       const { data: dbProducts, error: prodErr } = await supabase
@@ -917,10 +941,7 @@ export function CheckoutPage() {
         })),
       };
 
-      // 6. CLEAR CART
-      await clearCart();
-
-      // 7. BRANCH: online payment (Stripe) vs cash_on_delivery
+      // 6. BRANCH: online payment (Stripe) vs cash_on_delivery
       if (paymentMethod !== 'cash_on_delivery') {
         const session = await supabase.auth.getSession();
         const accessToken = session.data?.session?.access_token;
@@ -938,11 +959,13 @@ export function CheckoutPage() {
 
         if (paymentErr || !paymentRes?.client_secret) {
           console.error('[CHECKOUT] Erro na Edge Function create-stripe-payment:', paymentErr);
-          toast.error(
-            'Pedido registrado, mas houve um erro ao inicializar o pagamento. Tente novamente ou entre em contato com o suporte.'
+          throw new Error(
+            'Pedido registrado, mas não foi possível inicializar o ambiente de pagamento. Tente novamente em instantes.'
           );
-          return;
         }
+
+        // 7. CLEAR CART only AFTER payment preparation has succeeded
+        await clearCart();
 
         setStripePaymentState({
           orderId: createdOrder.id,
@@ -957,7 +980,8 @@ export function CheckoutPage() {
 
         toast.success('Pedido criado! Prossiga com o pagamento.');
       } else {
-        // Cash on delivery — order is confirmed immediately
+        // Cash on delivery — clear cart and confirm order immediately
+        await clearCart();
         setCompletedOrder(completedOrderData);
         toast.success('Pedido finalizado com sucesso!');
       }
@@ -1014,6 +1038,66 @@ export function CheckoutPage() {
             </Link>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // ── ORDER FINALIZATION TRANSITION LOADING STATE ───────────────────────────
+  // Covers the whole duration from clicking "Prosseguir para pagamento"
+  // until the Stripe Payment screen (or COD confirmation) is ready.
+  // Prevents the "Seu carrinho está vazio" flash when cart is cleared.
+  if (isSubmitting) {
+    return (
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+        <Header showNav />
+        <main className="flex-1 max-w-md mx-auto px-4 py-20 w-full flex items-center justify-center">
+          <div
+            className="w-full rounded-2xl p-8 sm:p-10 text-center border space-y-6 shadow-sm"
+            style={{
+              backgroundColor: 'var(--card)',
+              borderColor: 'var(--border)',
+            }}
+          >
+            {/* Animated Brand Pulse / Spinner */}
+            <div className="relative w-16 h-16 sm:w-20 sm:h-20 mx-auto flex items-center justify-center">
+              <div
+                className="absolute inset-0 rounded-2xl animate-ping opacity-15"
+                style={{ backgroundColor: 'var(--primary)' }}
+              />
+              <div
+                className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center shadow-md"
+                style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: 'var(--primary)' }}
+              >
+                <Loader2 className="w-8 h-8 sm:w-9 sm:h-9 animate-spin text-primary" />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
+                Preparando seu pagamento...
+              </h1>
+              <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto">
+                Estamos preparando seu pedido. Aguarde alguns instantes.
+              </p>
+            </div>
+
+            {/* Subtle Progress Bar */}
+            <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+              <div
+                className="h-full rounded-full animate-pulse"
+                style={{
+                  backgroundColor: 'var(--primary)',
+                  width: '75%',
+                }}
+              />
+            </div>
+
+            <div className="pt-2 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+              <ShieldCheck className="w-4 h-4 text-success" />
+              <span>Ambiente seguro e criptografado</span>
+            </div>
+          </div>
+        </main>
       </div>
     );
   }
