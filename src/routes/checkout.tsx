@@ -21,13 +21,16 @@ import {
   CreditCard,
   AlertCircle,
   ExternalLink,
+  ArrowLeft,
+  Smartphone,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { loadStripe, StripeElementsOptions } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
 // ── Stripe public key — safe to expose in the frontend ──────────────────────
-const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string;
+const STRIPE_PUBLISHABLE_KEY =
+  (import.meta.env['VITE_STRIPE_PUBLISHABLE_KEY'] as string) || '';
 
 // Lazy-initialize Stripe to avoid loading the SDK on every page
 let stripePromise: ReturnType<typeof loadStripe> | null = null;
@@ -39,7 +42,7 @@ const getStripe = () => {
 };
 
 export const Route = createFileRoute('/checkout')({
-  beforeLoad: async ({ context }) => {
+  beforeLoad: async ({ context }: { context: any }) => {
     if (!context.auth?.authReady) {
       return;
     }
@@ -51,6 +54,13 @@ export const Route = createFileRoute('/checkout')({
 });
 
 // ── Types ────────────────────────────────────────────────────────────────────
+
+export type PaymentMethodOption =
+  | 'card'
+  | 'apple_pay'
+  | 'google_pay'
+  | 'boleto'
+  | 'cash_on_delivery';
 
 interface CustomerAddress {
   id: string;
@@ -85,11 +95,12 @@ interface CompletedOrderData {
   }[];
 }
 
-/** State for orders that require online payment via Stripe Payment Element */
+/** State for orders that require online payment via Stripe */
 interface StripePaymentState {
   orderId: string;
   total: number;
   clientSecret: string;
+  selectedMethod: 'card' | 'apple_pay' | 'google_pay' | 'boleto';
   orderData: CompletedOrderData;
   /** Whether confirmed payment by Stripe (via realtime or polling) */
   isPaid: boolean;
@@ -101,6 +112,24 @@ interface StripePaymentState {
 const PICKUP_ADDRESS_TEXT =
   'R. Urupema, nº 150 - São Cosme de Baixo, Santa Luzia - MG, 33130-140';
 
+// ── Brand Icons ─────────────────────────────────────────────────────────────
+
+function ApplePayIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.37c.61-.75 1.04-1.8 0.92-2.87-.9.04-2.03.62-2.67 1.37-.56.65-.99 1.7-0.85 2.72 1.01.08 2.01-.52 2.6-1.22z" />
+    </svg>
+  );
+}
+
+function GooglePayIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12.24 10.285V14.4h6.872c-.297 1.636-1.75 4.8-6.872 4.8-4.14 0-7.518-3.39-7.518-7.56 0-4.17 3.378-7.56 7.518-7.56 2.355 0 3.93.996 4.827 1.848l3.297-3.174C18.291 1.014 15.534 0 12.24 0 5.478 0 0 5.484 0 12.24s5.478 12.24 12.24 12.24c7.065 0 11.754-4.962 11.754-11.958 0-.804-.087-1.416-.192-2.238H12.24z" />
+    </svg>
+  );
+}
+
 // ── StripePaymentForm Component ──────────────────────────────────────────────
 // Rendered inside the <Elements> provider; has access to useStripe/useElements
 
@@ -108,6 +137,7 @@ interface StripePaymentFormProps {
   stripePaymentState: StripePaymentState;
   onPaymentConfirmed: () => void;
   onBoletoIssued: (pdfUrl: string | null, hostedUrl: string | null) => void;
+  onChangeMethod: () => void;
   formatBRL: (val: number) => string;
 }
 
@@ -115,6 +145,7 @@ function StripePaymentForm({
   stripePaymentState,
   onPaymentConfirmed,
   onBoletoIssued,
+  onChangeMethod,
   formatBRL,
 }: StripePaymentFormProps) {
   const stripe = useStripe();
@@ -122,6 +153,8 @@ function StripePaymentForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentReady, setPaymentReady] = useState(false);
+
+  const selectedMethod = stripePaymentState.selectedMethod;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,12 +167,8 @@ function StripePaymentForm({
       const { error, paymentIntent } = await stripe.confirmPayment({
         elements,
         confirmParams: {
-          // return_url is required by Stripe for redirect-based flows.
-          // We pass the current page so that after 3DS redirect the user returns here.
           return_url: window.location.href,
         },
-        // redirect: 'if_required' avoids redirect for card payments that
-        // don't need 3DS, giving us a better UX.
         redirect: 'if_required',
       });
 
@@ -150,7 +179,7 @@ function StripePaymentForm({
       }
 
       if (paymentIntent) {
-        // Check if this is a boleto payment (status = requires_action, next_action = boleto)
+        // Check if this is a boleto payment (status = requires_action, next_action = display_boleto_details)
         if (paymentIntent.status === 'requires_action') {
           const nextAction = (paymentIntent as any).next_action;
           if (nextAction?.type === 'display_boleto_details') {
@@ -159,7 +188,7 @@ function StripePaymentForm({
             const hostedUrl = boleto?.hosted_voucher_url || null;
             onBoletoIssued(pdfUrl, hostedUrl);
             toast.success(
-              'Boleto gerado! Realize o pagamento dentro do prazo para confirmar seu pedido.'
+              'Boleto gerado com sucesso! Realize o pagamento dentro do prazo para confirmar seu pedido.'
             );
             return;
           }
@@ -169,9 +198,8 @@ function StripePaymentForm({
           onPaymentConfirmed();
           toast.success('Pagamento confirmado com sucesso!');
         } else if (paymentIntent.status === 'processing') {
-          // e.g. bank transfer still processing
           toast.info(
-            'Seu pagamento está sendo processado. Você será notificado quando for confirmado.'
+            'Seu pagamento está sendo processado. Você será notificado assim que for confirmado.'
           );
         }
       }
@@ -184,15 +212,90 @@ function StripePaymentForm({
     }
   };
 
+  // Tailored PaymentElement options based on the chosen individual method
+  const paymentElementOptions = useMemo(() => {
+    if (selectedMethod === 'card') {
+      return {
+        layout: 'accordion' as const,
+        paymentMethodOrder: ['card'],
+        wallets: {
+          applePay: 'never' as const,
+          googlePay: 'never' as const,
+        },
+      };
+    }
+    if (selectedMethod === 'apple_pay') {
+      return {
+        layout: 'accordion' as const,
+        paymentMethodOrder: ['card'],
+        wallets: {
+          applePay: 'auto' as const,
+          googlePay: 'never' as const,
+        },
+      };
+    }
+    if (selectedMethod === 'google_pay') {
+      return {
+        layout: 'accordion' as const,
+        paymentMethodOrder: ['card'],
+        wallets: {
+          googlePay: 'auto' as const,
+          applePay: 'never' as const,
+        },
+      };
+    }
+    if (selectedMethod === 'boleto') {
+      return {
+        layout: 'accordion' as const,
+        paymentMethodOrder: ['boleto'],
+        wallets: {
+          applePay: 'never' as const,
+          googlePay: 'never' as const,
+        },
+      };
+    }
+    return {
+      layout: 'accordion' as const,
+    };
+  }, [selectedMethod]);
+
+  const buttonLabel = useMemo(() => {
+    if (selectedMethod === 'boleto') {
+      return `Gerar Boleto (${formatBRL(stripePaymentState.total)})`;
+    }
+    if (selectedMethod === 'apple_pay') {
+      return `Pagar com Apple Pay (${formatBRL(stripePaymentState.total)})`;
+    }
+    if (selectedMethod === 'google_pay') {
+      return `Pagar com Google Pay (${formatBRL(stripePaymentState.total)})`;
+    }
+    return `Confirmar Pagamento com Cartão (${formatBRL(stripePaymentState.total)})`;
+  }, [selectedMethod, stripePaymentState.total, formatBRL]);
+
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {/* Stripe Payment Element — renders card, Apple Pay, Google Pay, Boleto, etc. */}
-      <PaymentElement
-        onReady={() => setPaymentReady(true)}
-        options={{
-          layout: 'tabs',
-        }}
-      />
+      {selectedMethod === 'boleto' && (
+        <div
+          className="p-3.5 rounded-xl text-xs border space-y-1"
+          style={{
+            backgroundColor: 'rgba(59, 130, 246, 0.06)',
+            borderColor: 'rgba(59, 130, 246, 0.2)',
+            color: 'var(--foreground)',
+          }}
+        >
+          <p className="font-semibold flex items-center gap-1.5 text-primary">
+            <FileText className="w-4 h-4" />
+            Informações do Boleto
+          </p>
+          <p className="text-muted-foreground">
+            Preencha os dados abaixo (nome, CPF/CNPJ e endereço) para a emissão do boleto bancário.
+            O documento será gerado logo após clicar no botão abaixo.
+          </p>
+        </div>
+      )}
+
+      {/* Stripe Payment Element */}
+      <PaymentElement onReady={() => setPaymentReady(true)} options={paymentElementOptions} />
 
       {paymentError && (
         <div
@@ -208,28 +311,44 @@ function StripePaymentForm({
         </div>
       )}
 
-      <button
-        type="submit"
-        disabled={!stripe || !elements || !paymentReady || isSubmitting}
-        className="w-full py-3.5 px-6 rounded-xl font-bold text-white text-sm transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
-        style={{ backgroundColor: 'var(--primary)' }}
-      >
-        {isSubmitting ? (
-          <>
-            <Loader2 className="w-5 h-5 animate-spin" />
-            <span>Processando pagamento...</span>
-          </>
-        ) : (
-          <>
-            <ShieldCheck className="w-5 h-5" />
-            <span>Confirmar Pagamento ({formatBRL(stripePaymentState.total)})</span>
-          </>
-        )}
-      </button>
+      <div className="space-y-2.5 pt-2">
+        <button
+          type="submit"
+          disabled={!stripe || !elements || !paymentReady || isSubmitting}
+          className="w-full py-3.5 px-6 rounded-xl font-bold text-white text-sm transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+          style={{ backgroundColor: 'var(--primary)' }}
+        >
+          {isSubmitting ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span>
+                {selectedMethod === 'boleto'
+                  ? 'Gerando boleto...'
+                  : 'Processando pagamento...'}
+              </span>
+            </>
+          ) : (
+            <>
+              <ShieldCheck className="w-5 h-5" />
+              <span>{buttonLabel}</span>
+            </>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={onChangeMethod}
+          disabled={isSubmitting}
+          className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Trocar forma de pagamento</span>
+        </button>
+      </div>
 
       <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1">
         <ShieldCheck className="w-3.5 h-3.5 text-success" />
-        Pagamento seguro processado via Stripe. Seus dados são protegidos.
+        Pagamento seguro processado via Stripe. Seus dados estão protegidos.
       </p>
     </form>
   );
@@ -244,13 +363,22 @@ export function CheckoutPage() {
 
   // Form states
   const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup'>('delivery');
-  const [paymentMethod, setPaymentMethod] = useState<'stripe_online' | 'cash_on_delivery'>(
-    'cash_on_delivery'
-  );
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodOption>('card');
   const [customerNote, setCustomerNote] = useState('');
   const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string>('');
   const [loadingAddresses, setLoadingAddresses] = useState(true);
+
+  // Digital wallets support detection
+  const [walletsSupport, setWalletsSupport] = useState<{
+    applePay: boolean;
+    googlePay: boolean;
+    checked: boolean;
+  }>({
+    applePay: false,
+    googlePay: false,
+    checked: false,
+  });
 
   // New address modal
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
@@ -275,6 +403,51 @@ export function CheckoutPage() {
   // Stripe confirmation state
   const pollingRef = useRef<number | null>(null);
 
+  // ── Detect Digital Wallets Support (Apple Pay & Google Pay) ────────────────
+  useEffect(() => {
+    let isMounted = true;
+
+    const detectWallets = async () => {
+      try {
+        const stripe = await getStripe();
+        if (!stripe) {
+          if (isMounted) setWalletsSupport({ applePay: false, googlePay: false, checked: true });
+          return;
+        }
+
+        const pr = stripe.paymentRequest({
+          country: 'BR',
+          currency: 'brl',
+          total: { label: 'Saturno Embalagens', amount: 1000 },
+          requestPayerName: true,
+          requestPayerEmail: true,
+        });
+
+        const result = (await pr.canMakePayment()) as Record<string, boolean> | null;
+        if (isMounted) {
+          const applePayAvailable = Boolean(result && result['applePay']);
+          const googlePayAvailable = Boolean(result && result['googlePay']);
+          setWalletsSupport({
+            applePay: applePayAvailable,
+            googlePay: googlePayAvailable,
+            checked: true,
+          });
+        }
+      } catch (err) {
+        console.warn('[CHECKOUT-WALLETS] Verificação de carteiras digitais:', err);
+        if (isMounted) {
+          setWalletsSupport({ applePay: false, googlePay: false, checked: true });
+        }
+      }
+    };
+
+    detectWallets();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // ── Fetch addresses ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
@@ -296,7 +469,9 @@ export function CheckoutPage() {
 
         if (addrList.length > 0) {
           const defaultAddr = addrList.find((a) => a.is_default) || addrList[0];
-          setSelectedAddressId(defaultAddr.id);
+          if (defaultAddr?.id) {
+            setSelectedAddressId(defaultAddr.id);
+          }
         }
       } catch (err) {
         console.error('[CHECKOUT] Erro ao carregar endereços:', err);
@@ -473,6 +648,29 @@ export function CheckoutPage() {
     );
   }, []);
 
+  // ── Handle Change Method from Stripe screen ───────────────────────────────
+  const handleChangeMethod = useCallback(() => {
+    setStripePaymentState(null);
+  }, []);
+
+  // ── Label helper ──────────────────────────────────────────────────────────
+  const getPaymentMethodDisplayLabel = (method: PaymentMethodOption) => {
+    switch (method) {
+      case 'card':
+        return 'Cartão de Crédito / Débito';
+      case 'apple_pay':
+        return 'Apple Pay';
+      case 'google_pay':
+        return 'Google Pay';
+      case 'boleto':
+        return 'Boleto Bancário';
+      case 'cash_on_delivery':
+        return 'Dinheiro na entrega';
+      default:
+        return 'Pagamento Online';
+    }
+  };
+
   // ── Finalize order handler ─────────────────────────────────────────────────
   const handleFinalizeOrder = async () => {
     if (!user) {
@@ -488,6 +686,17 @@ export function CheckoutPage() {
 
     if (deliveryType === 'delivery' && !selectedAddressId) {
       toast.error('Por favor, selecione ou cadastre um endereço de entrega.');
+      return;
+    }
+
+    // Wallet availability validation
+    if (paymentMethod === 'apple_pay' && !walletsSupport.applePay) {
+      toast.error('Apple Pay não está disponível neste dispositivo ou navegador.');
+      return;
+    }
+
+    if (paymentMethod === 'google_pay' && !walletsSupport.googlePay) {
+      toast.error('Google Pay não está disponível neste dispositivo ou navegador.');
       return;
     }
 
@@ -528,12 +737,16 @@ export function CheckoutPage() {
       const verifiedTotal = verifiedSubtotal + verifiedShipping;
 
       // 3. CREATE ORDER IN public.orders
+      // DB constraint allows 'stripe_online' or 'cash_on_delivery'
+      const dbPaymentMethod =
+        paymentMethod === 'cash_on_delivery' ? 'cash_on_delivery' : 'stripe_online';
+
       const orderPayload = {
         user_id: user.id,
         delivery_type: deliveryType,
         shipping_address_id: deliveryType === 'delivery' ? selectedAddressId : null,
         pickup_address: deliveryType === 'pickup' ? PICKUP_ADDRESS_TEXT : null,
-        payment_method: paymentMethod,
+        payment_method: dbPaymentMethod,
         payment_status: 'pending',
         subtotal: verifiedSubtotal,
         shipping_cost: verifiedShipping,
@@ -598,8 +811,7 @@ export function CheckoutPage() {
         }
       }
 
-      const paymentMethodLabel =
-        paymentMethod === 'stripe_online' ? 'Cartão / Apple Pay / Google Pay / Boleto' : 'Dinheiro na entrega';
+      const paymentMethodLabel = getPaymentMethodDisplayLabel(paymentMethod);
 
       const completedOrderData: CompletedOrderData = {
         id: createdOrder.id,
@@ -624,9 +836,8 @@ export function CheckoutPage() {
       // 6. CLEAR CART
       await clearCart();
 
-      // 7. BRANCH: online payment vs cash_on_delivery
-      if (paymentMethod === 'stripe_online') {
-        // Invoke Edge Function to get a PaymentIntent client_secret
+      // 7. BRANCH: online payment (Stripe) vs cash_on_delivery
+      if (paymentMethod !== 'cash_on_delivery') {
         const session = await supabase.auth.getSession();
         const accessToken = session.data?.session?.access_token;
 
@@ -643,7 +854,6 @@ export function CheckoutPage() {
           toast.error(
             'Pedido registrado, mas houve um erro ao inicializar o pagamento. Tente novamente ou entre em contato com o suporte.'
           );
-          // Keep the order in DB; user can retry
           return;
         }
 
@@ -651,13 +861,14 @@ export function CheckoutPage() {
           orderId: createdOrder.id,
           total: verifiedTotal,
           clientSecret: paymentRes.client_secret,
+          selectedMethod: paymentMethod,
           orderData: completedOrderData,
           isPaid: false,
           boletoPdfUrl: null,
           boletoHostedUrl: null,
         });
 
-        toast.success('Pedido criado! Conclua o pagamento abaixo.');
+        toast.success('Pedido criado! Prossiga com o pagamento.');
       } else {
         // Cash on delivery — order is confirmed immediately
         setCompletedOrder(completedOrderData);
@@ -720,10 +931,17 @@ export function CheckoutPage() {
     );
   }
 
-  // ── STRIPE PAYMENT ELEMENT SCREEN ─────────────────────────────────────────
+  // ── STRIPE PAYMENT SCREEN ─────────────────────────────────────────────────
   if (stripePaymentState) {
-    const { isPaid, boletoPdfUrl, boletoHostedUrl, orderData, total: orderTotal, clientSecret } =
-      stripePaymentState;
+    const {
+      isPaid,
+      boletoPdfUrl,
+      boletoHostedUrl,
+      orderData,
+      total: orderTotal,
+      clientSecret,
+      selectedMethod,
+    } = stripePaymentState;
 
     const stripeAppearance = {
       theme: 'stripe' as const,
@@ -739,6 +957,29 @@ export function CheckoutPage() {
       appearance: stripeAppearance,
       locale: 'pt-BR',
     };
+
+    const methodHeaderInfo = {
+      card: {
+        icon: <CreditCard className="w-8 h-8 sm:w-10 sm:h-10" />,
+        title: 'Pagamento com Cartão',
+        subtitle: 'Preencha os dados do seu cartão para concluir a compra.',
+      },
+      apple_pay: {
+        icon: <ApplePayIcon className="w-8 h-8 sm:w-10 sm:h-10" />,
+        title: 'Pagamento com Apple Pay',
+        subtitle: 'Conclua sua compra com segurança usando Apple Pay.',
+      },
+      google_pay: {
+        icon: <GooglePayIcon className="w-8 h-8 sm:w-10 sm:h-10" />,
+        title: 'Pagamento com Google Pay',
+        subtitle: 'Conclua sua compra com segurança usando Google Pay.',
+      },
+      boleto: {
+        icon: <FileText className="w-8 h-8 sm:w-10 sm:h-10" />,
+        title: 'Emissão de Boleto Bancário',
+        subtitle: 'Preencha seus dados para emitir o boleto bancário.',
+      },
+    }[selectedMethod];
 
     return (
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
@@ -768,7 +1009,10 @@ export function CheckoutPage() {
                 >
                   Pagamento Confirmado
                 </span>
-                <h1 className="text-2xl sm:text-3xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>
+                <h1
+                  className="text-2xl sm:text-3xl font-bold mb-2"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   Pagamento Realizado com Sucesso!
                 </h1>
                 <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
@@ -790,16 +1034,19 @@ export function CheckoutPage() {
                 >
                   Boleto Gerado — Pagamento Pendente
                 </span>
-                <h1 className="text-xl sm:text-2xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>
-                  Seu boleto está pronto
+                <h1
+                  className="text-xl sm:text-2xl font-bold mb-2"
+                  style={{ color: 'var(--foreground)' }}
+                >
+                  Seu boleto está pronto para pagamento
                 </h1>
                 <p className="text-xs sm:text-sm text-muted-foreground max-w-md mx-auto mb-4">
-                  Realize o pagamento do boleto dentro do prazo. A confirmação pode levar{' '}
-                  <strong>até 3 dias úteis</strong> após o pagamento.
+                  Realize o pagamento do boleto dentro do prazo de vencimento. A compensação pode
+                  levar <strong>até 3 dias úteis</strong>.
                 </p>
 
                 <div
-                  className="p-4 rounded-xl border text-xs mb-4 space-y-1"
+                  className="p-4 rounded-xl border text-xs mb-4 space-y-1 text-left"
                   style={{
                     backgroundColor: 'rgba(251, 191, 36, 0.06)',
                     borderColor: 'rgba(251, 191, 36, 0.25)',
@@ -808,15 +1055,15 @@ export function CheckoutPage() {
                 >
                   <p className="font-semibold flex items-center gap-1.5">
                     <AlertCircle className="w-3.5 h-3.5" />
-                    Atenção
+                    Atenção à compensação bancária
                   </p>
                   <p>
-                    Boleto não é confirmação instantânea. Seu pedido só será processado após a
-                    compensação bancária.
+                    O boleto bancário não é compensado instantaneamente. O pedido começará a ser
+                    preparado assim que o banco nos confirmar a liquidação do título.
                   </p>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                <div className="flex flex-col sm:flex-row gap-2.5 justify-center">
                   {boletoHostedUrl && (
                     <a
                       href={boletoHostedUrl}
@@ -853,21 +1100,23 @@ export function CheckoutPage() {
                   className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 text-primary"
                   style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)' }}
                 >
-                  <CreditCard className="w-8 h-8 sm:w-10 sm:h-10" />
+                  {methodHeaderInfo.icon}
                 </div>
                 <span
                   className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider mb-2 text-primary"
                   style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)' }}
                 >
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  Finalizar Pagamento
+                  {getPaymentMethodDisplayLabel(selectedMethod)}
                 </span>
-                <h1 className="text-xl sm:text-2xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>
-                  Conclua o pagamento do seu pedido
+                <h1
+                  className="text-xl sm:text-2xl font-bold mb-2"
+                  style={{ color: 'var(--foreground)' }}
+                >
+                  {methodHeaderInfo.title}
                 </h1>
                 <p className="text-xs sm:text-sm text-muted-foreground max-w-md mx-auto">
-                  Escolha a forma de pagamento abaixo. Cartão, Apple Pay, Google Pay e Boleto são
-                  aceitos.
+                  {methodHeaderInfo.subtitle}
                 </p>
               </>
             )}
@@ -906,7 +1155,7 @@ export function CheckoutPage() {
               }}
             >
               <h2 className="font-bold text-sm mb-4" style={{ color: 'var(--foreground)' }}>
-                Dados de Pagamento
+                {selectedMethod === 'boleto' ? 'Dados para Emissão do Boleto' : 'Dados do Pagamento'}
               </h2>
 
               {getStripe() ? (
@@ -915,6 +1164,7 @@ export function CheckoutPage() {
                     stripePaymentState={stripePaymentState}
                     onPaymentConfirmed={handlePaymentConfirmed}
                     onBoletoIssued={handleBoletoIssued}
+                    onChangeMethod={handleChangeMethod}
                     formatBRL={formatBRL}
                   />
                 </Elements>
@@ -1040,7 +1290,10 @@ export function CheckoutPage() {
               Pedido Confirmado
             </span>
 
-            <h1 className="text-2xl sm:text-3xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>
+            <h1
+              className="text-2xl sm:text-3xl font-bold mb-2"
+              style={{ color: 'var(--foreground)' }}
+            >
               Pedido realizado com sucesso!
             </h1>
 
@@ -1234,7 +1487,10 @@ export function CheckoutPage() {
               <ShoppingBag className="w-10 h-10 text-primary" />
             </div>
 
-            <h1 className="text-2xl md:text-3xl font-bold mb-3" style={{ color: 'var(--foreground)' }}>
+            <h1
+              className="text-2xl md:text-3xl font-bold mb-3"
+              style={{ color: 'var(--foreground)' }}
+            >
               Seu carrinho está vazio
             </h1>
 
@@ -1267,6 +1523,56 @@ export function CheckoutPage() {
       </div>
     );
   }
+
+  // ── Payment Methods Definitions ───────────────────────────────────────────
+  const paymentOptions: {
+    id: PaymentMethodOption;
+    title: string;
+    description: string;
+    icon: React.ReactNode;
+    isAvailable: boolean;
+    unavailableBadge?: string | undefined;
+    badge?: string | undefined;
+  }[] = [
+    {
+      id: 'card',
+      title: 'Cartão',
+      description: 'Pague com cartão de crédito ou débito.',
+      icon: <CreditCard className="w-4 h-4 text-primary" />,
+      isAvailable: true,
+    },
+    {
+      id: 'apple_pay',
+      title: 'Apple Pay',
+      description: 'Pague rapidamente usando Apple Pay.',
+      icon: <ApplePayIcon className="w-4 h-4 text-primary" />,
+      isAvailable: walletsSupport.checked ? walletsSupport.applePay : true,
+      unavailableBadge: walletsSupport.checked && !walletsSupport.applePay ? 'Indisponível neste dispositivo' : undefined,
+    },
+    {
+      id: 'google_pay',
+      title: 'Google Pay',
+      description: 'Pague rapidamente usando Google Pay.',
+      icon: <GooglePayIcon className="w-4 h-4 text-primary" />,
+      isAvailable: walletsSupport.checked ? walletsSupport.googlePay : true,
+      unavailableBadge: walletsSupport.checked && !walletsSupport.googlePay ? 'Indisponível neste navegador' : undefined,
+    },
+    {
+      id: 'boleto',
+      title: 'Boleto',
+      description: 'Gere seu boleto e realize o pagamento.',
+      icon: <FileText className="w-4 h-4 text-primary" />,
+      isAvailable: true,
+    },
+    {
+      id: 'cash_on_delivery',
+      title: 'Dinheiro na entrega',
+      description: 'Pague em dinheiro no recebimento ou retirada.',
+      icon: <Banknote className="w-4 h-4 text-primary" />,
+      isAvailable: true,
+      badge: 'No Recebimento',
+    },
+  ];
 
   // ── MAIN CHECKOUT FORM ─────────────────────────────────────────────────────
   return (
@@ -1536,97 +1842,92 @@ export function CheckoutPage() {
                 </h2>
               </div>
 
-              <div className="space-y-3">
-                {/* Stripe Online Payment (Card, Apple Pay, Google Pay, Boleto) */}
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('stripe_online')}
-                  className={`w-full p-4 rounded-xl border text-left flex items-start gap-3.5 transition-all cursor-pointer ${
-                    paymentMethod === 'stripe_online'
-                      ? 'border-primary ring-2 ring-primary/20 bg-primary/5'
-                      : 'border-border hover:border-border/80 bg-card'
-                  }`}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 ${
-                      paymentMethod === 'stripe_online'
-                        ? 'border-primary bg-primary text-white'
-                        : 'border-muted-foreground/40'
-                    }`}
-                  >
-                    {paymentMethod === 'stripe_online' && <Check className="w-3 h-3 stroke-[3]" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <div
-                        className="flex items-center gap-2 font-semibold text-sm"
-                        style={{ color: 'var(--foreground)' }}
-                      >
-                        <CreditCard className="w-4 h-4 text-primary" />
-                        <span>Cartão / Apple Pay / Google Pay / Boleto</span>
-                      </div>
-                      <span
-                        className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
-                        style={{
-                          backgroundColor: 'rgba(22, 163, 74, 0.12)',
-                          color: 'var(--success)',
-                        }}
-                      >
-                        Recomendado
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Pague com cartão de crédito/débito, Apple Pay, Google Pay ou Boleto.
-                      Processado com segurança pelo Stripe.
-                    </p>
-                  </div>
-                </button>
+              <div className="space-y-3" role="radiogroup" aria-label="Forma de Pagamento">
+                {paymentOptions.map((opt) => {
+                  const isSelected = paymentMethod === opt.id;
+                  const isDisabled = !opt.isAvailable;
 
-                {/* Dinheiro na entrega */}
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('cash_on_delivery')}
-                  className={`w-full p-4 rounded-xl border text-left flex items-start gap-3.5 transition-all cursor-pointer ${
-                    paymentMethod === 'cash_on_delivery'
-                      ? 'border-primary ring-2 ring-primary/20 bg-primary/5'
-                      : 'border-border hover:border-border/80 bg-card'
-                  }`}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 ${
-                      paymentMethod === 'cash_on_delivery'
-                        ? 'border-primary bg-primary text-white'
-                        : 'border-muted-foreground/40'
-                    }`}
-                  >
-                    {paymentMethod === 'cash_on_delivery' && (
-                      <Check className="w-3 h-3 stroke-[3]" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <div
-                        className="flex items-center gap-2 font-semibold text-sm"
-                        style={{ color: 'var(--foreground)' }}
-                      >
-                        <Banknote className="w-4 h-4 text-primary" />
-                        <span>Dinheiro na entrega</span>
-                      </div>
-                      <span
-                        className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
-                        style={{
-                          backgroundColor: 'rgba(59, 130, 246, 0.12)',
-                          color: 'var(--primary)',
+                  return (
+                    <label
+                      key={opt.id}
+                      htmlFor={`payment-option-${opt.id}`}
+                      className={`w-full p-4 rounded-xl border text-left flex items-start gap-3.5 transition-all select-none ${
+                        isDisabled
+                          ? 'opacity-60 border-border/60 bg-muted/30 cursor-not-allowed'
+                          : isSelected
+                            ? 'border-primary ring-2 ring-primary/20 bg-primary/5 cursor-pointer'
+                            : 'border-border hover:border-border/80 bg-card cursor-pointer'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        id={`payment-option-${opt.id}`}
+                        name="payment_method_option"
+                        value={opt.id}
+                        checked={isSelected}
+                        disabled={isDisabled}
+                        onChange={() => {
+                          if (!isDisabled) {
+                            setPaymentMethod(opt.id);
+                          }
                         }}
+                        className="sr-only"
+                      />
+
+                      {/* Custom Radio Indicator */}
+                      <div
+                        className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 transition-colors ${
+                          isDisabled
+                            ? 'border-muted-foreground/30 bg-muted'
+                            : isSelected
+                              ? 'border-primary bg-primary text-white'
+                              : 'border-muted-foreground/40 bg-card'
+                        }`}
                       >
-                        No Recebimento
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Pague em dinheiro no momento do recebimento ou da retirada no local.
-                    </p>
-                  </div>
-                </button>
+                        {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                      </div>
+
+                      {/* Info & Text */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div
+                            className="flex items-center gap-2 font-semibold text-sm"
+                            style={{ color: 'var(--foreground)' }}
+                          >
+                            {opt.icon}
+                            <span>{opt.title}</span>
+                          </div>
+
+                          {opt.badge && (
+                            <span
+                              className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+                              style={{
+                                backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                                color: 'var(--primary)',
+                              }}
+                            >
+                              {opt.badge}
+                            </span>
+                          )}
+
+                          {opt.unavailableBadge && (
+                            <span
+                              className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                              style={{
+                                backgroundColor: 'var(--muted)',
+                                color: 'var(--muted-foreground)',
+                              }}
+                            >
+                              {opt.unavailableBadge}
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-xs text-muted-foreground mt-1">{opt.description}</p>
+                      </div>
+                    </label>
+                  );
+                })}
               </div>
             </section>
 
@@ -1774,7 +2075,7 @@ export function CheckoutPage() {
                     <Loader2 className="w-5 h-5 animate-spin" />
                     <span>Processando pedido...</span>
                   </>
-                ) : paymentMethod === 'stripe_online' ? (
+                ) : paymentMethod !== 'cash_on_delivery' ? (
                   <>
                     <CreditCard className="w-5 h-5" />
                     <span>Continuar para Pagamento ({formatBRL(total)})</span>
@@ -1817,7 +2118,10 @@ export function CheckoutPage() {
           <form onSubmit={handleSaveAddress} className="space-y-3.5 mt-2">
             {/* CEP */}
             <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+              <label
+                className="block text-xs font-semibold mb-1"
+                style={{ color: 'var(--foreground)' }}
+              >
                 CEP *
               </label>
               <div className="relative">
@@ -1851,7 +2155,10 @@ export function CheckoutPage() {
             {/* Logradouro e Número */}
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2">
-                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+                <label
+                  className="block text-xs font-semibold mb-1"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   Rua / Logradouro *
                 </label>
                 <input
@@ -1871,7 +2178,10 @@ export function CheckoutPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+                <label
+                  className="block text-xs font-semibold mb-1"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   Número *
                 </label>
                 <input
@@ -1895,7 +2205,10 @@ export function CheckoutPage() {
             {/* Complemento e Bairro */}
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+                <label
+                  className="block text-xs font-semibold mb-1"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   Complemento
                 </label>
                 <input
@@ -1914,7 +2227,10 @@ export function CheckoutPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+                <label
+                  className="block text-xs font-semibold mb-1"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   Bairro *
                 </label>
                 <input
@@ -1938,7 +2254,10 @@ export function CheckoutPage() {
             {/* Cidade e UF */}
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2">
-                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+                <label
+                  className="block text-xs font-semibold mb-1"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   Cidade *
                 </label>
                 <input
@@ -1958,7 +2277,10 @@ export function CheckoutPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+                <label
+                  className="block text-xs font-semibold mb-1"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   UF *
                 </label>
                 <input
@@ -1968,7 +2290,10 @@ export function CheckoutPage() {
                   placeholder="MG"
                   value={addressForm.state}
                   onChange={(e) =>
-                    setAddressForm((prev) => ({ ...prev, state: e.target.value.toUpperCase() }))
+                    setAddressForm((prev) => ({
+                      ...prev,
+                      state: e.target.value.toUpperCase(),
+                    }))
                   }
                   className="w-full h-10 px-3 rounded-xl border text-sm uppercase focus:outline-none focus:ring-2"
                   style={{
@@ -2017,3 +2342,4 @@ export function CheckoutPage() {
     </div>
   );
 }
+
