@@ -516,6 +516,10 @@ export type Database = {
         Args: { p_event_id: string; p_order_id: string; p_payment_intent_id: string }
         Returns: Json
       }
+      decrement_checkout_stock: {
+        Args: { p_order_id?: string; p_product_id: string; p_quantity: number }
+        Returns: Json
+      }
       get_cart_user: { Args: { cart_uuid: string }; Returns: string }
       get_order_user: { Args: { order_uuid: string }; Returns: string }
       is_admin: { Args: never; Returns: boolean }

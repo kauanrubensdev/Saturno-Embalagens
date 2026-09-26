@@ -1586,31 +1586,19 @@ export function CheckoutPage() {
           throw new Error('Falha ao registrar os itens do pedido: ' + itemsErr.message);
         }
 
-        // 5. UPDATE STOCK & REGISTER MOVEMENTS
+        // 5. UPDATE STOCK & REGISTER MOVEMENTS VIA SECURE ATOMIC RPC
         for (const item of cart.items) {
-          const liveProd = dbProducts.find((p) => p.id === item.product_id)!;
-          const newStock = Math.max(0, liveProd.stock_quantity - item.quantity);
-
-          const { error: stockUpdateErr } = await supabase
-            .from('products')
-            .update({ stock_quantity: newStock })
-            .eq('id', item.product_id);
-
-          if (stockUpdateErr) {
-            console.warn('[CHECKOUT] Aviso ao atualizar estoque:', stockUpdateErr.message);
-          }
-
-          const { error: movErr } = await supabase.from('stock_movements').insert({
-            product_id: item.product_id,
-            quantity: item.quantity,
-            movement_type: 'out',
-            reason: `Pedido #${createdOrder.id.slice(0, 8).toUpperCase()}`,
-            reference: createdOrder.id,
-            performed_by: user.id,
+          const { error: stockRpcErr } = await supabase.rpc('decrement_checkout_stock', {
+            p_product_id: item.product_id,
+            p_quantity: item.quantity,
+            p_order_id: createdOrder.id,
           });
 
-          if (movErr) {
-            console.warn('[CHECKOUT] Aviso ao inserir stock_movements:', movErr.message);
+          if (stockRpcErr) {
+            throw new Error(
+              'Não foi possível reservar o estoque do produto. ' +
+              stockRpcErr.message
+            );
           }
         }
 
