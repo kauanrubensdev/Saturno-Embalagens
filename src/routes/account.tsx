@@ -1,5 +1,5 @@
 import { createFileRoute, redirect, Link, useNavigate } from '@tanstack/react-router';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { updateProfile } from '@/lib/auth';
 import { supabase } from '@/integrations/supabase/client';
@@ -33,6 +33,7 @@ import {
   AlertCircle,
   Package,
   Clock,
+  RefreshCw,
 } from 'lucide-react';
 
 export const Route = createFileRoute('/account')({
@@ -446,18 +447,22 @@ function AccountPage() {
   const [phone, setPhone] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
 
+  // Load error state
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   // Addresses state
   const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
-  const [loadingAddresses, setLoadingAddresses] = useState(false);
+  const [loadingAddresses, setLoadingAddresses] = useState(true);
   const [isAddressFormOpen, setIsAddressFormOpen] = useState(false);
   const [addressForm, setAddressForm] = useState<AddressFormData>(INITIAL_ADDRESS_FORM);
   const [savingAddress, setSavingAddress] = useState(false);
+  const [searchingCep, setSearchingCep] = useState(false);
   const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
   const [deletingAddressId, setDeletingAddressId] = useState<string | null>(null);
 
   // Orders state
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
-  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [loadingOrders, setLoadingOrders] = useState(true);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   // Redireciona para /login se já terminou de carregar e não há usuário
@@ -476,8 +481,11 @@ function AccountPage() {
   }, [profile]);
 
   // Carregar endereços do cliente
-  const fetchAddresses = async () => {
-    if (!user) return;
+  const fetchAddresses = useCallback(async () => {
+    if (!user) {
+      setLoadingAddresses(false);
+      return;
+    }
     try {
       setLoadingAddresses(true);
       const { data, error } = await supabase
@@ -491,21 +499,24 @@ function AccountPage() {
       setAddresses((data as CustomerAddress[]) || []);
     } catch (err: any) {
       console.error('[ACCOUNT-ADDRESSES] Erro ao carregar endereços:', err);
-      toast.error('Erro ao carregar endereços.');
+      setLoadError('Não foi possível carregar as informações da sua conta.');
     } finally {
       setLoadingAddresses(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     if (user) {
       fetchAddresses();
     }
-  }, [user]);
+  }, [user, fetchAddresses]);
 
   // Carregar pedidos do cliente com itens e endereços
-  const fetchOrders = async () => {
-    if (!user) return;
+  const fetchOrders = useCallback(async () => {
+    if (!user) {
+      setLoadingOrders(false);
+      return;
+    }
     try {
       setLoadingOrders(true);
       const { data, error } = await supabase
@@ -530,28 +541,157 @@ function AccountPage() {
       setOrders((data as unknown as CustomerOrder[]) || []);
     } catch (err: any) {
       console.error('[ACCOUNT-ORDERS] Erro ao carregar pedidos:', err);
-      toast.error('Erro ao carregar seus pedidos.');
+      setLoadError('Não foi possível carregar o histórico de pedidos.');
     } finally {
       setLoadingOrders(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     if (user) {
       fetchOrders();
     }
-  }, [user]);
+  }, [user, fetchOrders]);
 
-  // Loading state enquanto auth inicializa
+  // In-page retry handler without reloading the browser
+  const handleRetryAll = useCallback(() => {
+    setLoadError(null);
+    if (user) {
+      refreshProfile();
+      fetchAddresses();
+      fetchOrders();
+    }
+  }, [user, refreshProfile, fetchAddresses, fetchOrders]);
+
+  // Auto preenchimento de endereço via CEP
+  const handleCepBlur = async () => {
+    const rawCep = addressForm.zip_code.replace(/\D/g, '');
+    if (rawCep.length !== 8) return;
+
+    try {
+      setSearchingCep(true);
+      const res = await fetch(`https://viacep.com.br/ws/${rawCep}/json/`);
+      const data = await res.json();
+      if (!data.erro) {
+        setAddressForm((prev) => ({
+          ...prev,
+          street: data.logradouro || prev.street,
+          neighborhood: data.bairro || prev.neighborhood,
+          city: data.localidade || prev.city,
+          state: (data.uf || prev.state).toUpperCase(),
+        }));
+      }
+    } catch (err) {
+      console.warn('[ACCOUNT] Erro ao consultar CEP:', err);
+    } finally {
+      setSearchingCep(false);
+    }
+  };
+
+  // ── SKELETON LOADING STATE (Preserves layout & prevents CLS) ───────────────
   if (!authReady || !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--background)' }}>
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-          <p className="text-sm font-medium" style={{ color: 'var(--muted-foreground)' }}>
-            Carregando sua conta...
-          </p>
-        </div>
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+        <Header showNav />
+        <main className="flex-1 py-8 sm:py-12">
+          <div className="max-w-3xl mx-auto px-4 w-full space-y-6 animate-pulse">
+            {/* Hero Header Skeleton */}
+            <div
+              className="rounded-3xl p-6 sm:p-8 border flex flex-col sm:flex-row sm:items-center justify-between gap-6"
+              style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-muted flex-shrink-0" />
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="h-6 w-44 rounded bg-muted" />
+                    <div className="h-4 w-16 rounded-full bg-muted/60" />
+                  </div>
+                  <div className="h-4 w-48 rounded bg-muted/70" />
+                </div>
+              </div>
+              <div className="h-10 w-32 rounded-xl bg-muted/60" />
+            </div>
+
+            {/* Navigation Tabs Skeleton */}
+            <div className="flex gap-2 border-b pb-2" style={{ borderColor: 'var(--border)' }}>
+              <div className="h-10 w-32 rounded-xl bg-muted" />
+              <div className="h-10 w-36 rounded-xl bg-muted/50" />
+              <div className="h-10 w-32 rounded-xl bg-muted/50" />
+            </div>
+
+            {/* Content Card Skeleton */}
+            <div
+              className="rounded-3xl p-6 sm:p-8 border space-y-6"
+              style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+            >
+              <div className="flex justify-between items-center pb-4 border-b" style={{ borderColor: 'var(--border)' }}>
+                <div className="space-y-1.5">
+                  <div className="h-5 w-36 rounded bg-muted" />
+                  <div className="h-3.5 w-60 rounded bg-muted/60" />
+                </div>
+                <div className="h-9 w-28 rounded-xl bg-muted/60" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="h-20 rounded-2xl border border-border bg-muted/30" />
+                <div className="h-20 rounded-2xl border border-border bg-muted/30" />
+                <div className="h-20 rounded-2xl border border-border bg-muted/30 sm:col-span-2" />
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // ── FRIENDLY LOAD ERROR STATE ──────────────────────────────────────────────
+  if (loadError) {
+    return (
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+        <Header showNav />
+        <main className="flex-1 max-w-md mx-auto px-4 py-16 sm:py-20 w-full flex items-center justify-center">
+          <div
+            className="w-full rounded-3xl p-6 sm:p-8 text-center border space-y-5 shadow-sm"
+            style={{
+              backgroundColor: 'var(--card)',
+              borderColor: 'var(--border)',
+            }}
+          >
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto"
+              style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#dc2626' }}
+            >
+              <AlertCircle className="w-7 h-7" />
+            </div>
+
+            <div className="space-y-2">
+              <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
+                Não foi possível carregar suas informações
+              </h1>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Verifique sua conexão e tente novamente.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={handleRetryAll}
+                className="w-full py-3 px-5 rounded-xl font-bold text-white text-sm transition-all hover:opacity-90 flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                style={{ backgroundColor: 'var(--primary)' }}
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Tentar novamente</span>
+              </button>
+              <Link
+                to="/"
+                className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors text-center no-underline"
+              >
+                Voltar para o início
+              </Link>
+            </div>
+          </div>
+        </main>
       </div>
     );
   }
@@ -1216,15 +1356,24 @@ function AccountPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {/* CEP */}
                       <div>
-                        <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--foreground)' }}>
-                          CEP *
-                        </label>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
+                            CEP *
+                          </label>
+                          {searchingCep && (
+                            <span className="text-[10px] text-primary flex items-center gap-1 font-medium">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              Buscando CEP...
+                            </span>
+                          )}
+                        </div>
                         <input
                           type="text"
                           value={addressForm.zip_code}
                           onChange={(e) =>
                             setAddressForm((prev) => ({ ...prev, zip_code: formatCep(e.target.value) }))
                           }
+                          onBlur={handleCepBlur}
                           required
                           disabled={savingAddress}
                           placeholder="00000-000"
@@ -1419,9 +1568,28 @@ function AccountPage() {
 
                 {/* Listagem de Endereços */}
                 {loadingAddresses ? (
-                  <div className="py-12 text-center text-sm text-muted-foreground">
-                    <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
-                    Carregando seus endereços...
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-pulse">
+                    {[1, 2].map((n) => (
+                      <div
+                        key={n}
+                        className="p-5 rounded-2xl border space-y-3"
+                        style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
+                      >
+                        <div className="flex justify-between items-center">
+                          <div className="h-4 w-20 rounded bg-muted/80" />
+                          <div className="h-4 w-12 rounded bg-muted/60" />
+                        </div>
+                        <div className="space-y-2">
+                          <div className="h-4 w-4/5 rounded bg-muted" />
+                          <div className="h-3.5 w-3/5 rounded bg-muted/70" />
+                          <div className="h-3 w-2/5 rounded bg-muted/50" />
+                        </div>
+                        <div className="pt-3 border-t flex justify-between" style={{ borderColor: 'var(--border)' }}>
+                          <div className="h-4 w-24 rounded bg-muted/60" />
+                          <div className="h-4 w-12 rounded bg-muted/60" />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : addresses.length === 0 ? (
                   <div
@@ -1588,9 +1756,28 @@ function AccountPage() {
                 </div>
 
                 {loadingOrders ? (
-                  <div className="py-12 text-center text-sm text-muted-foreground">
-                    <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
-                    Carregando seus pedidos...
+                  <div className="space-y-4 animate-pulse">
+                    {[1, 2, 3].map((n) => (
+                      <div
+                        key={n}
+                        className="p-5 rounded-2xl border space-y-3"
+                        style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <div className="h-4 w-24 rounded bg-muted" />
+                            <div className="h-5 w-28 rounded-full bg-muted/70" />
+                            <div className="h-5 w-28 rounded-full bg-muted/70" />
+                          </div>
+                          <div className="h-6 w-20 rounded bg-muted" />
+                        </div>
+                        <div className="flex items-center gap-3 pt-1">
+                          <div className="h-3.5 w-32 rounded bg-muted/60" />
+                          <div className="h-3.5 w-20 rounded bg-muted/60" />
+                          <div className="h-3.5 w-24 rounded bg-muted/60" />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : orders.length === 0 ? (
                   <div
