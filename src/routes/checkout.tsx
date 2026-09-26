@@ -147,6 +147,30 @@ interface ShippingZone {
   is_active: boolean;
 }
 
+interface CalculatedShippingState {
+  loading: boolean;
+  available: boolean | null;
+  shipping_cost: number | null;
+  region_label: string | null;
+  zone_id: string | null;
+  zone_name: string | null;
+  estimated_days_min: number | null;
+  estimated_days_max: number | null;
+  error: string | null;
+}
+
+const INITIAL_CALCULATED_SHIPPING: CalculatedShippingState = {
+  loading: false,
+  available: null,
+  shipping_cost: null,
+  region_label: null,
+  zone_id: null,
+  zone_name: null,
+  estimated_days_min: null,
+  estimated_days_max: null,
+  error: null,
+};
+
 const DEFAULT_PICKUP_ADDRESS =
   'R. Urupema, nº 150 - São Cosme de Baixo, Santa Luzia - MG, 33130-140';
 
@@ -994,6 +1018,9 @@ export function CheckoutPage() {
   const [shippingZones, setShippingZones] = useState<ShippingZone[]>([]);
   const [loadingSettings, setLoadingSettings] = useState(true);
 
+  // Dynamic Shipping RPC State
+  const [calculatedShipping, setCalculatedShipping] = useState<CalculatedShippingState>(INITIAL_CALCULATED_SHIPPING);
+
   // New address modal
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
@@ -1144,14 +1171,100 @@ export function CheckoutPage() {
     fetchAddresses();
   }, [fetchAddresses]);
 
+  // ── Fetch shipping cost via secure RPC ─────────────────────────────────────
+  const fetchShippingForAddress = useCallback(async (addressId: string) => {
+    if (!addressId || deliveryType === 'pickup') {
+      setCalculatedShipping({
+        loading: false,
+        available: null,
+        shipping_cost: 0,
+        region_label: null,
+        zone_id: null,
+        zone_name: null,
+        estimated_days_min: null,
+        estimated_days_max: null,
+        error: null,
+      });
+      return;
+    }
+
+    try {
+      setCalculatedShipping((prev) => ({ ...prev, loading: true, error: null }));
+      const { data, error } = await supabase.rpc('calculate_order_shipping', {
+        p_address_id: addressId,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      const res = data as {
+        available: boolean;
+        shipping_cost: number | null;
+        region_label: string | null;
+        zone_id: string | null;
+        zone_name: string | null;
+        estimated_days_min: number | null;
+        estimated_days_max: number | null;
+        zip_code?: string;
+      };
+
+      setCalculatedShipping({
+        loading: false,
+        available: res.available,
+        shipping_cost: res.shipping_cost,
+        region_label: res.region_label,
+        zone_id: res.zone_id,
+        zone_name: res.zone_name,
+        estimated_days_min: res.estimated_days_min,
+        estimated_days_max: res.estimated_days_max,
+        error: null,
+      });
+    } catch (err: any) {
+      console.error('[CHECKOUT] Erro ao calcular frete por CEP:', err);
+      setCalculatedShipping({
+        loading: false,
+        available: false,
+        shipping_cost: null,
+        region_label: null,
+        zone_id: null,
+        zone_name: null,
+        estimated_days_min: null,
+        estimated_days_max: null,
+        error: 'Não foi possível calcular o frete para este endereço. Tente novamente.',
+      });
+    }
+  }, [deliveryType]);
+
+  useEffect(() => {
+    if (deliveryType === 'delivery' && selectedAddressId) {
+      fetchShippingForAddress(selectedAddressId);
+    } else if (deliveryType === 'pickup') {
+      setCalculatedShipping({
+        loading: false,
+        available: true,
+        shipping_cost: 0,
+        region_label: null,
+        zone_id: null,
+        zone_name: null,
+        estimated_days_min: null,
+        estimated_days_max: null,
+        error: null,
+      });
+    }
+  }, [deliveryType, selectedAddressId, fetchShippingForAddress]);
+
   // In-page retry handler without reloading the browser
   const handleRetryAll = useCallback(() => {
     setLoadError(null);
     fetchStoreSettings();
     if (user) {
       fetchAddresses();
+      if (selectedAddressId && deliveryType === 'delivery') {
+        fetchShippingForAddress(selectedAddressId);
+      }
     }
-  }, [fetchStoreSettings, fetchAddresses, user]);
+  }, [fetchStoreSettings, fetchAddresses, user, selectedAddressId, deliveryType, fetchShippingForAddress]);
 
   // ── Realtime subscription for online payment confirmation ─────────────────
   useEffect(() => {
@@ -1295,17 +1408,15 @@ export function CheckoutPage() {
   };
 
   // ── Calculations ──────────────────────────────────────────────────────────
-  const isFreeShippingActive = freeShippingConfig.enabled || deliveryConfig.shipping_cost === 0;
-
   const shippingCost = useMemo(() => {
     if (deliveryType === 'pickup') {
       return 0;
     }
-    if (isFreeShippingActive) {
-      return 0;
+    if (calculatedShipping.available && typeof calculatedShipping.shipping_cost === 'number') {
+      return calculatedShipping.shipping_cost;
     }
-    return deliveryConfig.shipping_cost || 0;
-  }, [deliveryType, isFreeShippingActive, deliveryConfig.shipping_cost]);
+    return 0;
+  }, [deliveryType, calculatedShipping.available, calculatedShipping.shipping_cost]);
 
   const subtotal = getSubtotal();
   const total = subtotal + shippingCost;
@@ -1486,7 +1597,7 @@ export function CheckoutPage() {
           }
         }
 
-        // 2. REVALIDATE SETTINGS AND COMPUTE SNAPSHOT TOTALS DIRECTLY FROM DATABASE
+        // 2. REVALIDATE SETTINGS AND COMPUTE LIVE SHIPPING VIA SECURE RPC
         const { data: dbSettings, error: settingsErr } = await supabase
           .from('settings')
           .select('*');
@@ -1503,7 +1614,6 @@ export function CheckoutPage() {
           dbSettings.forEach((row) => settingsMap.set(row.key, row.value));
 
           const liveDelivery = settingsMap.get('delivery_settings');
-          const liveFreeShipping = settingsMap.get('free_shipping');
           const livePickup = settingsMap.get('pickup_address');
 
           const liveDeliveryEnabled = liveDelivery?.delivery_enabled ?? true;
@@ -1521,16 +1631,57 @@ export function CheckoutPage() {
           } else if (liveDelivery?.pickup_address && typeof liveDelivery.pickup_address === 'string' && liveDelivery.pickup_address.trim()) {
             verifiedPickupAddress = liveDelivery.pickup_address;
           }
+        }
 
-          if (deliveryType === 'pickup') {
-            verifiedShipping = 0;
-          } else {
-            const isLiveFree = liveFreeShipping?.enabled === true;
-            const liveCost = typeof liveDelivery?.shipping_cost === 'number' ? liveDelivery.shipping_cost : 0;
-            verifiedShipping = isLiveFree ? 0 : liveCost;
-          }
+        if (deliveryType === 'pickup') {
+          verifiedShipping = 0;
         } else {
-          verifiedShipping = deliveryType === 'pickup' ? 0 : (isFreeShippingActive ? 0 : (deliveryConfig.shipping_cost || 0));
+          // CALL RPC calculate_order_shipping for fresh live revalidation before order creation
+          const { data: rpcData, error: rpcErr } = await supabase.rpc('calculate_order_shipping', {
+            p_address_id: selectedAddressId,
+          });
+
+          if (rpcErr) {
+            throw new Error('Não foi possível validar o frete para o endereço selecionado: ' + rpcErr.message);
+          }
+
+          const freshShipping = rpcData as {
+            available: boolean;
+            shipping_cost: number | null;
+            region_label: string | null;
+            zone_id: string | null;
+            zone_name: string | null;
+            estimated_days_min: number | null;
+            estimated_days_max: number | null;
+            zip_code?: string;
+          };
+
+          if (!freshShipping || !freshShipping.available || freshShipping.shipping_cost === null) {
+            throw new Error('Este endereço não possui entrega disponível no momento.');
+          }
+
+          // Check for divergence between preview and live revalidated shipping cost
+          if (calculatedShipping.shipping_cost !== null && freshShipping.shipping_cost !== calculatedShipping.shipping_cost) {
+            setCalculatedShipping({
+              loading: false,
+              available: freshShipping.available,
+              shipping_cost: freshShipping.shipping_cost,
+              region_label: freshShipping.region_label,
+              zone_id: freshShipping.zone_id,
+              zone_name: freshShipping.zone_name,
+              estimated_days_min: freshShipping.estimated_days_min,
+              estimated_days_max: freshShipping.estimated_days_max,
+              error: null,
+            });
+
+            toast.warning(
+              `O valor do frete foi atualizado para ${formatBRL(freshShipping.shipping_cost)}. Por favor, confira o resumo e confirme o pedido novamente.`
+            );
+            setIsSubmitting(false);
+            return;
+          }
+
+          verifiedShipping = freshShipping.shipping_cost;
         }
 
         const verifiedSubtotal = cart.items.reduce((sum, item) => {
@@ -2969,6 +3120,126 @@ export function CheckoutPage() {
                           ))}
                         </div>
                       )}
+
+                      {/* Dynamic Shipping Calculation Preview */}
+                      {selectedAddressId && (
+                        <div className="pt-2">
+                          {calculatedShipping.loading ? (
+                            <div
+                              className="p-4 rounded-xl border flex items-center gap-3 animate-pulse"
+                              style={{
+                                backgroundColor: 'var(--muted)',
+                                borderColor: 'var(--border)',
+                              }}
+                            >
+                              <Loader2 className="w-5 h-5 text-primary animate-spin flex-shrink-0" />
+                              <div className="text-xs sm:text-sm">
+                                <p className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                                  Calculando frete e prazo de entrega...
+                                </p>
+                                <p className="text-muted-foreground text-xs">
+                                  Consultando a faixa de CEP do endereço selecionado.
+                                </p>
+                              </div>
+                            </div>
+                          ) : calculatedShipping.error ? (
+                            <div className="p-4 rounded-xl border border-destructive/30 bg-destructive/5 space-y-2">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-start gap-2.5">
+                                  <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
+                                  <div>
+                                    <p className="text-xs sm:text-sm font-bold text-destructive">
+                                      Não foi possível calcular o frete
+                                    </p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                      {calculatedShipping.error}
+                                    </p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => fetchShippingForAddress(selectedAddressId)}
+                                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline px-2.5 py-1.5 rounded-lg border border-primary/20 bg-primary/5 cursor-pointer flex-shrink-0"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                  <span>Tentar novamente</span>
+                                </button>
+                              </div>
+                            </div>
+                          ) : calculatedShipping.available === false ? (
+                            <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 space-y-1.5">
+                              <div className="flex items-start gap-2.5">
+                                <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                                <div className="text-xs sm:text-sm">
+                                  <p className="font-bold text-amber-900 dark:text-amber-200">
+                                    Este endereço não possui entrega disponível.
+                                  </p>
+                                  <p className="text-muted-foreground text-xs mt-0.5">
+                                    O CEP deste endereço não é atendido por nenhuma zona de entrega ativa no momento. Escolha outro endereço ou selecione a opção de Retirada.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ) : calculatedShipping.available === true ? (
+                            <div
+                              className="p-4 rounded-xl border space-y-2.5"
+                              style={{
+                                backgroundColor: 'var(--muted)',
+                                borderColor: 'var(--border)',
+                              }}
+                            >
+                              <div className="flex items-center justify-between gap-3 flex-wrap">
+                                <div className="flex items-center gap-2">
+                                  <Truck className="w-5 h-5 text-primary flex-shrink-0" />
+                                  <span
+                                    className="font-bold text-xs sm:text-sm"
+                                    style={{ color: 'var(--foreground)' }}
+                                  >
+                                    Entrega
+                                  </span>
+                                  {(calculatedShipping.region_label || calculatedShipping.zone_name) && (
+                                    <span
+                                      className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+                                      style={{
+                                        backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                                        color: 'var(--primary)',
+                                      }}
+                                    >
+                                      Região: {calculatedShipping.region_label || calculatedShipping.zone_name}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-xs sm:text-sm font-black text-primary">
+                                    Frete:{' '}
+                                    {calculatedShipping.shipping_cost === 0 ? (
+                                      <span className="text-success">Grátis</span>
+                                    ) : (
+                                      formatBRL(calculatedShipping.shipping_cost ?? 0)
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground pt-1.5 border-t border-border/50">
+                                <Clock className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                                <span>
+                                  Prazo estimado:{' '}
+                                  <strong className="font-semibold text-foreground">
+                                    {calculatedShipping.estimated_days_min != null &&
+                                    calculatedShipping.estimated_days_max != null
+                                      ? calculatedShipping.estimated_days_min ===
+                                        calculatedShipping.estimated_days_max
+                                        ? `${calculatedShipping.estimated_days_min} dias úteis`
+                                        : `${calculatedShipping.estimated_days_min}–${calculatedShipping.estimated_days_max} dias úteis`
+                                      : '1–3 dias úteis'}
+                                  </strong>
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
                     </div>
                   ) : deliveryType === 'pickup' && deliveryConfig.pickup_enabled ? (
                     /* Pickup info box */
@@ -3232,9 +3503,22 @@ export function CheckoutPage() {
                   <span>{formatBRL(subtotal)}</span>
                 </div>
 
-                <div className="flex justify-between text-muted-foreground">
+                <div className="flex justify-between text-muted-foreground items-center">
                   <span>{deliveryType === 'pickup' ? 'Retirada' : 'Entrega'}</span>
-                  {shippingCost === 0 ? (
+                  {deliveryType === 'pickup' ? (
+                    <span className="text-success font-semibold">Grátis</span>
+                  ) : !selectedAddressId ? (
+                    <span className="text-xs text-muted-foreground italic">Selecione o endereço</span>
+                  ) : calculatedShipping.loading ? (
+                    <span className="text-xs flex items-center gap-1 text-muted-foreground">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                      Calculando...
+                    </span>
+                  ) : calculatedShipping.error ? (
+                    <span className="text-xs text-destructive font-semibold">Erro ao calcular</span>
+                  ) : calculatedShipping.available === false ? (
+                    <span className="text-xs text-destructive font-semibold">Indisponível</span>
+                  ) : shippingCost === 0 ? (
                     <span className="text-success font-semibold">Grátis</span>
                   ) : (
                     <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
@@ -3260,7 +3544,12 @@ export function CheckoutPage() {
                   isSubmitting ||
                   loadingSettings ||
                   (!deliveryConfig.delivery_enabled && !deliveryConfig.pickup_enabled) ||
-                  (deliveryType === 'delivery' && !selectedAddressId)
+                  (deliveryType === 'delivery' && (
+                    !selectedAddressId ||
+                    calculatedShipping.loading ||
+                    calculatedShipping.error !== null ||
+                    calculatedShipping.available === false
+                  ))
                 }
                 className="w-full py-3.5 px-6 rounded-xl font-bold text-white text-sm transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
                 style={{ backgroundColor: 'var(--primary)' }}
@@ -3272,6 +3561,13 @@ export function CheckoutPage() {
                   </>
                 ) : !deliveryConfig.delivery_enabled && !deliveryConfig.pickup_enabled ? (
                   <span>Recebimento Indisponível</span>
+                ) : deliveryType === 'delivery' && calculatedShipping.loading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Calculando Frete...</span>
+                  </>
+                ) : deliveryType === 'delivery' && calculatedShipping.available === false && selectedAddressId ? (
+                  <span>Entrega Indisponível</span>
                 ) : paymentMethod !== 'cash_on_delivery' ? (
                   <>
                     <CreditCard className="w-5 h-5" />
@@ -3288,6 +3584,25 @@ export function CheckoutPage() {
               {deliveryConfig.delivery_enabled && deliveryType === 'delivery' && !selectedAddressId && (
                 <p className="text-xs text-destructive text-center">
                   Selecione ou cadastre um endereço de entrega para finalizar.
+                </p>
+              )}
+
+              {deliveryConfig.delivery_enabled && deliveryType === 'delivery' && selectedAddressId && calculatedShipping.loading && (
+                <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                  <span>Calculando o frete para o endereço selecionado...</span>
+                </p>
+              )}
+
+              {deliveryConfig.delivery_enabled && deliveryType === 'delivery' && selectedAddressId && !calculatedShipping.loading && calculatedShipping.available === false && (
+                <p className="text-xs text-destructive text-center font-medium">
+                  Este endereço não possui entrega disponível. Escolha outro endereço ou opte pela retirada.
+                </p>
+              )}
+
+              {deliveryConfig.delivery_enabled && deliveryType === 'delivery' && selectedAddressId && !calculatedShipping.loading && calculatedShipping.error && (
+                <p className="text-xs text-destructive text-center font-medium">
+                  Não foi possível calcular o frete. Tente novamente para continuar.
                 </p>
               )}
 
