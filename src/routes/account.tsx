@@ -32,6 +32,7 @@ import {
   Copy,
   AlertCircle,
   Package,
+  Clock,
 } from 'lucide-react';
 
 export const Route = createFileRoute('/account')({
@@ -125,12 +126,12 @@ const BRAZILIAN_STATES = [
 ];
 
 const ORDER_STATUS_LABELS: Record<string, { label: string; bg: string; text: string; border: string }> = {
-  pending:   { label: 'Pendente',   bg: 'rgba(251,191,36,0.12)', text: '#d97706', border: 'rgba(251,191,36,0.3)' },
-  confirmed: { label: 'Confirmado', bg: 'rgba(59,130,246,0.12)', text: '#2563eb', border: 'rgba(59,130,246,0.3)' },
-  preparing: { label: 'Em preparo', bg: 'rgba(139,92,246,0.12)', text: '#7c3aed', border: 'rgba(139,92,246,0.3)' },
+  pending:   { label: 'Pedido recebido',   bg: 'rgba(251,191,36,0.12)', text: '#d97706', border: 'rgba(251,191,36,0.3)' },
+  confirmed: { label: 'Pedido confirmado', bg: 'rgba(59,130,246,0.12)', text: '#2563eb', border: 'rgba(59,130,246,0.3)' },
+  preparing: { label: 'Em preparação', bg: 'rgba(139,92,246,0.12)', text: '#7c3aed', border: 'rgba(139,92,246,0.3)' },
   shipped:   { label: 'Enviado',    bg: 'rgba(234,88,12,0.12)',  text: '#ea580c', border: 'rgba(234,88,12,0.3)'  },
   delivered: { label: 'Entregue',   bg: 'rgba(22,163,74,0.12)',  text: '#16a34a', border: 'rgba(22,163,74,0.3)'  },
-  cancelled: { label: 'Cancelado',  bg: 'rgba(220,38,38,0.12)',  text: '#dc2626', border: 'rgba(220,38,38,0.3)'  },
+  cancelled: { label: 'Pedido cancelado',  bg: 'rgba(220,38,38,0.12)',  text: '#dc2626', border: 'rgba(220,38,38,0.3)'  },
 };
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
@@ -148,6 +149,238 @@ const PAYMENT_STATUS_CONFIGS: Record<string, { label: string; bg: string; text: 
   cancelled: { label: 'Cancelado',   bg: 'rgba(107,114,128,0.12)', text: '#6b7280', border: 'rgba(107,114,128,0.3)' },
   refunded:  { label: 'Reembolsado', bg: 'rgba(139,92,246,0.12)', text: '#7c3aed', border: 'rgba(139,92,246,0.3)' },
 };
+
+const ORDER_TIMELINE_STEPS = [
+  { key: 'pending', label: 'Pedido recebido' },
+  { key: 'confirmed', label: 'Pedido confirmado' },
+  { key: 'preparing', label: 'Em preparação' },
+  { key: 'shipped', label: 'Enviado' },
+  { key: 'delivered', label: 'Entregue' },
+] as const;
+
+interface OrderTimelineProps {
+  status: string;
+  deliveryType?: string;
+}
+
+function OrderTimeline({ status, deliveryType }: OrderTimelineProps) {
+  if (status === 'cancelled') {
+    return (
+      <div
+        className="p-4 rounded-2xl border flex items-start sm:items-center gap-3.5"
+        style={{
+          backgroundColor: 'rgba(220, 38, 38, 0.08)',
+          borderColor: 'rgba(220, 38, 38, 0.25)',
+        }}
+      >
+        <div
+          className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{ backgroundColor: 'rgba(220, 38, 38, 0.15)', color: '#dc2626' }}
+        >
+          <X className="w-5 h-5 stroke-[2.5]" />
+        </div>
+        <div className="space-y-0.5">
+          <p className="font-bold text-xs sm:text-sm text-red-600 dark:text-red-400">
+            Pedido cancelado
+          </p>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Este pedido foi cancelado e o fluxo de atendimento foi encerrado.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const currentStepIndex = ORDER_TIMELINE_STEPS.findIndex((s) => s.key === status);
+  const activeIndex = currentStepIndex >= 0 ? currentStepIndex : 0;
+  const currentStep = ORDER_TIMELINE_STEPS[activeIndex] || ORDER_TIMELINE_STEPS[0];
+
+  return (
+    <div
+      className="p-4 sm:p-5 rounded-2xl border space-y-4"
+      style={{
+        backgroundColor: 'var(--background)',
+        borderColor: 'var(--border)',
+      }}
+    >
+      <div className="flex items-center justify-between">
+        <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+          <Clock className="w-3.5 h-3.5 text-primary" />
+          <span>Acompanhamento do Pedido</span>
+        </h4>
+        <span
+          className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full"
+          style={{
+            backgroundColor: 'rgba(59, 130, 246, 0.12)',
+            color: 'var(--primary)',
+          }}
+        >
+          Etapa: {currentStep.label}
+        </span>
+      </div>
+
+      {/* Desktop Horizontal Timeline (hidden on mobile) */}
+      <div className="hidden sm:block pt-3 pb-2">
+        <div className="grid grid-cols-5 relative">
+          {/* Connector Track & Fill */}
+          <div
+            className="absolute top-4 left-[10%] right-[10%] h-0.5 -translate-y-1/2 z-0"
+            style={{ backgroundColor: 'var(--border)' }}
+          >
+            <div
+              className="h-full transition-all duration-500"
+              style={{
+                backgroundColor: 'var(--primary)',
+                width: `${(activeIndex / (ORDER_TIMELINE_STEPS.length - 1)) * 100}%`,
+              }}
+            />
+          </div>
+
+          {ORDER_TIMELINE_STEPS.map((step, idx) => {
+            const isCompleted = idx < activeIndex;
+            const isCurrent = idx === activeIndex;
+            const isFuture = idx > activeIndex;
+
+            const stepLabel =
+              step.key === 'shipped' && deliveryType === 'pickup'
+                ? 'Pronto p/ retirada'
+                : step.label;
+
+            return (
+              <div key={step.key} className="flex flex-col items-center text-center relative z-10">
+                {/* Node indicator */}
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${
+                    isCompleted
+                      ? 'text-white shadow-sm'
+                      : isCurrent
+                        ? 'text-white ring-4 ring-primary/20 shadow-md scale-110'
+                        : 'border'
+                  }`}
+                  style={{
+                    backgroundColor: isCompleted || isCurrent ? 'var(--primary)' : 'var(--card)',
+                    borderColor: isFuture ? 'var(--border)' : 'transparent',
+                    color: isFuture ? 'var(--muted-foreground)' : '#ffffff',
+                  }}
+                >
+                  {isCompleted ? (
+                    <Check className="w-4 h-4 stroke-[3]" />
+                  ) : isCurrent ? (
+                    <div className="w-2.5 h-2.5 bg-white rounded-full animate-pulse" />
+                  ) : (
+                    <span className="text-[11px] font-semibold">{idx + 1}</span>
+                  )}
+                </div>
+
+                {/* Step label text */}
+                <p
+                  className={`text-xs mt-2 font-medium max-w-[100px] leading-tight transition-colors ${
+                    isCurrent
+                      ? 'font-bold'
+                      : isCompleted
+                        ? 'font-medium'
+                        : 'opacity-70'
+                  }`}
+                  style={{
+                    color: isCurrent
+                      ? 'var(--primary)'
+                      : isCompleted
+                        ? 'var(--foreground)'
+                        : 'var(--muted-foreground)',
+                  }}
+                >
+                  {stepLabel}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Mobile Vertical Timeline (hidden on desktop) */}
+      <div className="sm:hidden space-y-0 pt-1">
+        {ORDER_TIMELINE_STEPS.map((step, idx) => {
+          const isCompleted = idx < activeIndex;
+          const isCurrent = idx === activeIndex;
+          const isFuture = idx > activeIndex;
+          const isLast = idx === ORDER_TIMELINE_STEPS.length - 1;
+
+          const stepLabel =
+            step.key === 'shipped' && deliveryType === 'pickup'
+              ? 'Pronto para retirada'
+              : step.label;
+
+          return (
+            <div key={step.key} className="flex items-start gap-3 relative">
+              {/* Vertical line connecting nodes */}
+              {!isLast && (
+                <div
+                  className="absolute left-3.5 top-7 bottom-0 w-0.5 -translate-x-1/2"
+                  style={{
+                    backgroundColor: isCompleted ? 'var(--primary)' : 'var(--border)',
+                  }}
+                />
+              )}
+
+              {/* Node indicator */}
+              <div
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0 z-10 transition-all ${
+                  isCompleted
+                    ? 'text-white'
+                    : isCurrent
+                      ? 'text-white ring-3 ring-primary/20 scale-105'
+                      : 'border'
+                }`}
+                style={{
+                  backgroundColor: isCompleted || isCurrent ? 'var(--primary)' : 'var(--card)',
+                  borderColor: isFuture ? 'var(--border)' : 'transparent',
+                  color: isFuture ? 'var(--muted-foreground)' : '#ffffff',
+                }}
+              >
+                {isCompleted ? (
+                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                ) : isCurrent ? (
+                  <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                ) : (
+                  <span>{idx + 1}</span>
+                )}
+              </div>
+
+              {/* Step info */}
+              <div className={`pb-4 ${isLast ? 'pb-0' : ''}`}>
+                <p
+                  className={`text-xs ${
+                    isCurrent
+                      ? 'font-bold'
+                      : isCompleted
+                        ? 'font-semibold'
+                        : 'opacity-70'
+                  }`}
+                  style={{
+                    color: isCurrent
+                      ? 'var(--primary)'
+                      : isCompleted
+                        ? 'var(--foreground)'
+                        : 'var(--muted-foreground)',
+                  }}
+                >
+                  {stepLabel}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {isCurrent
+                    ? 'Etapa atual do seu pedido'
+                    : isCompleted
+                      ? 'Concluído'
+                      : 'Aguardando etapas anteriores'}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function formatCurrency(val: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -1534,6 +1767,9 @@ function AccountPage() {
                                 backgroundColor: 'var(--card)',
                               }}
                             >
+                              {/* ── Acompanhamento Visual do Pedido (Timeline) ── */}
+                              <OrderTimeline status={ord.status} deliveryType={ord.delivery_type} />
+
                               {/* Box informativo de PIX Pendente dentro dos detalhes */}
                               {isPixPending && (
                                 <div
