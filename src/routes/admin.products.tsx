@@ -1,11 +1,31 @@
-import { createFileRoute, redirect } from '@tanstack/react-router';
-import { useState, useEffect, useMemo } from 'react';
+import { createFileRoute, redirect, Link } from '@tanstack/react-router';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Plus,
+  Search,
+  Pencil,
+  Trash2,
+  Check,
+  X,
+  Package,
+  AlertTriangle,
+  Loader2,
+  RefreshCw,
+  Eye,
+  ExternalLink,
+  Power,
+  PowerOff,
+  Boxes,
+  AlertCircle,
+  Tag,
+  SlidersHorizontal,
+} from 'lucide-react';
 
 interface Category {
   id: string;
@@ -78,9 +98,11 @@ function AdminProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -89,6 +111,7 @@ function AdminProductsPage() {
 
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<ProductFormData>({
     name: '',
@@ -103,13 +126,13 @@ function AdminProductsPage() {
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async (isManualRefresh = false) => {
     try {
-      setLoading(true);
+      if (isManualRefresh) {
+        setIsRefreshing(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
 
       const [productsRes, categoriesRes] = await Promise.all([
@@ -130,26 +153,37 @@ function AdminProductsPage() {
       setCategories((categoriesRes.data as Category[]) || []);
     } catch (err) {
       console.error('Error fetching products/categories:', err);
-      setError('Erro ao carregar produtos. Tente novamente.');
+      setError('Não foi possível carregar os produtos. Verifique sua conexão e tente novamente.');
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const filteredProducts = useMemo(() => {
     return products.filter((prod) => {
+      const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
-        !searchQuery.trim() ||
-        prod.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        prod.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (prod.sku && prod.sku.toLowerCase().includes(searchQuery.toLowerCase()));
+        !q ||
+        prod.name.toLowerCase().includes(q) ||
+        prod.slug.toLowerCase().includes(q) ||
+        (prod.sku && prod.sku.toLowerCase().includes(q));
 
       const matchesCategory =
         selectedCategoryFilter === 'all' || prod.category_id === selectedCategoryFilter;
 
-      return matchesSearch && matchesCategory;
+      const matchesStatus =
+        statusFilter === 'all' ||
+        (statusFilter === 'active' && prod.is_active) ||
+        (statusFilter === 'inactive' && !prod.is_active);
+
+      return matchesSearch && matchesCategory && matchesStatus;
     });
-  }, [products, searchQuery, selectedCategoryFilter]);
+  }, [products, searchQuery, selectedCategoryFilter, statusFilter]);
 
   const handleNameChange = (name: string) => {
     const newFormData = { ...formData, name };
@@ -201,7 +235,7 @@ function AdminProductsPage() {
 
     const stockNum = parseInt(formData.stock_quantity, 10);
     if (!formData.stock_quantity.trim() || isNaN(stockNum) || stockNum < 0) {
-      errors.stock_quantity = 'Estoque deve ser um número inteiro não negativo';
+      errors.stock_quantity = 'Estoque deve ser um número inteiro não negativo (≥ 0)';
     }
 
     setFormErrors(errors);
@@ -310,6 +344,7 @@ function AdminProductsPage() {
 
   const handleToggleStatus = async (product: Product) => {
     try {
+      setTogglingId(product.id);
       const { error: updateError } = await supabase
         .from('products')
         .update({ is_active: !product.is_active })
@@ -322,10 +357,16 @@ function AdminProductsPage() {
           ? 'Produto desativado com sucesso!'
           : 'Produto ativado com sucesso!'
       );
-      await fetchData();
+      
+      // Update locally to avoid flash
+      setProducts((prev) =>
+        prev.map((p) => (p.id === product.id ? { ...p, is_active: !p.is_active } : p))
+      );
     } catch (err) {
       console.error('Error toggling product status:', err);
       toast.error('Erro ao alterar status do produto.');
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -340,7 +381,6 @@ function AdminProductsPage() {
         .eq('id', productToDelete.id);
 
       if (deleteError) {
-        // Trata erro de constraint de chave estrangeira (ex: pedido com itens deste produto)
         if (deleteError.code === '23503') {
           toast.error('Não é possível excluir o produto pois ele possui vínculos no histórico (ex: pedidos/carrinho). Recomendamos desativá-lo.');
           return;
@@ -349,8 +389,8 @@ function AdminProductsPage() {
       }
 
       toast.success('Produto excluído com sucesso!');
+      setProducts((prev) => prev.filter((p) => p.id !== productToDelete.id));
       setIsDeleteDialogOpen(false);
-      await fetchData();
     } catch (err) {
       console.error('Error deleting product:', err);
       toast.error('Erro ao excluir produto. Tente novamente.');
@@ -359,72 +399,102 @@ function AdminProductsPage() {
     }
   };
 
+  const handleClearFilters = () => {
+    setSearchQuery('');
+    setSelectedCategoryFilter('all');
+    setStatusFilter('all');
+  };
+
   return (
     <AdminLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b" style={{ borderColor: 'var(--border)' }}>
           <div>
-            <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
-              Produtos
-            </h1>
-            <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>
-              Gerencie o catálogo de produtos e estoque da sua loja.
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" style={{ color: 'var(--foreground)' }}>
+                Produtos
+              </h1>
+              {!loading && (
+                <span
+                  className="text-xs font-bold px-2.5 py-0.5 rounded-full"
+                  style={{ backgroundColor: 'var(--muted)', color: 'var(--primary)' }}
+                >
+                  {products.length} {products.length === 1 ? 'item' : 'itens'}
+                </span>
+              )}
+            </div>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+              Gerencie o catálogo de produtos, preços, fotos e níveis de estoque da sua loja.
             </p>
           </div>
-          <button
-            onClick={handleOpenCreate}
-            className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all hover:opacity-90 cursor-pointer"
-            style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            Adicionar produto
-          </button>
+
+          <div className="flex items-center gap-2.5 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => fetchData(true)}
+              disabled={isRefreshing || loading}
+              className="p-2.5 rounded-xl border transition-all hover:bg-muted cursor-pointer disabled:opacity-50 text-foreground"
+              style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+              title="Atualizar lista de produtos"
+              aria-label="Atualizar lista de produtos"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-primary' : ''}`} />
+            </button>
+
+            <button
+              onClick={handleOpenCreate}
+              className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-semibold transition-all hover:opacity-90 cursor-pointer shadow-sm"
+              style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
+            >
+              <Plus className="w-4 h-4" />
+              <span>Adicionar produto</span>
+            </button>
+          </div>
         </div>
 
-        {/* Filters and Search */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          <div className="relative flex-1">
-            <svg
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
-              style={{ color: 'var(--muted-foreground)' }}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+        {/* Filters and Search Bar */}
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 rounded-2xl border" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
+          {/* Search Input (sm:col-span-6) */}
+          <div className="sm:col-span-6 relative">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
               placeholder="Buscar por nome, SKU ou slug..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm"
+              className="w-full pl-10 pr-9 py-2 rounded-xl border text-xs sm:text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20"
               style={{
-                backgroundColor: 'var(--card)',
+                backgroundColor: 'var(--background)',
                 borderColor: 'var(--border)',
                 color: 'var(--foreground)',
               }}
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground cursor-pointer"
+                title="Limpar busca"
+                aria-label="Limpar busca"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
-          <div className="w-full sm:w-56">
+          {/* Category Filter (sm:col-span-3) */}
+          <div className="sm:col-span-3">
             <select
               value={selectedCategoryFilter}
               onChange={(e) => setSelectedCategoryFilter(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-xl border text-sm"
+              className="w-full px-3 py-2 rounded-xl border text-xs sm:text-sm cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20"
               style={{
-                backgroundColor: 'var(--card)',
+                backgroundColor: 'var(--background)',
                 borderColor: 'var(--border)',
                 color: 'var(--foreground)',
               }}
+              aria-label="Filtrar por categoria"
             >
               <option value="all">Todas as categorias</option>
               {categories.map((cat) => (
@@ -434,371 +504,489 @@ function AdminProductsPage() {
               ))}
             </select>
           </div>
+
+          {/* Status Filter (sm:col-span-3) */}
+          <div className="sm:col-span-3">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="w-full px-3 py-2 rounded-xl border text-xs sm:text-sm cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20"
+              style={{
+                backgroundColor: 'var(--background)',
+                borderColor: 'var(--border)',
+                color: 'var(--foreground)',
+              }}
+              aria-label="Filtrar por status"
+            >
+              <option value="all">Todos os status</option>
+              <option value="active">Apenas Ativos</option>
+              <option value="inactive">Apenas Inativos</option>
+            </select>
+          </div>
         </div>
 
-        {/* Content */}
+        {/* ── Content States ── */}
         {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3, 4].map((i) => (
-              <div
-                key={i}
-                className="h-16 rounded-xl animate-pulse"
-                style={{ backgroundColor: 'var(--muted)' }}
-              />
-            ))}
+          /* Skeletons */
+          <div className="space-y-3 animate-pulse">
+            <div className="rounded-2xl border p-4 hidden md:block" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
+              <div className="space-y-4">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className="flex items-center justify-between gap-4 py-2 border-b border-border/40 last:border-0">
+                    <div className="flex items-center gap-3 flex-1">
+                      <div className="w-12 h-12 rounded-xl bg-muted flex-shrink-0" />
+                      <div className="space-y-1.5 flex-1">
+                        <div className="h-4 w-48 rounded bg-muted" />
+                        <div className="h-3 w-32 rounded bg-muted/60" />
+                      </div>
+                    </div>
+                    <div className="h-6 w-24 rounded-full bg-muted/60" />
+                    <div className="h-5 w-20 rounded bg-muted" />
+                    <div className="h-5 w-16 rounded-full bg-muted/60" />
+                    <div className="h-5 w-16 rounded-full bg-muted/60" />
+                    <div className="h-8 w-24 rounded-xl bg-muted/60" />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Mobile skeleton */}
+            <div className="md:hidden space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="p-4 rounded-2xl border space-y-3" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
+                  <div className="flex gap-3">
+                    <div className="w-14 h-14 rounded-xl bg-muted flex-shrink-0" />
+                    <div className="space-y-2 flex-1">
+                      <div className="h-4 w-3/4 rounded bg-muted" />
+                      <div className="h-3 w-1/2 rounded bg-muted/60" />
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-border flex justify-between">
+                    <div className="h-4 w-20 rounded bg-muted" />
+                    <div className="h-6 w-24 rounded bg-muted" />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         ) : error ? (
+          /* Error State */
           <div
-            className="p-6 rounded-xl text-center"
-            style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
+            className="p-8 sm:p-12 rounded-3xl border text-center max-w-lg mx-auto my-8 space-y-5 shadow-sm"
+            style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
           >
-            <svg
-              className="w-12 h-12 mx-auto mb-3"
-              style={{ color: 'var(--destructive)' }}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.5}
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto"
+              style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#dc2626' }}
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
-              />
-            </svg>
-            <p className="font-medium mb-2" style={{ color: 'var(--foreground)' }}>
-              {error}
-            </p>
+              <AlertCircle className="w-7 h-7" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
+                {error}
+              </h3>
+              <p className="text-xs sm:text-sm text-muted-foreground">
+                Ocorreu uma falha ao consultar o banco de dados.
+              </p>
+            </div>
             <button
-              onClick={fetchData}
-              className="text-sm font-medium hover:underline cursor-pointer"
-              style={{ color: 'var(--primary)' }}
+              type="button"
+              onClick={() => fetchData(false)}
+              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl font-semibold text-white text-xs sm:text-sm transition-all hover:opacity-90 cursor-pointer shadow-sm mx-auto"
+              style={{ backgroundColor: 'var(--primary)' }}
             >
-              Tentar novamente
+              <RefreshCw className="w-4 h-4" />
+              <span>Tentar novamente</span>
             </button>
           </div>
         ) : filteredProducts.length === 0 ? (
+          /* Empty States */
           <div
-            className="p-12 rounded-xl text-center"
-            style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
+            className="p-8 sm:p-12 rounded-3xl border text-center space-y-4 shadow-sm"
+            style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
           >
             <div
-              className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+              className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto"
               style={{ backgroundColor: 'var(--muted)' }}
             >
-              <svg
-                className="w-8 h-8"
-                style={{ color: 'var(--muted-foreground)' }}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                />
-              </svg>
+              <Package className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-semibold mb-2" style={{ color: 'var(--foreground)' }}>
-              {searchQuery || selectedCategoryFilter !== 'all'
-                ? 'Nenhum produto encontrado'
-                : 'Nenhum produto cadastrado'}
-            </h3>
-            <p className="text-sm mb-6" style={{ color: 'var(--muted-foreground)' }}>
-              {searchQuery || selectedCategoryFilter !== 'all'
-                ? 'Tente ajustar os filtros ou os termos de busca.'
-                : 'Comece adicionando o primeiro produto da sua loja.'}
-            </p>
-            {!searchQuery && selectedCategoryFilter === 'all' && (
+
+            <div className="space-y-1">
+              <h3 className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
+                {searchQuery || selectedCategoryFilter !== 'all' || statusFilter !== 'all'
+                  ? 'Nenhum produto encontrado'
+                  : 'Nenhum produto cadastrado'}
+              </h3>
+              <p className="text-xs sm:text-sm text-muted-foreground max-w-md mx-auto">
+                {searchQuery || selectedCategoryFilter !== 'all' || statusFilter !== 'all'
+                  ? 'Nenhum produto corresponde aos filtros atuais. Tente ajustar os termos de busca ou filtros.'
+                  : 'Comece cadastrando o primeiro produto para exibir no catálogo da sua loja.'}
+              </p>
+            </div>
+
+            {searchQuery || selectedCategoryFilter !== 'all' || statusFilter !== 'all' ? (
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold border transition-all hover:bg-muted cursor-pointer"
+                style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
+              >
+                <X className="w-4 h-4" />
+                <span>Limpar filtros</span>
+              </button>
+            ) : (
               <button
                 onClick={handleOpenCreate}
-                className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all hover:opacity-90 cursor-pointer"
-                style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
+                className="inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-xs sm:text-sm font-semibold transition-all hover:opacity-90 cursor-pointer text-white shadow-sm"
+                style={{ backgroundColor: 'var(--primary)' }}
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-                Adicionar produto
+                <Plus className="w-4 h-4" />
+                <span>Adicionar produto</span>
               </button>
             )}
           </div>
         ) : (
           <>
-            {/* Desktop Table */}
-            <div className="hidden md:block overflow-hidden rounded-xl" style={{ border: '1px solid var(--border)' }}>
-              <table className="w-full">
+            {/* ── Desktop Table ── */}
+            <div
+              className="hidden md:block overflow-hidden rounded-2xl border shadow-sm"
+              style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+            >
+              <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr style={{ backgroundColor: 'var(--muted)' }}>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
-                      Produto
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
-                      Categoria
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
-                      Preço
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
-                      Estoque
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
-                      Status
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
-                      Ações
-                    </th>
+                  <tr className="border-b text-xs font-bold uppercase tracking-wider text-muted-foreground" style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}>
+                    <th className="py-3.5 px-4">Produto</th>
+                    <th className="py-3.5 px-4">Categoria</th>
+                    <th className="py-3.5 px-4">Preço</th>
+                    <th className="py-3.5 px-4 text-center">Estoque</th>
+                    <th className="py-3.5 px-4 text-center">Status</th>
+                    <th className="py-3.5 px-4 text-right">Ações</th>
                   </tr>
                 </thead>
-                <tbody style={{ backgroundColor: 'var(--card)' }}>
-                  {filteredProducts.map((product, index) => (
-                    <tr
-                      key={product.id}
-                      style={{
-                        borderTop: index > 0 ? '1px solid var(--border)' : 'none',
-                      }}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          {product.image_url ? (
-                            <img
-                              src={product.image_url}
-                              alt={product.name}
-                              className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
-                              style={{ border: '1px solid var(--border)' }}
-                            />
-                          ) : (
+                <tbody className="divide-y text-xs sm:text-sm" style={{ borderColor: 'var(--border)' }}>
+                  {filteredProducts.map((product) => {
+                    const isToggling = togglingId === product.id;
+
+                    return (
+                      <tr
+                        key={product.id}
+                        className="transition-colors hover:bg-muted/30"
+                      >
+                        {/* Imagem + Nome + SKU */}
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-3">
                             <div
-                              className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                              style={{ backgroundColor: 'var(--muted)', border: '1px solid var(--border)' }}
+                              className="w-12 h-12 rounded-xl border overflow-hidden flex-shrink-0 flex items-center justify-center bg-muted"
+                              style={{ borderColor: 'var(--border)' }}
                             >
-                              <svg className="w-5 h-5" style={{ color: 'var(--muted-foreground)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                              </svg>
+                              {product.image_url ? (
+                                <img
+                                  src={product.image_url}
+                                  alt={product.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <Package className="w-5 h-5 text-muted-foreground" />
+                              )}
                             </div>
-                          )}
-                          <div className="min-w-0">
-                            <p className="font-medium text-sm truncate" style={{ color: 'var(--foreground)' }}>
-                              {product.name}
-                            </p>
-                            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                              {product.sku && <span>SKU: {product.sku}</span>}
-                              <span>/{product.slug}</span>
+                            <div className="min-w-0 max-w-xs">
+                              <p className="font-semibold text-foreground truncate" title={product.name}>
+                                {product.name}
+                              </p>
+                              <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
+                                {product.sku && (
+                                  <span className="font-mono font-medium">
+                                    SKU: {product.sku}
+                                  </span>
+                                )}
+                                <span className="font-mono truncate">
+                                  /{product.slug}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className="inline-block text-xs px-2.5 py-1 rounded-md font-medium"
-                          style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
-                        >
-                          {product.category?.name || 'Sem categoria'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
-                          {formatCurrency(product.price)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span
-                          className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${
-                            product.stock_quantity === 0
-                              ? 'text-red-500 bg-red-500/10'
-                              : product.stock_quantity < 10
-                              ? 'text-yellow-600 bg-yellow-500/10'
-                              : 'text-emerald-600 bg-emerald-500/10'
-                          }`}
-                        >
-                          {product.stock_quantity} un
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-                          style={{
-                            backgroundColor: product.is_active
-                              ? 'rgba(22, 163, 74, 0.1)'
-                              : 'rgba(220, 38, 38, 0.1)',
-                            color: product.is_active
-                              ? 'var(--success)'
-                              : 'var(--destructive)',
-                          }}
-                        >
+                        </td>
+
+                        {/* Categoria */}
+                        <td className="py-3.5 px-4">
                           <span
-                            className="w-1.5 h-1.5 rounded-full"
+                            className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-medium"
+                            style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
+                          >
+                            <Tag className="w-3 h-3 text-primary" />
+                            {product.category?.name || 'Sem categoria'}
+                          </span>
+                        </td>
+
+                        {/* Preço */}
+                        <td className="py-3.5 px-4">
+                          <span className="font-bold text-foreground">
+                            {formatCurrency(product.price)}
+                          </span>
+                        </td>
+
+                        {/* Estoque */}
+                        <td className="py-3.5 px-4 text-center">
+                          <span
+                            className="inline-block text-xs font-bold px-2.5 py-0.5 rounded-full"
+                            style={{
+                              backgroundColor:
+                                product.stock_quantity === 0
+                                  ? 'rgba(220, 38, 38, 0.12)'
+                                  : product.stock_quantity <= 10
+                                    ? 'rgba(251, 191, 36, 0.12)'
+                                    : 'rgba(22, 163, 74, 0.12)',
+                              color:
+                                product.stock_quantity === 0
+                                  ? '#dc2626'
+                                  : product.stock_quantity <= 10
+                                    ? '#d97706'
+                                    : '#16a34a',
+                            }}
+                          >
+                            {product.stock_quantity === 0
+                              ? 'Sem estoque'
+                              : `${product.stock_quantity} un`}
+                          </span>
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-3.5 px-4 text-center">
+                          <span
+                            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold"
                             style={{
                               backgroundColor: product.is_active
-                                ? 'var(--success)'
-                                : 'var(--destructive)',
+                                ? 'rgba(22, 163, 74, 0.12)'
+                                : 'rgba(220, 38, 38, 0.12)',
+                              color: product.is_active ? '#16a34a' : '#dc2626',
                             }}
-                          />
-                          {product.is_active ? 'Ativo' : 'Inativo'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => handleOpenEdit(product)}
-                            className="p-2 rounded-lg transition-colors hover:opacity-80 cursor-pointer"
-                            style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
-                            title="Editar produto"
                           >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-                            </svg>
-                          </button>
-                          <button
-                            onClick={() => handleToggleStatus(product)}
-                            className="p-2 rounded-lg transition-colors hover:opacity-80 cursor-pointer"
-                            style={{
-                              backgroundColor: 'var(--muted)',
-                              color: product.is_active ? 'var(--warning)' : 'var(--success)',
-                            }}
-                            title={product.is_active ? 'Desativar produto' : 'Ativar produto'}
-                          >
-                            {product.is_active ? (
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                              </svg>
-                            ) : (
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                            )}
-                          </button>
-                          <button
-                            onClick={() => handleOpenDelete(product)}
-                            className="p-2 rounded-lg transition-colors hover:opacity-80 cursor-pointer"
-                            style={{ backgroundColor: 'var(--muted)', color: 'var(--destructive)' }}
-                            title="Excluir produto"
-                          >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                            </svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            <span
+                              className="w-1.5 h-1.5 rounded-full"
+                              style={{
+                                backgroundColor: product.is_active ? '#16a34a' : '#dc2626',
+                              }}
+                            />
+                            {product.is_active ? 'Ativo' : 'Inativo'}
+                          </span>
+                        </td>
+
+                        {/* Ações */}
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {/* Link para página pública */}
+                            <Link
+                              to={`/product/${product.slug}`}
+                              target="_blank"
+                              className="p-2 rounded-xl border transition-all hover:bg-muted text-muted-foreground hover:text-primary cursor-pointer"
+                              style={{ borderColor: 'var(--border)' }}
+                              title="Visualizar produto na loja"
+                              aria-label="Visualizar produto na loja"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </Link>
+
+                            {/* Botão Editar */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEdit(product)}
+                              className="p-2 rounded-xl border transition-all hover:bg-muted text-foreground hover:text-primary cursor-pointer"
+                              style={{ borderColor: 'var(--border)' }}
+                              title="Editar dados do produto"
+                              aria-label="Editar produto"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* Botão Ativar/Desativar */}
+                            <button
+                              type="button"
+                              onClick={() => handleToggleStatus(product)}
+                              disabled={isToggling}
+                              className="p-2 rounded-xl border transition-all hover:bg-muted cursor-pointer disabled:opacity-50"
+                              style={{
+                                borderColor: 'var(--border)',
+                                color: product.is_active ? '#d97706' : '#16a34a',
+                              }}
+                              title={product.is_active ? 'Desativar produto' : 'Ativar produto'}
+                              aria-label={product.is_active ? 'Desativar produto' : 'Ativar produto'}
+                            >
+                              {isToggling ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : product.is_active ? (
+                                <PowerOff className="w-3.5 h-3.5" />
+                              ) : (
+                                <Power className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+
+                            {/* Botão Excluir */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDelete(product)}
+                              className="p-2 rounded-xl border transition-all hover:bg-destructive/10 text-destructive cursor-pointer"
+                              style={{ borderColor: 'var(--border)' }}
+                              title="Excluir produto"
+                              aria-label="Excluir produto"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
 
-            {/* Mobile Cards */}
+            {/* ── Mobile Cards ── */}
             <div className="md:hidden space-y-3">
-              {filteredProducts.map((product) => (
-                <div
-                  key={product.id}
-                  className="rounded-xl p-4"
-                  style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
-                >
-                  <div className="flex items-start gap-3 mb-3">
-                    {product.image_url ? (
-                      <img
-                        src={product.image_url}
-                        alt={product.name}
-                        className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
-                        style={{ border: '1px solid var(--border)' }}
-                      />
-                    ) : (
+              {filteredProducts.map((product) => {
+                const isToggling = togglingId === product.id;
+
+                return (
+                  <div
+                    key={product.id}
+                    className="p-4 rounded-2xl border space-y-3 shadow-xs"
+                    style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+                  >
+                    <div className="flex items-start gap-3">
                       <div
-                        className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0"
-                        style={{ backgroundColor: 'var(--muted)', border: '1px solid var(--border)' }}
+                        className="w-14 h-14 rounded-xl border overflow-hidden flex-shrink-0 flex items-center justify-center bg-muted"
+                        style={{ borderColor: 'var(--border)' }}
                       >
-                        <svg className="w-6 h-6" style={{ color: 'var(--muted-foreground)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
+                        {product.image_url ? (
+                          <img
+                            src={product.image_url}
+                            alt={product.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <Package className="w-6 h-6 text-muted-foreground" />
+                        )}
                       </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="font-medium text-sm" style={{ color: 'var(--foreground)' }}>
-                          {product.name}
-                        </h3>
-                        <span
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0"
+
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="font-bold text-sm text-foreground truncate">
+                            {product.name}
+                          </h3>
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0"
+                            style={{
+                              backgroundColor: product.is_active
+                                ? 'rgba(22, 163, 74, 0.12)'
+                                : 'rgba(220, 38, 38, 0.12)',
+                              color: product.is_active ? '#16a34a' : '#dc2626',
+                            }}
+                          >
+                            {product.is_active ? 'Ativo' : 'Inativo'}
+                          </span>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span className="px-2 py-0.5 rounded bg-muted text-foreground text-[11px] font-medium">
+                            {product.category?.name || 'Sem categoria'}
+                          </span>
+                          <span
+                            className="font-bold text-[11px]"
+                            style={{
+                              color:
+                                product.stock_quantity === 0
+                                  ? '#dc2626'
+                                  : product.stock_quantity <= 10
+                                    ? '#d97706'
+                                    : '#16a34a',
+                            }}
+                          >
+                            Estoque: {product.stock_quantity} un
+                          </span>
+                        </div>
+
+                        <p className="font-black text-sm text-primary pt-0.5">
+                          {formatCurrency(product.price)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+                      <Link
+                        to={`/product/${product.slug}`}
+                        target="_blank"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground no-underline"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Ver na loja</span>
+                      </Link>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEdit(product)}
+                          className="px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1 hover:bg-muted text-foreground cursor-pointer"
+                          style={{ borderColor: 'var(--border)' }}
+                        >
+                          <Pencil className="w-3 h-3" />
+                          <span>Editar</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleStatus(product)}
+                          disabled={isToggling}
+                          className="px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1 hover:bg-muted cursor-pointer disabled:opacity-50"
                           style={{
-                            backgroundColor: product.is_active
-                              ? 'rgba(22, 163, 74, 0.1)'
-                              : 'rgba(220, 38, 38, 0.1)',
-                            color: product.is_active ? 'var(--success)' : 'var(--destructive)',
+                            borderColor: 'var(--border)',
+                            color: product.is_active ? '#d97706' : '#16a34a',
                           }}
                         >
-                          {product.is_active ? 'Ativo' : 'Inativo'}
-                        </span>
+                          {isToggling ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : product.is_active ? (
+                            <span>Desativar</span>
+                          ) : (
+                            <span>Ativar</span>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleOpenDelete(product)}
+                          className="p-1.5 rounded-lg border text-xs text-destructive hover:bg-destructive/10 cursor-pointer"
+                          style={{ borderColor: 'var(--border)' }}
+                          title="Excluir"
+                          aria-label="Excluir produto"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}>
-                          {product.category?.name || 'Sem categoria'}
-                        </span>
-                        <span className="text-xs font-medium" style={{ color: 'var(--muted-foreground)' }}>
-                          Estoque: {product.stock_quantity} un
-                        </span>
-                      </div>
-                      <p className="text-sm font-semibold mt-1.5" style={{ color: 'var(--foreground)' }}>
-                        {formatCurrency(product.price)}
-                      </p>
                     </div>
                   </div>
-
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-                    <button
-                      onClick={() => handleOpenEdit(product)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80 flex items-center gap-1.5 cursor-pointer"
-                      style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-                      </svg>
-                      Editar
-                    </button>
-                    <button
-                      onClick={() => handleToggleStatus(product)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80 flex items-center gap-1.5 cursor-pointer"
-                      style={{
-                        backgroundColor: 'var(--muted)',
-                        color: product.is_active ? 'var(--warning)' : 'var(--success)',
-                      }}
-                    >
-                      {product.is_active ? 'Desativar' : 'Ativar'}
-                    </button>
-                    <button
-                      onClick={() => handleOpenDelete(product)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80 flex items-center gap-1.5 cursor-pointer"
-                      style={{ backgroundColor: 'var(--muted)', color: 'var(--destructive)' }}
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                      </svg>
-                      Excluir
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
       </div>
 
-      {/* Create/Edit Product Dialog */}
+      {/* ── Create / Edit Product Modal Dialog ── */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent
-          className="sm:max-w-xl max-h-[90vh] overflow-y-auto"
-          style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
+          className="sm:max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl"
+          style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
         >
-          <DialogHeader>
-            <DialogTitle style={{ color: 'var(--foreground)' }}>
-              {editingProduct ? 'Editar produto' : 'Novo produto'}
+          <DialogHeader className="pb-3 border-b" style={{ borderColor: 'var(--border)' }}>
+            <DialogTitle className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
+              {editingProduct ? 'Editar Produto' : 'Cadastrar Novo Produto'}
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-3">
             {/* Nome */}
             <div className="space-y-1.5">
-              <Label htmlFor="name" style={{ color: 'var(--foreground)' }}>
+              <Label htmlFor="name" className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
                 Nome do produto <span style={{ color: 'var(--destructive)' }}>*</span>
               </Label>
               <Input
@@ -806,6 +994,8 @@ function AdminProductsPage() {
                 value={formData.name}
                 onChange={(e) => handleNameChange(e.target.value)}
                 placeholder="Ex: Caixa de Papelão 20x20x10"
+                disabled={saving}
+                className="h-10 rounded-xl text-sm"
                 style={{
                   backgroundColor: 'var(--background)',
                   borderColor: formErrors.name ? 'var(--destructive)' : 'var(--border)',
@@ -813,7 +1003,7 @@ function AdminProductsPage() {
                 }}
               />
               {formErrors.name && (
-                <p className="text-xs" style={{ color: 'var(--destructive)' }}>
+                <p className="text-xs font-medium text-destructive">
                   {formErrors.name}
                 </p>
               )}
@@ -821,11 +1011,11 @@ function AdminProductsPage() {
 
             {/* Slug */}
             <div className="space-y-1.5">
-              <Label htmlFor="slug" style={{ color: 'var(--foreground)' }}>
-                Slug (URL) <span style={{ color: 'var(--destructive)' }}>*</span>
+              <Label htmlFor="slug" className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
+                Slug (URL amigável) <span style={{ color: 'var(--destructive)' }}>*</span>
               </Label>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-mono" style={{ color: 'var(--muted-foreground)' }}>
+                <span className="text-xs font-mono px-2.5 py-2 rounded-xl bg-muted text-muted-foreground border border-border">
                   /product/
                 </span>
                 <Input
@@ -833,7 +1023,8 @@ function AdminProductsPage() {
                   value={formData.slug}
                   onChange={(e) => handleSlugChange(e.target.value)}
                   placeholder="caixa-de-papelao-20x20x10"
-                  className="flex-1 font-mono text-sm"
+                  disabled={saving}
+                  className="flex-1 font-mono text-xs sm:text-sm h-10 rounded-xl"
                   style={{
                     backgroundColor: 'var(--background)',
                     borderColor: formErrors.slug ? 'var(--destructive)' : 'var(--border)',
@@ -842,28 +1033,29 @@ function AdminProductsPage() {
                 />
               </div>
               {formErrors.slug && (
-                <p className="text-xs" style={{ color: 'var(--destructive)' }}>
+                <p className="text-xs font-medium text-destructive">
                   {formErrors.slug}
                 </p>
               )}
             </div>
 
-            {/* Category and SKU */}
+            {/* Categoria e SKU */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="category_id" style={{ color: 'var(--foreground)' }}>
+                <Label htmlFor="category_id" className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
                   Categoria <span style={{ color: 'var(--destructive)' }}>*</span>
                 </Label>
                 <select
                   id="category_id"
                   value={formData.category_id}
+                  disabled={saving}
                   onChange={(e) => {
                     setFormData((prev) => ({ ...prev, category_id: e.target.value }));
                     if (formErrors.category_id) {
                       setFormErrors((prev) => ({ ...prev, category_id: '' }));
                     }
                   }}
-                  className="w-full px-3 py-2 rounded-xl border text-sm"
+                  className="w-full h-10 px-3 rounded-xl border text-xs sm:text-sm cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20"
                   style={{
                     backgroundColor: 'var(--background)',
                     borderColor: formErrors.category_id ? 'var(--destructive)' : 'var(--border)',
@@ -878,21 +1070,23 @@ function AdminProductsPage() {
                   ))}
                 </select>
                 {formErrors.category_id && (
-                  <p className="text-xs" style={{ color: 'var(--destructive)' }}>
+                  <p className="text-xs font-medium text-destructive">
                     {formErrors.category_id}
                   </p>
                 )}
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="sku" style={{ color: 'var(--foreground)' }}>
-                  SKU / Código
+                <Label htmlFor="sku" className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
+                  SKU / Código Interno
                 </Label>
                 <Input
                   id="sku"
                   value={formData.sku}
                   onChange={(e) => setFormData((prev) => ({ ...prev, sku: e.target.value }))}
                   placeholder="Ex: CX-202010"
+                  disabled={saving}
+                  className="h-10 rounded-xl text-sm font-mono"
                   style={{
                     backgroundColor: 'var(--background)',
                     borderColor: 'var(--border)',
@@ -902,16 +1096,17 @@ function AdminProductsPage() {
               </div>
             </div>
 
-            {/* Price and Stock */}
+            {/* Preço e Estoque */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="price" style={{ color: 'var(--foreground)' }}>
-                  Preço (R$) <span style={{ color: 'var(--destructive)' }}>*</span>
+                <Label htmlFor="price" className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
+                  Preço de Venda (R$) <span style={{ color: 'var(--destructive)' }}>*</span>
                 </Label>
                 <Input
                   id="price"
                   type="text"
                   value={formData.price}
+                  disabled={saving}
                   onChange={(e) => {
                     setFormData((prev) => ({ ...prev, price: e.target.value }));
                     if (formErrors.price) {
@@ -919,6 +1114,7 @@ function AdminProductsPage() {
                     }
                   }}
                   placeholder="Ex: 29.90"
+                  className="h-10 rounded-xl text-sm"
                   style={{
                     backgroundColor: 'var(--background)',
                     borderColor: formErrors.price ? 'var(--destructive)' : 'var(--border)',
@@ -926,21 +1122,22 @@ function AdminProductsPage() {
                   }}
                 />
                 {formErrors.price && (
-                  <p className="text-xs" style={{ color: 'var(--destructive)' }}>
+                  <p className="text-xs font-medium text-destructive">
                     {formErrors.price}
                   </p>
                 )}
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="stock_quantity" style={{ color: 'var(--foreground)' }}>
-                  Quantidade em Estoque <span style={{ color: 'var(--destructive)' }}>*</span>
+                <Label htmlFor="stock_quantity" className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
+                  Estoque Disponível <span style={{ color: 'var(--destructive)' }}>*</span>
                 </Label>
                 <Input
                   id="stock_quantity"
                   type="number"
                   min="0"
                   value={formData.stock_quantity}
+                  disabled={saving}
                   onChange={(e) => {
                     setFormData((prev) => ({ ...prev, stock_quantity: e.target.value }));
                     if (formErrors.stock_quantity) {
@@ -948,6 +1145,7 @@ function AdminProductsPage() {
                     }
                   }}
                   placeholder="0"
+                  className="h-10 rounded-xl text-sm font-mono"
                   style={{
                     backgroundColor: 'var(--background)',
                     borderColor: formErrors.stock_quantity ? 'var(--destructive)' : 'var(--border)',
@@ -955,24 +1153,26 @@ function AdminProductsPage() {
                   }}
                 />
                 {formErrors.stock_quantity && (
-                  <p className="text-xs" style={{ color: 'var(--destructive)' }}>
+                  <p className="text-xs font-medium text-destructive">
                     {formErrors.stock_quantity}
                   </p>
                 )}
               </div>
             </div>
 
-            {/* Image URL */}
+            {/* Imagem do Produto */}
             <div className="space-y-1.5">
-              <Label htmlFor="image_url" style={{ color: 'var(--foreground)' }}>
-                URL da Imagem
+              <Label htmlFor="image_url" className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
+                URL da Imagem do Produto
               </Label>
               <Input
                 id="image_url"
                 type="url"
                 value={formData.image_url}
+                disabled={saving}
                 onChange={(e) => setFormData((prev) => ({ ...prev, image_url: e.target.value }))}
                 placeholder="https://exemplo.com/imagem-do-produto.jpg"
+                className="h-10 rounded-xl text-sm"
                 style={{
                   backgroundColor: 'var(--background)',
                   borderColor: 'var(--border)',
@@ -980,34 +1180,36 @@ function AdminProductsPage() {
                 }}
               />
               {formData.image_url && (
-                <div className="mt-2 flex items-center gap-3 p-2 rounded-lg" style={{ backgroundColor: 'var(--muted)' }}>
+                <div className="mt-2 flex items-center gap-3 p-2.5 rounded-xl border bg-muted/40" style={{ borderColor: 'var(--border)' }}>
                   <img
                     src={formData.image_url}
                     alt="Preview"
-                    className="w-12 h-12 object-cover rounded"
+                    className="w-12 h-12 object-cover rounded-lg border border-border"
                     onError={(e) => {
                       (e.target as HTMLElement).style.display = 'none';
                     }}
                   />
-                  <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    Prévia da imagem
-                  </span>
+                  <div className="text-xs text-muted-foreground">
+                    <p className="font-semibold text-foreground">Prévia da imagem</p>
+                    <p className="text-[11px]">Verifique se a imagem carrega corretamente.</p>
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Description */}
+            {/* Descrição */}
             <div className="space-y-1.5">
-              <Label htmlFor="description" style={{ color: 'var(--foreground)' }}>
-                Descrição do Produto
+              <Label htmlFor="description" className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
+                Descrição Detalhada
               </Label>
               <textarea
                 id="description"
                 value={formData.description}
+                disabled={saving}
                 onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-                placeholder="Detalhes, especificações e medidas do produto..."
+                placeholder="Especificações, dimensões, gramatura e recomendações do produto..."
                 rows={3}
-                className="w-full px-3 py-2 rounded-xl border text-sm resize-none"
+                className="w-full p-3 rounded-xl border text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
                 style={{
                   backgroundColor: 'var(--background)',
                   borderColor: 'var(--border)',
@@ -1016,95 +1218,122 @@ function AdminProductsPage() {
               />
             </div>
 
-            {/* Active Toggle */}
-            <div className="flex items-center gap-3 pt-2">
+            {/* Toggle Ativo */}
+            <div className="flex items-center gap-3 pt-2 p-3 rounded-xl border bg-muted/20" style={{ borderColor: 'var(--border)' }}>
               <button
                 type="button"
                 onClick={() => setFormData((prev) => ({ ...prev, is_active: !prev.is_active }))}
-                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer"
+                disabled={saving}
+                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer disabled:opacity-50"
                 style={{ backgroundColor: formData.is_active ? 'var(--success)' : 'var(--muted)' }}
+                aria-label="Alternar visibilidade do produto"
               >
                 <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${
                     formData.is_active ? 'translate-x-6' : 'translate-x-1'
                   }`}
                 />
               </button>
-              <span className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
-                Produto {formData.is_active ? 'ativo (visível na loja)' : 'inativo (oculto)'}
-              </span>
+              <div className="text-xs sm:text-sm">
+                <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                  {formData.is_active ? 'Produto Ativo' : 'Produto Inativo'}
+                </span>
+                <p className="text-[11px] text-muted-foreground">
+                  {formData.is_active
+                    ? 'Visível para os clientes no catálogo e busca.'
+                    : 'Oculto na loja pública (não pode ser comprado).'}
+                </p>
+              </div>
             </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2 sm:gap-0 pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
             <button
+              type="button"
               onClick={() => setIsDialogOpen(false)}
               disabled={saving}
-              className="px-4 py-2 rounded-xl text-sm font-medium transition-colors hover:opacity-80 cursor-pointer"
-              style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
+              className="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold border transition-colors hover:bg-muted cursor-pointer disabled:opacity-50"
+              style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
             >
               Cancelar
             </button>
             <button
+              type="button"
               onClick={handleSave}
               disabled={saving}
-              className="px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
-              style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
+              className="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+              style={{ backgroundColor: 'var(--primary)' }}
             >
-              {saving && (
-                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Salvando produto...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>{editingProduct ? 'Salvar alterações' : 'Criar produto'}</span>
+                </>
               )}
-              {saving ? 'Salvando...' : editingProduct ? 'Salvar alterações' : 'Criar produto'}
             </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
+      {/* ── Delete Confirmation Dialog ── */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent
-          className="sm:max-w-md"
-          style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
+          className="sm:max-w-md rounded-3xl"
+          style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
         >
           <DialogHeader>
-            <DialogTitle style={{ color: 'var(--foreground)' }}>
-              Confirmar exclusão
+            <DialogTitle className="text-base font-bold flex items-center gap-2" style={{ color: 'var(--foreground)' }}>
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              <span>Confirmar exclusão de produto</span>
             </DialogTitle>
           </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
-              Tem certeza que deseja excluir o produto{' '}
-              <strong style={{ color: 'var(--foreground)' }}>
-                {productToDelete?.name}
+
+          <div className="py-4 space-y-2">
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Deseja realmente excluir o produto{' '}
+              <strong className="text-foreground">
+                "{productToDelete?.name}"
               </strong>
-              ? Esta ação não pode ser desfeita.
+              ?
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Esta ação removerá permanentemente o produto do banco de dados caso ele não possua histórico em pedidos anteriores.
             </p>
           </div>
-          <DialogFooter className="gap-2 sm:gap-0">
+
+          <DialogFooter className="gap-2 sm:gap-0 pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
             <button
+              type="button"
               onClick={() => setIsDeleteDialogOpen(false)}
               disabled={deleting}
-              className="px-4 py-2 rounded-xl text-sm font-medium transition-colors hover:opacity-80 cursor-pointer"
-              style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
+              className="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold border transition-colors hover:bg-muted cursor-pointer disabled:opacity-50"
+              style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
             >
               Cancelar
             </button>
             <button
+              type="button"
               onClick={handleDelete}
               disabled={deleting}
-              className="px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
-              style={{ backgroundColor: 'var(--destructive)', color: 'var(--destructive-foreground)' }}
+              className="px-5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+              style={{ backgroundColor: 'var(--destructive)' }}
             >
-              {deleting && (
-                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
+              {deleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Excluindo...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4" />
+                  <span>Excluir produto</span>
+                </>
               )}
-              {deleting ? 'Excluindo...' : 'Excluir produto'}
             </button>
           </DialogFooter>
         </DialogContent>
