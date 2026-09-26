@@ -133,6 +133,65 @@ interface DeliverySettingsConfig {
   pickup_address: string;
 }
 
+export interface PaymentSettingsConfig {
+  pix_enabled: boolean;
+  card_enabled: boolean;
+  apple_pay_enabled: boolean;
+  google_pay_enabled: boolean;
+  boleto_enabled: boolean;
+  cash_on_delivery_enabled: boolean;
+}
+
+export const DEFAULT_PAYMENT_SETTINGS: PaymentSettingsConfig = {
+  pix_enabled: true,
+  card_enabled: true,
+  apple_pay_enabled: true,
+  google_pay_enabled: true,
+  boleto_enabled: true,
+  cash_on_delivery_enabled: true,
+};
+
+const PAYMENT_PRIORITY_ORDER: PaymentMethodOption[] = [
+  'abacate_pix',
+  'card',
+  'apple_pay',
+  'google_pay',
+  'boleto',
+  'cash_on_delivery',
+];
+
+function isPaymentMethodEnabled(
+  method: PaymentMethodOption | null | undefined,
+  cfg: PaymentSettingsConfig
+): boolean {
+  if (!method) return false;
+  switch (method) {
+    case 'abacate_pix':
+      return cfg.pix_enabled;
+    case 'card':
+      return cfg.card_enabled;
+    case 'apple_pay':
+      return cfg.apple_pay_enabled;
+    case 'google_pay':
+      return cfg.google_pay_enabled;
+    case 'boleto':
+      return cfg.boleto_enabled;
+    case 'cash_on_delivery':
+      return cfg.cash_on_delivery_enabled;
+    default:
+      return false;
+  }
+}
+
+function getFirstAvailablePaymentMethod(cfg: PaymentSettingsConfig): PaymentMethodOption | null {
+  for (const method of PAYMENT_PRIORITY_ORDER) {
+    if (isPaymentMethodEnabled(method, cfg)) {
+      return method;
+    }
+  }
+  return null;
+}
+
 interface FreeShippingConfig {
   enabled: boolean;
   cost?: number;
@@ -1005,7 +1064,10 @@ export function CheckoutPage() {
 
   // Form states
   const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup'>('delivery');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodOption>('abacate_pix');
+  const [paymentConfig, setPaymentConfig] = useState<PaymentSettingsConfig>(DEFAULT_PAYMENT_SETTINGS);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodOption>(
+    () => getFirstAvailablePaymentMethod(DEFAULT_PAYMENT_SETTINGS) || 'abacate_pix'
+  );
   const [customerNote, setCustomerNote] = useState('');
   const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string>('');
@@ -1017,6 +1079,16 @@ export function CheckoutPage() {
   const [freeShippingConfig, setFreeShippingConfig] = useState<FreeShippingConfig>({ enabled: false, cost: 0 });
   const [shippingZones, setShippingZones] = useState<ShippingZone[]>([]);
   const [loadingSettings, setLoadingSettings] = useState(true);
+
+  // Auto-select first available payment method whenever paymentConfig changes or current method is disabled
+  useEffect(() => {
+    setPaymentMethod((current) => {
+      if (isPaymentMethodEnabled(current, paymentConfig)) {
+        return current;
+      }
+      return getFirstAvailablePaymentMethod(paymentConfig) || 'abacate_pix';
+    });
+  }, [paymentConfig]);
 
   // Dynamic Shipping RPC State
   const [calculatedShipping, setCalculatedShipping] = useState<CalculatedShippingState>(INITIAL_CALCULATED_SHIPPING);
@@ -1070,6 +1142,7 @@ export function CheckoutPage() {
           settingsMap.set(row.key, row.value);
         });
 
+        // 1. Delivery settings
         const savedDelivery = settingsMap.get('delivery_settings');
         const legacyFreeShipping = settingsMap.get('free_shipping');
         const legacyPickup = settingsMap.get('pickup_address');
@@ -1113,6 +1186,18 @@ export function CheckoutPage() {
 
         setFreeShippingConfig(freeShipping);
 
+        // 2. Payment methods settings
+        const savedPayments = settingsMap.get('payment_methods');
+        const paymentCfg: PaymentSettingsConfig = {
+          pix_enabled: savedPayments?.pix_enabled ?? true,
+          card_enabled: savedPayments?.card_enabled ?? true,
+          apple_pay_enabled: savedPayments?.apple_pay_enabled ?? true,
+          google_pay_enabled: savedPayments?.google_pay_enabled ?? true,
+          boleto_enabled: savedPayments?.boleto_enabled ?? true,
+          cash_on_delivery_enabled: savedPayments?.cash_on_delivery_enabled ?? true,
+        };
+        setPaymentConfig(paymentCfg);
+
         // Auto-select receipt method if only one is enabled
         if (!deliveryEnabled && pickupEnabled) {
           setDeliveryType('pickup');
@@ -1121,7 +1206,7 @@ export function CheckoutPage() {
         }
       }
     } catch (err) {
-      console.error('[CHECKOUT] Erro ao carregar configurações de entrega:', err);
+      console.error('[CHECKOUT] Erro ao carregar configurações de entrega e pagamentos:', err);
       setLoadError('Não foi possível carregar as informações do checkout.');
     } finally {
       setLoadingSettings(false);
@@ -1560,6 +1645,36 @@ export function CheckoutPage() {
     setIsSubmitting(true);
 
     try {
+      // 1. REVALIDATE SETTINGS (PAYMENT METHODS & DELIVERY) DIRECTLY FROM DATABASE
+      const { data: dbSettings, error: settingsErr } = await supabase
+        .from('settings')
+        .select('*');
+
+      if (settingsErr) {
+        console.warn('[CHECKOUT] Aviso ao buscar settings no banco:', settingsErr.message);
+      }
+
+      const settingsMap = new Map<string, any>();
+      if (dbSettings && dbSettings.length > 0) {
+        dbSettings.forEach((row) => settingsMap.set(row.key, row.value));
+      }
+
+      // Live Payment Methods Validation
+      const livePaymentMethods = settingsMap.get('payment_methods');
+      const livePaymentConfig: PaymentSettingsConfig = {
+        pix_enabled: livePaymentMethods?.pix_enabled ?? true,
+        card_enabled: livePaymentMethods?.card_enabled ?? true,
+        apple_pay_enabled: livePaymentMethods?.apple_pay_enabled ?? true,
+        google_pay_enabled: livePaymentMethods?.google_pay_enabled ?? true,
+        boleto_enabled: livePaymentMethods?.boleto_enabled ?? true,
+        cash_on_delivery_enabled: livePaymentMethods?.cash_on_delivery_enabled ?? true,
+      };
+
+      if (!isPaymentMethodEnabled(paymentMethod, livePaymentConfig)) {
+        setPaymentConfig(livePaymentConfig);
+        throw new Error('A forma de pagamento selecionada foi desativada pela loja. Escolha outra forma de pagamento.');
+      }
+
       const dbPaymentMethod =
         paymentMethod === 'cash_on_delivery'
           ? 'cash_on_delivery'
@@ -1574,7 +1689,7 @@ export function CheckoutPage() {
 
       // If an order has not been created yet for this checkout session:
       if (!targetOrderId || !completedOrderData) {
-        // 1. REVALIDATE STOCK & STATUS DIRECTLY FROM DATABASE
+        // 2. REVALIDATE STOCK & STATUS DIRECTLY FROM DATABASE
         const productIds = cart.items.map((i) => i.product_id);
         const { data: dbProducts, error: prodErr } = await supabase
           .from('products')
@@ -1597,40 +1712,27 @@ export function CheckoutPage() {
           }
         }
 
-        // 2. REVALIDATE SETTINGS AND COMPUTE LIVE SHIPPING VIA SECURE RPC
-        const { data: dbSettings, error: settingsErr } = await supabase
-          .from('settings')
-          .select('*');
-
-        if (settingsErr) {
-          console.warn('[CHECKOUT] Aviso ao buscar settings no banco:', settingsErr.message);
-        }
-
+        // 3. REVALIDATE DELIVERY & COMPUTE LIVE SHIPPING VIA SECURE RPC
         let verifiedShipping = 0;
         let verifiedPickupAddress = deliveryConfig.pickup_address || DEFAULT_PICKUP_ADDRESS;
 
-        if (dbSettings && dbSettings.length > 0) {
-          const settingsMap = new Map<string, any>();
-          dbSettings.forEach((row) => settingsMap.set(row.key, row.value));
+        const liveDelivery = settingsMap.get('delivery_settings');
+        const livePickup = settingsMap.get('pickup_address');
 
-          const liveDelivery = settingsMap.get('delivery_settings');
-          const livePickup = settingsMap.get('pickup_address');
+        const liveDeliveryEnabled = liveDelivery?.delivery_enabled ?? true;
+        const livePickupEnabled = liveDelivery?.pickup_enabled ?? true;
 
-          const liveDeliveryEnabled = liveDelivery?.delivery_enabled ?? true;
-          const livePickupEnabled = liveDelivery?.pickup_enabled ?? true;
+        if (deliveryType === 'delivery' && !liveDeliveryEnabled) {
+          throw new Error('A opção de entrega foi desativada pela loja. Atualize a página.');
+        }
+        if (deliveryType === 'pickup' && !livePickupEnabled) {
+          throw new Error('A opção de retirada foi desativada pela loja. Atualize a página.');
+        }
 
-          if (deliveryType === 'delivery' && !liveDeliveryEnabled) {
-            throw new Error('A opção de entrega foi desativada pela loja. Atualize a página.');
-          }
-          if (deliveryType === 'pickup' && !livePickupEnabled) {
-            throw new Error('A opção de retirada foi desativada pela loja. Atualize a página.');
-          }
-
-          if (livePickup && typeof livePickup === 'string' && livePickup.trim()) {
-            verifiedPickupAddress = livePickup;
-          } else if (liveDelivery?.pickup_address && typeof liveDelivery.pickup_address === 'string' && liveDelivery.pickup_address.trim()) {
-            verifiedPickupAddress = liveDelivery.pickup_address;
-          }
+        if (livePickup && typeof livePickup === 'string' && livePickup.trim()) {
+          verifiedPickupAddress = livePickup;
+        } else if (liveDelivery?.pickup_address && typeof liveDelivery.pickup_address === 'string' && liveDelivery.pickup_address.trim()) {
+          verifiedPickupAddress = liveDelivery.pickup_address;
         }
 
         if (deliveryType === 'pickup') {
@@ -2811,7 +2913,7 @@ export function CheckoutPage() {
       title: 'PIX',
       description: 'Pagamento instantâneo via PIX com QR Code e Copia e Cola.',
       icon: <QrCode className="w-4 h-4 text-primary" />,
-      isAvailable: true,
+      isAvailable: paymentConfig.pix_enabled,
       badge: 'Instantâneo',
     },
     {
@@ -2819,14 +2921,14 @@ export function CheckoutPage() {
       title: 'Cartão',
       description: 'Pague com cartão de crédito ou débito.',
       icon: <CreditCard className="w-4 h-4 text-primary" />,
-      isAvailable: true,
+      isAvailable: paymentConfig.card_enabled,
     },
     {
       id: 'apple_pay',
       title: 'Apple Pay',
       description: 'Pague rapidamente usando Apple Pay.',
       icon: <ApplePayIcon className="w-4 h-4 text-primary" />,
-      isAvailable: true,
+      isAvailable: paymentConfig.apple_pay_enabled,
       badge: 'Carteira Digital',
     },
     {
@@ -2834,7 +2936,7 @@ export function CheckoutPage() {
       title: 'Google Pay',
       description: 'Pague rapidamente usando Google Pay.',
       icon: <GooglePayIcon className="w-4 h-4 text-primary" />,
-      isAvailable: true,
+      isAvailable: paymentConfig.google_pay_enabled,
       badge: 'Carteira Digital',
     },
     {
@@ -2842,17 +2944,19 @@ export function CheckoutPage() {
       title: 'Boleto',
       description: 'Gere seu boleto e realize o pagamento.',
       icon: <FileText className="w-4 h-4 text-primary" />,
-      isAvailable: true,
+      isAvailable: paymentConfig.boleto_enabled,
     },
     {
       id: 'cash_on_delivery',
       title: 'Dinheiro na entrega',
       description: 'Pague em dinheiro no recebimento ou retirada.',
       icon: <Banknote className="w-4 h-4 text-primary" />,
-      isAvailable: true,
+      isAvailable: paymentConfig.cash_on_delivery_enabled,
       badge: 'No Recebimento',
     },
   ];
+
+  const availablePaymentOptions = paymentOptions.filter((opt) => opt.isAvailable);
 
   // ── MAIN CHECKOUT FORM ─────────────────────────────────────────────────────
   return (
@@ -3297,93 +3401,87 @@ export function CheckoutPage() {
                 </h2>
               </div>
 
-              <div className="space-y-3" role="radiogroup" aria-label="Forma de Pagamento">
-                {paymentOptions.map((opt) => {
-                  const isSelected = paymentMethod === opt.id;
-                  const isDisabled = !opt.isAvailable;
+              {availablePaymentOptions.length === 0 ? (
+                <div
+                  className="p-4 rounded-xl border flex items-center gap-3"
+                  style={{
+                    backgroundColor: 'rgba(220, 38, 38, 0.08)',
+                    borderColor: 'rgba(220, 38, 38, 0.25)',
+                    color: 'var(--destructive)',
+                  }}
+                >
+                  <AlertTriangle className="w-5 h-5 shrink-0" />
+                  <p className="text-sm font-medium">
+                    Nenhuma forma de pagamento está disponível no momento. Entre em contato com a loja.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3" role="radiogroup" aria-label="Forma de Pagamento">
+                  {availablePaymentOptions.map((opt) => {
+                    const isSelected = paymentMethod === opt.id;
 
-                  return (
-                    <label
-                      key={opt.id}
-                      htmlFor={`payment-option-${opt.id}`}
-                      className={`w-full p-4 rounded-xl border text-left flex items-start gap-3.5 transition-all select-none ${
-                        isDisabled
-                          ? 'opacity-60 border-border/60 bg-muted/30 cursor-not-allowed'
-                          : isSelected
-                            ? 'border-primary ring-2 ring-primary/20 bg-primary/5 cursor-pointer'
-                            : 'border-border hover:border-border/80 bg-card cursor-pointer'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        id={`payment-option-${opt.id}`}
-                        name="payment_method_option"
-                        value={opt.id}
-                        checked={isSelected}
-                        disabled={isDisabled}
-                        onChange={() => {
-                          if (!isDisabled) {
-                            setPaymentMethod(opt.id);
-                          }
-                        }}
-                        className="sr-only"
-                      />
-
-                      {/* Custom Radio Indicator */}
-                      <div
-                        className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 transition-colors ${
-                          isDisabled
-                            ? 'border-muted-foreground/30 bg-muted'
-                            : isSelected
-                              ? 'border-primary bg-primary text-white'
-                              : 'border-muted-foreground/40 bg-card'
+                    return (
+                      <label
+                        key={opt.id}
+                        htmlFor={`payment-option-${opt.id}`}
+                        className={`w-full p-4 rounded-xl border text-left flex items-start gap-3.5 transition-all select-none cursor-pointer ${
+                          isSelected
+                            ? 'border-primary ring-2 ring-primary/20 bg-primary/5'
+                            : 'border-border hover:border-border/80 bg-card'
                         }`}
                       >
-                        {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
-                      </div>
+                        <input
+                          type="radio"
+                          id={`payment-option-${opt.id}`}
+                          name="payment_method_option"
+                          value={opt.id}
+                          checked={isSelected}
+                          onChange={() => setPaymentMethod(opt.id)}
+                          className="sr-only"
+                        />
 
-                      {/* Info & Text */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <div
-                            className="flex items-center gap-2 font-semibold text-sm"
-                            style={{ color: 'var(--foreground)' }}
-                          >
-                            {opt.icon}
-                            <span>{opt.title}</span>
-                          </div>
-
-                          {opt.badge && (
-                            <span
-                              className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
-                              style={{
-                                backgroundColor: 'rgba(59, 130, 246, 0.12)',
-                                color: 'var(--primary)',
-                              }}
-                            >
-                              {opt.badge}
-                            </span>
-                          )}
-
-                          {opt.unavailableBadge && (
-                            <span
-                              className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                              style={{
-                                backgroundColor: 'var(--muted)',
-                                color: 'var(--muted-foreground)',
-                              }}
-                            >
-                              {opt.unavailableBadge}
-                            </span>
-                          )}
+                        {/* Custom Radio Indicator */}
+                        <div
+                          className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 transition-colors ${
+                            isSelected
+                              ? 'border-primary bg-primary text-white'
+                              : 'border-muted-foreground/40 bg-card'
+                          }`}
+                        >
+                          {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
                         </div>
 
-                        <p className="text-xs text-muted-foreground mt-1">{opt.description}</p>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
+                        {/* Info & Text */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div
+                              className="flex items-center gap-2 font-semibold text-sm"
+                              style={{ color: 'var(--foreground)' }}
+                            >
+                              {opt.icon}
+                              <span>{opt.title}</span>
+                            </div>
+
+                            {opt.badge && (
+                              <span
+                                className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+                                style={{
+                                  backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                                  color: 'var(--primary)',
+                                }}
+                              >
+                                {opt.badge}
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-xs text-muted-foreground mt-1">{opt.description}</p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </section>
 
             {/* 3. OBSERVAÇÕES DO PEDIDO */}
@@ -3543,6 +3641,7 @@ export function CheckoutPage() {
                 disabled={
                   isSubmitting ||
                   loadingSettings ||
+                  availablePaymentOptions.length === 0 ||
                   (!deliveryConfig.delivery_enabled && !deliveryConfig.pickup_enabled) ||
                   (deliveryType === 'delivery' && (
                     !selectedAddressId ||
@@ -3559,6 +3658,8 @@ export function CheckoutPage() {
                     <Loader2 className="w-5 h-5 animate-spin" />
                     <span>Processando pedido...</span>
                   </>
+                ) : availablePaymentOptions.length === 0 ? (
+                  <span>Pagamento Indisponível</span>
                 ) : !deliveryConfig.delivery_enabled && !deliveryConfig.pickup_enabled ? (
                   <span>Recebimento Indisponível</span>
                 ) : deliveryType === 'delivery' && calculatedShipping.loading ? (
@@ -3580,6 +3681,12 @@ export function CheckoutPage() {
                   </>
                 )}
               </button>
+
+              {availablePaymentOptions.length === 0 && (
+                <p className="text-xs text-destructive text-center font-medium">
+                  Nenhuma forma de pagamento está disponível no momento. Entre em contato com a loja.
+                </p>
+              )}
 
               {deliveryConfig.delivery_enabled && deliveryType === 'delivery' && !selectedAddressId && (
                 <p className="text-xs text-destructive text-center">

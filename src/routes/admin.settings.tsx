@@ -44,6 +44,8 @@ import {
   Loader2,
   AlertTriangle,
   Sliders,
+  Smartphone,
+  FileText,
 } from 'lucide-react';
 
 export const Route = createFileRoute('/admin/settings')({
@@ -79,6 +81,9 @@ interface DeliverySettings {
 interface PaymentSettings {
   pix_enabled: boolean;
   card_enabled: boolean;
+  apple_pay_enabled: boolean;
+  google_pay_enabled: boolean;
+  boleto_enabled: boolean;
   cash_on_delivery_enabled: boolean;
 }
 
@@ -137,6 +142,9 @@ const DEFAULT_DELIVERY: DeliverySettings = {
 const DEFAULT_PAYMENTS: PaymentSettings = {
   pix_enabled: true,
   card_enabled: true,
+  apple_pay_enabled: true,
+  google_pay_enabled: true,
+  boleto_enabled: true,
   cash_on_delivery_enabled: true,
 };
 
@@ -295,6 +303,9 @@ function AdminSettingsPage() {
         setPayments({
           pix_enabled: savedPayments?.pix_enabled ?? true,
           card_enabled: savedPayments?.card_enabled ?? true,
+          apple_pay_enabled: savedPayments?.apple_pay_enabled ?? true,
+          google_pay_enabled: savedPayments?.google_pay_enabled ?? true,
+          boleto_enabled: savedPayments?.boleto_enabled ?? true,
           cash_on_delivery_enabled: savedPayments?.cash_on_delivery_enabled ?? true,
         });
 
@@ -1404,7 +1415,7 @@ function AdminSettingsPage() {
                         Cartão de Crédito / Débito
                       </Label>
                       <p className="text-xs truncate" style={{ color: 'var(--muted-foreground)' }}>
-                        Processamento de cartões de crédito e débito online
+                        Processamento de cartões de crédito e débito online via Stripe
                       </p>
                     </div>
                   </div>
@@ -1412,6 +1423,102 @@ function AdminSettingsPage() {
                     id="toggle-card"
                     checked={payments.card_enabled}
                     onCheckedChange={(checked) => setPayments({ ...payments, card_enabled: checked })}
+                  />
+                </div>
+
+                {/* Apple Pay */}
+                <div
+                  className="flex items-center justify-between p-4 rounded-xl border transition-all"
+                  style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
+                >
+                  <div className="flex items-center gap-3 min-w-0 pr-2">
+                    <div
+                      className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border"
+                      style={{
+                        backgroundColor: 'var(--card)',
+                        borderColor: 'var(--border)',
+                        color: 'var(--primary)',
+                      }}
+                    >
+                      <Smartphone className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <Label htmlFor="toggle-apple-pay" className="text-sm font-semibold cursor-pointer block truncate" style={{ color: 'var(--foreground)' }}>
+                        Apple Pay
+                      </Label>
+                      <p className="text-xs truncate" style={{ color: 'var(--muted-foreground)' }}>
+                        Pagamento rápido em 1 clique em dispositivos Apple via Stripe
+                      </p>
+                    </div>
+                  </div>
+                  <AdminSwitch
+                    id="toggle-apple-pay"
+                    checked={payments.apple_pay_enabled}
+                    onCheckedChange={(checked) => setPayments({ ...payments, apple_pay_enabled: checked })}
+                  />
+                </div>
+
+                {/* Google Pay */}
+                <div
+                  className="flex items-center justify-between p-4 rounded-xl border transition-all"
+                  style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
+                >
+                  <div className="flex items-center gap-3 min-w-0 pr-2">
+                    <div
+                      className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border"
+                      style={{
+                        backgroundColor: 'var(--card)',
+                        borderColor: 'var(--border)',
+                        color: 'var(--primary)',
+                      }}
+                    >
+                      <Smartphone className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <Label htmlFor="toggle-google-pay" className="text-sm font-semibold cursor-pointer block truncate" style={{ color: 'var(--foreground)' }}>
+                        Google Pay
+                      </Label>
+                      <p className="text-xs truncate" style={{ color: 'var(--muted-foreground)' }}>
+                        Pagamento rápido com Carteira do Google via Stripe
+                      </p>
+                    </div>
+                  </div>
+                  <AdminSwitch
+                    id="toggle-google-pay"
+                    checked={payments.google_pay_enabled}
+                    onCheckedChange={(checked) => setPayments({ ...payments, google_pay_enabled: checked })}
+                  />
+                </div>
+
+                {/* Boleto */}
+                <div
+                  className="flex items-center justify-between p-4 rounded-xl border transition-all"
+                  style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
+                >
+                  <div className="flex items-center gap-3 min-w-0 pr-2">
+                    <div
+                      className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border"
+                      style={{
+                        backgroundColor: 'var(--card)',
+                        borderColor: 'var(--border)',
+                        color: 'var(--primary)',
+                      }}
+                    >
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <Label htmlFor="toggle-boleto" className="text-sm font-semibold cursor-pointer block truncate" style={{ color: 'var(--foreground)' }}>
+                        Boleto Bancário
+                      </Label>
+                      <p className="text-xs truncate" style={{ color: 'var(--muted-foreground)' }}>
+                        Emissão de boleto bancário com compensação automática via Stripe
+                      </p>
+                    </div>
+                  </div>
+                  <AdminSwitch
+                    id="toggle-boleto"
+                    checked={payments.boleto_enabled}
+                    onCheckedChange={(checked) => setPayments({ ...payments, boleto_enabled: checked })}
                   />
                 </div>
 
