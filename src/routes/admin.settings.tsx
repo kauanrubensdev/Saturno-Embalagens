@@ -42,6 +42,8 @@ import {
   Trash2,
   Navigation,
   Loader2,
+  AlertTriangle,
+  Sliders,
 } from 'lucide-react';
 
 export const Route = createFileRoute('/admin/settings')({
@@ -144,7 +146,7 @@ const INITIAL_ZONE_FORM: ShippingZoneFormData = {
 };
 
 // ============================================================
-// AdminSwitch — switch com cores da identidade visual
+// AdminSwitch — Switch refinado e acessível
 // ============================================================
 interface AdminSwitchProps {
   id?: string;
@@ -162,18 +164,17 @@ function AdminSwitch({ id, checked, onCheckedChange, disabled = false }: AdminSw
       aria-checked={checked}
       disabled={disabled}
       onClick={() => !disabled && onCheckedChange(!checked)}
-      className="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+      className="relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
       style={{
-        backgroundColor: checked ? '#FF4103' : 'rgba(100,116,139,0.55)',
-        border: checked ? '2px solid #FF4103' : '2px solid rgba(148,163,184,0.6)',
+        backgroundColor: checked ? 'var(--primary)' : 'var(--muted)',
+        border: `1px solid ${checked ? 'var(--primary)' : 'var(--border)'}`,
       }}
     >
       <span
         aria-hidden="true"
-        className="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-lg ring-0 transition-transform duration-200 ease-in-out"
+        className="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ease-in-out"
         style={{
-          backgroundColor: checked ? '#ffffff' : '#cbd5e1',
-          transform: checked ? 'translateX(20px)' : 'translateX(2px)',
+          transform: checked ? 'translateX(22px)' : 'translateX(2px)',
         }}
       />
     </button>
@@ -195,6 +196,10 @@ function AdminSettingsPage() {
   const [zoneForm, setZoneForm] = useState<ShippingZoneFormData>(INITIAL_ZONE_FORM);
   const [savingZone, setSavingZone] = useState(false);
   const [deletingZoneId, setDeletingZoneId] = useState<string | null>(null);
+
+  // Delete Zone Confirmation Dialog
+  const [zoneToDelete, setZoneToDelete] = useState<ShippingZone | null>(null);
+  const [isDeleteZoneOpen, setIsDeleteZoneOpen] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [savingSection, setSavingSection] = useState<string | null>(null);
@@ -360,7 +365,7 @@ function AdminSettingsPage() {
         saveSettingKey('payment_methods', payments),
         saveSettingKey('orders_stock', ordersStock),
       ]);
-      toast.success('Configurações salvas com sucesso.');
+      toast.success('Todas as configurações foram salvas com sucesso.');
     } catch (err: any) {
       console.error('Error saving all settings:', err);
       toast.error('Erro ao salvar as configurações. Tente novamente.');
@@ -485,20 +490,26 @@ function AdminSettingsPage() {
     }
   };
 
-  const handleDeleteZone = async (zone: ShippingZone) => {
-    const confirmed = window.confirm(`Deseja realmente excluir a zona de frete "${zone.name}"?`);
-    if (!confirmed) return;
+  const handleOpenDeleteZone = (zone: ShippingZone) => {
+    setZoneToDelete(zone);
+    setIsDeleteZoneOpen(true);
+  };
+
+  const handleConfirmDeleteZone = async () => {
+    if (!zoneToDelete) return;
 
     try {
-      setDeletingZoneId(zone.id);
+      setDeletingZoneId(zoneToDelete.id);
       const { error } = await supabase
         .from('shipping_zones')
         .delete()
-        .eq('id', zone.id);
+        .eq('id', zoneToDelete.id);
 
       if (error) throw error;
-      toast.success(`Zona "${zone.name}" excluída com sucesso.`);
-      setShippingZones((prev) => prev.filter((z) => z.id !== zone.id));
+      toast.success(`Zona "${zoneToDelete.name}" excluída com sucesso.`);
+      setShippingZones((prev) => prev.filter((z) => z.id !== zoneToDelete.id));
+      setIsDeleteZoneOpen(false);
+      setZoneToDelete(null);
     } catch (err: any) {
       console.error('[SHIPPING-ZONE-DELETE] Erro:', err);
       toast.error('Erro ao excluir zona de frete.');
@@ -576,31 +587,48 @@ function AdminSettingsPage() {
               Configurações
             </h1>
             <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>
-              Gerencie as informações da loja, entrega, pagamentos, estoque e conta administrativa.
+              Gerencie as informações da loja, entrega, pagamentos, estoque e conta de acesso.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
+            <button
               onClick={fetchSettings}
               disabled={loading || savingAll}
-              className="h-10 px-3 text-xs sm:text-sm"
+              aria-label="Atualizar configurações"
+              title="Atualizar configurações"
+              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium border transition-all hover:opacity-80 disabled:opacity-50 cursor-pointer"
+              style={{
+                backgroundColor: 'var(--card)',
+                borderColor: 'var(--border)',
+                color: 'var(--foreground)',
+              }}
             >
-              <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-              Atualizar
-            </Button>
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              <span>Atualizar</span>
+            </button>
 
-            <Button
+            <button
               onClick={handleSaveAll}
               disabled={loading || savingAll}
-              className="h-10 px-4 text-xs sm:text-sm font-semibold shadow-sm cursor-pointer"
-              style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer shadow-xs"
+              style={{
+                backgroundColor: 'var(--primary)',
+                color: 'var(--primary-foreground)',
+              }}
             >
-              <Save className="w-4 h-4 mr-1.5" />
-              {savingAll ? 'Salvando...' : 'Salvar tudo'}
-            </Button>
+              {savingAll ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Salvando tudo...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>Salvar tudo</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
 
@@ -609,23 +637,26 @@ function AdminSettingsPage() {
           <div
             className="p-4 rounded-xl border flex items-center justify-between gap-3"
             style={{
-              backgroundColor: 'var(--destructive)/10',
-              borderColor: 'var(--destructive)/30',
+              backgroundColor: 'rgba(220, 38, 38, 0.08)',
+              borderColor: 'rgba(220, 38, 38, 0.25)',
               color: 'var(--destructive)',
             }}
           >
             <div className="flex items-center gap-2 text-sm font-medium">
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <AlertCircle className="w-5 h-5 shrink-0" />
               <span>{fetchError}</span>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
+            <button
               onClick={fetchSettings}
-              className="border-destructive/40 hover:bg-destructive/10 text-xs"
+              className="px-3 py-1.5 rounded-lg border text-xs font-semibold hover:opacity-80 transition-colors"
+              style={{
+                backgroundColor: 'var(--background)',
+                borderColor: 'var(--destructive)',
+                color: 'var(--destructive)',
+              }}
             >
               Tentar novamente
-            </Button>
+            </button>
           </div>
         )}
 
@@ -635,19 +666,19 @@ function AdminSettingsPage() {
             {[1, 2, 3, 4, 5].map((i) => (
               <div
                 key={i}
-                className="p-6 rounded-2xl border space-y-4"
+                className="p-6 rounded-2xl border space-y-4 animate-pulse"
                 style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
               >
                 <div className="flex items-center gap-3">
-                  <Skeleton className="w-10 h-10 rounded-xl" />
-                  <div className="space-y-2">
-                    <Skeleton className="w-48 h-5" />
-                    <Skeleton className="w-72 h-3" />
+                  <div className="w-10 h-10 rounded-xl" style={{ backgroundColor: 'var(--muted)' }} />
+                  <div className="space-y-2 flex-1">
+                    <div className="h-5 w-48 rounded" style={{ backgroundColor: 'var(--muted)' }} />
+                    <div className="h-3 w-72 rounded" style={{ backgroundColor: 'var(--muted)' }} />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                  <Skeleton className="h-11 w-full rounded-xl" />
-                  <Skeleton className="h-11 w-full rounded-xl" />
+                  <div className="h-11 w-full rounded-xl" style={{ backgroundColor: 'var(--muted)' }} />
+                  <div className="h-11 w-full rounded-xl" style={{ backgroundColor: 'var(--muted)' }} />
                 </div>
               </div>
             ))}
@@ -658,43 +689,56 @@ function AdminSettingsPage() {
             {/* 1. INFORMAÇÕES DA LOJA */}
             {/* ============================================================ */}
             <section
-              className="rounded-2xl border p-5 sm:p-6 shadow-sm transition-all"
+              className="rounded-2xl border p-5 sm:p-6 shadow-xs transition-all"
               style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-start sm:items-center gap-3">
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: 'var(--primary)/15', color: 'var(--primary)' }}
+                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--primary)',
+                    }}
                   >
                     <Store className="w-5 h-5" />
                   </div>
                   <div>
                     <h2 className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
-                      Informações da loja
+                      Informações da Loja
                     </h2>
                     <p className="text-xs sm:text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                      Dados cadastrais públicos e contatos do seu estabelecimento
+                      Dados cadastrais públicos e contatos do estabelecimento.
                     </p>
                   </div>
                 </div>
 
-                <Button
-                  size="sm"
+                <button
+                  type="button"
                   onClick={() => handleSaveSection('store')}
                   disabled={savingSection === 'store' || savingAll}
-                  className="self-end sm:self-auto h-9 px-3.5 text-xs sm:text-sm cursor-pointer"
+                  className="self-end sm:self-auto inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer shadow-xs"
                   style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
                 >
-                  <Save className="w-3.5 h-3.5 mr-1.5" />
-                  {savingSection === 'store' ? 'Salvando...' : 'Salvar informações'}
-                </Button>
+                  {savingSection === 'store' ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Salvando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Salvar informações</span>
+                    </>
+                  )}
+                </button>
               </div>
 
               <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
-                <div className="sm:col-span-2">
-                  <Label htmlFor="store-name" className="text-xs sm:text-sm font-medium mb-1.5 block" style={{ color: 'var(--foreground)' }}>
-                    Nome da loja <span className="text-destructive">*</span>
+                <div className="sm:col-span-2 space-y-1.5">
+                  <Label htmlFor="store-name" className="text-xs sm:text-sm font-semibold block" style={{ color: 'var(--foreground)' }}>
+                    Nome da Loja <span style={{ color: 'var(--destructive)' }}>*</span>
                   </Label>
                   <Input
                     id="store-name"
@@ -702,12 +746,17 @@ function AdminSettingsPage() {
                     onChange={(e) => setStoreInfo({ ...storeInfo, name: e.target.value })}
                     placeholder="Saturno Embalagens"
                     className="h-11 rounded-xl text-sm"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--foreground)',
+                    }}
                   />
                 </div>
 
-                <div className="sm:col-span-2">
-                  <Label htmlFor="store-desc" className="text-xs sm:text-sm font-medium mb-1.5 block" style={{ color: 'var(--foreground)' }}>
-                    Descrição da loja
+                <div className="sm:col-span-2 space-y-1.5">
+                  <Label htmlFor="store-desc" className="text-xs sm:text-sm font-semibold block" style={{ color: 'var(--foreground)' }}>
+                    Descrição da Loja
                   </Label>
                   <Textarea
                     id="store-desc"
@@ -715,12 +764,17 @@ function AdminSettingsPage() {
                     value={storeInfo.description}
                     onChange={(e) => setStoreInfo({ ...storeInfo, description: e.target.value })}
                     placeholder="Embalagens para delivery com qualidade e praticidade."
-                    className="rounded-xl text-sm min-h-[72px]"
+                    className="rounded-xl text-sm min-h-[72px] resize-none"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--foreground)',
+                    }}
                   />
                 </div>
 
-                <div>
-                  <Label htmlFor="store-phone" className="text-xs sm:text-sm font-medium mb-1.5 block" style={{ color: 'var(--foreground)' }}>
+                <div className="space-y-1.5">
+                  <Label htmlFor="store-phone" className="text-xs sm:text-sm font-semibold block" style={{ color: 'var(--foreground)' }}>
                     <div className="flex items-center gap-1.5">
                       <Phone className="w-3.5 h-3.5" style={{ color: 'var(--muted-foreground)' }} />
                       <span>Telefone / WhatsApp</span>
@@ -732,14 +786,19 @@ function AdminSettingsPage() {
                     onChange={(e) => setStoreInfo({ ...storeInfo, phone: e.target.value })}
                     placeholder="(31) 99999-9999"
                     className="h-11 rounded-xl text-sm"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--foreground)',
+                    }}
                   />
                 </div>
 
-                <div>
-                  <Label htmlFor="store-email" className="text-xs sm:text-sm font-medium mb-1.5 block" style={{ color: 'var(--foreground)' }}>
+                <div className="space-y-1.5">
+                  <Label htmlFor="store-email" className="text-xs sm:text-sm font-semibold block" style={{ color: 'var(--foreground)' }}>
                     <div className="flex items-center gap-1.5">
                       <Mail className="w-3.5 h-3.5" style={{ color: 'var(--muted-foreground)' }} />
-                      <span>E-mail de contato</span>
+                      <span>E-mail de Contato</span>
                     </div>
                   </Label>
                   <Input
@@ -749,14 +808,19 @@ function AdminSettingsPage() {
                     onChange={(e) => setStoreInfo({ ...storeInfo, email: e.target.value })}
                     placeholder="contato@saturnoembalagens.com.br"
                     className="h-11 rounded-xl text-sm"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--foreground)',
+                    }}
                   />
                 </div>
 
-                <div className="sm:col-span-2">
-                  <Label htmlFor="store-address" className="text-xs sm:text-sm font-medium mb-1.5 block" style={{ color: 'var(--foreground)' }}>
+                <div className="sm:col-span-2 space-y-1.5">
+                  <Label htmlFor="store-address" className="text-xs sm:text-sm font-semibold block" style={{ color: 'var(--foreground)' }}>
                     <div className="flex items-center gap-1.5">
                       <MapPin className="w-3.5 h-3.5" style={{ color: 'var(--muted-foreground)' }} />
-                      <span>Endereço completo</span>
+                      <span>Endereço Completo</span>
                     </div>
                   </Label>
                   <Input
@@ -765,6 +829,11 @@ function AdminSettingsPage() {
                     onChange={(e) => setStoreInfo({ ...storeInfo, address: e.target.value })}
                     placeholder="R. Urupema, nº 150 - São Cosme de Baixo, Santa Luzia - MG, 33130-140"
                     className="h-11 rounded-xl text-sm"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--foreground)',
+                    }}
                   />
                 </div>
               </div>
@@ -774,38 +843,51 @@ function AdminSettingsPage() {
             {/* 2. ENTREGA E RETIRADA */}
             {/* ============================================================ */}
             <section
-              className="rounded-2xl border p-5 sm:p-6 shadow-sm transition-all space-y-6"
+              className="rounded-2xl border p-5 sm:p-6 shadow-xs transition-all space-y-6"
               style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
             >
               {/* Header da Seção de Entrega */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-start sm:items-center gap-3">
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: 'var(--primary)/15', color: 'var(--primary)' }}
+                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--primary)',
+                    }}
                   >
                     <Truck className="w-5 h-5" />
                   </div>
                   <div>
                     <h2 className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
-                      Entrega e retirada
+                      Entrega e Retirada
                     </h2>
                     <p className="text-xs sm:text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                      Opções de despacho, endereço de retirada no balcão e zonas de entrega
+                      Opções de despacho, endereço de retirada no balcão e zonas de entrega.
                     </p>
                   </div>
                 </div>
 
-                <Button
-                  size="sm"
+                <button
+                  type="button"
                   onClick={() => handleSaveSection('delivery')}
                   disabled={savingSection === 'delivery' || savingAll}
-                  className="self-end sm:self-auto h-9 px-3.5 text-xs sm:text-sm cursor-pointer"
+                  className="self-end sm:self-auto inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer shadow-xs"
                   style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
                 >
-                  <Save className="w-3.5 h-3.5 mr-1.5" />
-                  {savingSection === 'delivery' ? 'Salvando...' : 'Salvar configurações'}
-                </Button>
+                  {savingSection === 'delivery' ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Salvando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Salvar entrega</span>
+                    </>
+                  )}
+                </button>
               </div>
 
               {/* Toggles e Configurações Gerais */}
@@ -818,10 +900,10 @@ function AdminSettingsPage() {
                   >
                     <div className="space-y-0.5 pr-2">
                       <Label htmlFor="toggle-delivery" className="text-sm font-semibold cursor-pointer block" style={{ color: 'var(--foreground)' }}>
-                        Entrega no endereço
+                        Entrega no Endereço
                       </Label>
                       <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                        Permite envio de pedidos diretamente no endereço do cliente
+                        Permite envio de pedidos no endereço informado pelo cliente
                       </p>
                     </div>
                     <AdminSwitch
@@ -838,7 +920,7 @@ function AdminSettingsPage() {
                   >
                     <div className="space-y-0.5 pr-2">
                       <Label htmlFor="toggle-pickup" className="text-sm font-semibold cursor-pointer block" style={{ color: 'var(--foreground)' }}>
-                        Retirada no local
+                        Retirada no Local
                       </Label>
                       <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
                         Permite que o cliente retire o pedido pronto na loja física
@@ -855,7 +937,7 @@ function AdminSettingsPage() {
                 {/* Frete Padrão Info Card */}
                 <div
                   className="p-4 rounded-xl border space-y-3"
-                  style={{ backgroundColor: 'var(--muted)/40', borderColor: 'var(--border)' }}
+                  style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div>
@@ -871,15 +953,15 @@ function AdminSettingsPage() {
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       <span>
                         {delivery.shipping_cost === 0
-                          ? 'O frete padrão está configurado como gratuito.'
+                          ? 'Frete padrão configurado como gratuito.'
                           : `Taxa padrão de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(delivery.shipping_cost)}`}
                       </span>
                     </div>
                   </div>
 
                   <div className="pt-2 border-t flex flex-col sm:flex-row sm:items-center gap-3" style={{ borderColor: 'var(--border)' }}>
-                    <div className="w-full sm:w-48">
-                      <Label htmlFor="shipping-cost-input" className="text-xs font-medium mb-1 block" style={{ color: 'var(--foreground)' }}>
+                    <div className="w-full sm:w-48 space-y-1">
+                      <Label htmlFor="shipping-cost-input" className="text-xs font-medium block" style={{ color: 'var(--foreground)' }}>
                         Ajustar taxa padrão (R$)
                       </Label>
                       <Input
@@ -895,20 +977,25 @@ function AdminSettingsPage() {
                           })
                         }
                         className="h-10 rounded-xl text-sm"
+                        style={{
+                          backgroundColor: 'var(--card)',
+                          borderColor: 'var(--border)',
+                          color: 'var(--foreground)',
+                        }}
                       />
                     </div>
                     <p className="text-xs flex-1" style={{ color: 'var(--muted-foreground)' }}>
-                      Defina 0 para frete grátis por padrão. Caso nenhuma zona de frete específica se aplique, esse valor será utilizado.
+                      Defina 0 para frete grátis por padrão. Caso nenhuma zona de frete específica se aplique, esse valor será utilizado no checkout.
                     </p>
                   </div>
                 </div>
 
                 {/* Pickup Address */}
-                <div>
-                  <Label htmlFor="pickup-address" className="text-xs sm:text-sm font-medium mb-1.5 block" style={{ color: 'var(--foreground)' }}>
+                <div className="space-y-1.5">
+                  <Label htmlFor="pickup-address" className="text-xs sm:text-sm font-semibold block" style={{ color: 'var(--foreground)' }}>
                     <div className="flex items-center gap-1.5">
                       <MapPin className="w-3.5 h-3.5" style={{ color: 'var(--muted-foreground)' }} />
-                      <span>Endereço de retirada no local</span>
+                      <span>Endereço de Retirada no Local</span>
                     </div>
                   </Label>
                   <Input
@@ -917,8 +1004,13 @@ function AdminSettingsPage() {
                     onChange={(e) => setDelivery({ ...delivery, pickup_address: e.target.value })}
                     placeholder="R. Urupema, nº 150 - São Cosme de Baixo, Santa Luzia - MG, 33130-140"
                     className="h-11 rounded-xl text-sm"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--foreground)',
+                    }}
                   />
-                  <p className="text-xs mt-1" style={{ color: 'var(--muted-foreground)' }}>
+                  <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
                     Endereço exibido aos clientes no checkout quando selecionarem &quot;Retirada no Local&quot;.
                   </p>
                 </div>
@@ -930,23 +1022,22 @@ function AdminSettingsPage() {
                   <div>
                     <h3 className="text-base font-bold flex items-center gap-2" style={{ color: 'var(--foreground)' }}>
                       <Navigation className="w-4 h-4 text-primary" />
-                      <span>Zonas de entrega e tarifas</span>
+                      <span>Zonas de Entrega e Tarifas</span>
                     </h3>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       Configure regras de entrega baseadas em faixas de distância em quilômetros.
                     </p>
                   </div>
 
-                  <Button
+                  <button
                     type="button"
-                    size="sm"
                     onClick={handleOpenNewZone}
-                    className="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-semibold shadow-xs cursor-pointer self-start sm:self-auto"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold shadow-xs transition-all hover:opacity-90 cursor-pointer self-start sm:self-auto"
                     style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Adicionar zona</span>
-                  </Button>
+                  </button>
                 </div>
 
                 {loadingZones ? (
@@ -969,7 +1060,7 @@ function AdminSettingsPage() {
                 ) : (
                   <>
                     {/* Desktop Table View */}
-                    <div className="hidden sm:block overflow-hidden rounded-xl border" style={{ borderColor: 'var(--border)' }}>
+                    <div className="hidden sm:block overflow-hidden rounded-xl border shadow-xs" style={{ borderColor: 'var(--border)' }}>
                       <table className="w-full text-xs">
                         <thead>
                           <tr style={{ backgroundColor: 'var(--muted)' }}>
@@ -980,54 +1071,53 @@ function AdminSettingsPage() {
                             <th className="px-4 py-3 text-right font-semibold uppercase text-muted-foreground">Ações</th>
                           </tr>
                         </thead>
-                        <tbody style={{ backgroundColor: 'var(--background)' }}>
-                          {shippingZones.map((zone, idx) => (
+                        <tbody className="divide-y" style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}>
+                          {shippingZones.map((zone) => (
                             <tr
                               key={zone.id}
-                              className="hover:bg-muted/20 transition-colors"
-                              style={{ borderTop: idx > 0 ? '1px solid var(--border)' : 'none' }}
+                              className="hover:bg-muted/30 transition-colors"
                             >
-                              <td className="px-4 py-3 font-semibold" style={{ color: 'var(--foreground)' }}>
+                              <td className="px-4 py-3.5 font-semibold" style={{ color: 'var(--foreground)' }}>
                                 {zone.name}
                               </td>
-                              <td className="px-4 py-3 text-muted-foreground">
+                              <td className="px-4 py-3.5 text-muted-foreground">
                                 {zone.min_distance_km} km {zone.max_distance_km !== null ? `até ${zone.max_distance_km} km` : 'em diante (sem limite)'}
                               </td>
-                              <td className="px-4 py-3 font-bold" style={{ color: 'var(--foreground)' }}>
+                              <td className="px-4 py-3.5 font-bold" style={{ color: 'var(--foreground)' }}>
                                 {zone.price === 0 ? (
                                   <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Grátis</span>
                                 ) : (
                                   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(zone.price)
                                 )}
                               </td>
-                              <td className="px-4 py-3 text-center">
+                              <td className="px-4 py-3.5 text-center">
                                 <AdminSwitch
                                   checked={zone.is_active}
                                   onCheckedChange={() => handleToggleZoneActive(zone)}
                                 />
                               </td>
-                              <td className="px-4 py-3 text-right">
+                              <td className="px-4 py-3.5 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
                                   <button
                                     type="button"
                                     onClick={() => handleOpenEditZone(zone)}
-                                    className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                                    aria-label={`Editar zona ${zone.name}`}
+                                    className="p-1.5 rounded-lg border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                                    style={{ borderColor: 'var(--border)' }}
                                     title="Editar zona"
                                   >
                                     <Pencil className="w-3.5 h-3.5" />
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => handleDeleteZone(zone)}
+                                    onClick={() => handleOpenDeleteZone(zone)}
                                     disabled={deletingZoneId === zone.id}
-                                    className="p-1.5 rounded-lg text-destructive hover:bg-destructive/10 transition-colors cursor-pointer disabled:opacity-50"
+                                    aria-label={`Excluir zona ${zone.name}`}
+                                    className="p-1.5 rounded-lg border text-destructive hover:bg-destructive/10 transition-colors cursor-pointer disabled:opacity-50"
+                                    style={{ borderColor: 'var(--border)' }}
                                     title="Excluir zona"
                                   >
-                                    {deletingZoneId === zone.id ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    ) : (
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    )}
+                                    <Trash2 className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
                               </td>
@@ -1042,7 +1132,7 @@ function AdminSettingsPage() {
                       {shippingZones.map((zone) => (
                         <div
                           key={zone.id}
-                          className="p-3.5 rounded-xl border space-y-2.5"
+                          className="p-3.5 rounded-xl border space-y-2.5 shadow-xs"
                           style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
                         >
                           <div className="flex items-start justify-between gap-2">
@@ -1072,27 +1162,23 @@ function AdminSettingsPage() {
                               </span>
                             </div>
 
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => handleOpenEditZone(zone)}
-                                className="px-2.5 py-1 rounded-lg border text-xs font-medium hover:bg-muted transition-colors cursor-pointer"
+                                className="px-2.5 py-1.5 rounded-lg border text-xs font-medium hover:bg-muted transition-colors cursor-pointer"
                                 style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
                               >
                                 Editar
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleDeleteZone(zone)}
-                                disabled={deletingZoneId === zone.id}
-                                className="p-1.5 rounded-lg text-destructive hover:bg-destructive/10 transition-colors cursor-pointer disabled:opacity-50"
+                                onClick={() => handleOpenDeleteZone(zone)}
+                                className="p-1.5 rounded-lg border text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+                                style={{ borderColor: 'var(--border)' }}
                                 title="Excluir"
                               >
-                                {deletingZoneId === zone.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                )}
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </div>
@@ -1108,37 +1194,50 @@ function AdminSettingsPage() {
             {/* 3. PAGAMENTOS */}
             {/* ============================================================ */}
             <section
-              className="rounded-2xl border p-5 sm:p-6 shadow-sm transition-all"
+              className="rounded-2xl border p-5 sm:p-6 shadow-xs transition-all"
               style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-start sm:items-center gap-3">
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: 'var(--primary)/15', color: 'var(--primary)' }}
+                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--primary)',
+                    }}
                   >
                     <CreditCard className="w-5 h-5" />
                   </div>
                   <div>
                     <h2 className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
-                      Métodos de pagamento
+                      Métodos de Pagamento
                     </h2>
                     <p className="text-xs sm:text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                      Controle quais formas de pagamento estão disponíveis para seus clientes
+                      Controle quais formas de pagamento estão disponíveis para seus clientes.
                     </p>
                   </div>
                 </div>
 
-                <Button
-                  size="sm"
+                <button
+                  type="button"
                   onClick={() => handleSaveSection('payments')}
                   disabled={savingSection === 'payments' || savingAll}
-                  className="self-end sm:self-auto h-9 px-3.5 text-xs sm:text-sm cursor-pointer"
+                  className="self-end sm:self-auto inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer shadow-xs"
                   style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
                 >
-                  <Save className="w-3.5 h-3.5 mr-1.5" />
-                  {savingSection === 'payments' ? 'Salvando...' : 'Salvar pagamentos'}
-                </Button>
+                  {savingSection === 'payments' ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Salvando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Salvar pagamentos</span>
+                    </>
+                  )}
+                </button>
               </div>
 
               <div className="mt-5 space-y-3">
@@ -1149,8 +1248,12 @@ function AdminSettingsPage() {
                 >
                   <div className="flex items-center gap-3 min-w-0 pr-2">
                     <div
-                      className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                      style={{ backgroundColor: 'var(--primary)/10', color: 'var(--primary)' }}
+                      className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border"
+                      style={{
+                        backgroundColor: 'var(--card)',
+                        borderColor: 'var(--border)',
+                        color: 'var(--primary)',
+                      }}
                     >
                       <QrCode className="w-5 h-5" />
                     </div>
@@ -1159,7 +1262,7 @@ function AdminSettingsPage() {
                         PIX
                       </Label>
                       <p className="text-xs truncate" style={{ color: 'var(--muted-foreground)' }}>
-                        Pagamento instantâneo via PIX / QR Code
+                        Pagamento instantâneo via PIX com QR Code dinâmico
                       </p>
                     </div>
                   </div>
@@ -1177,8 +1280,12 @@ function AdminSettingsPage() {
                 >
                   <div className="flex items-center gap-3 min-w-0 pr-2">
                     <div
-                      className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                      style={{ backgroundColor: 'var(--primary)/10', color: 'var(--primary)' }}
+                      className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border"
+                      style={{
+                        backgroundColor: 'var(--card)',
+                        borderColor: 'var(--border)',
+                        color: 'var(--primary)',
+                      }}
                     >
                       <CreditCard className="w-5 h-5" />
                     </div>
@@ -1187,7 +1294,7 @@ function AdminSettingsPage() {
                         Cartão de Crédito / Débito
                       </Label>
                       <p className="text-xs truncate" style={{ color: 'var(--muted-foreground)' }}>
-                        Pagamento via checkout online ou maquininha
+                        Processamento de cartões de crédito e débito online
                       </p>
                     </div>
                   </div>
@@ -1205,17 +1312,21 @@ function AdminSettingsPage() {
                 >
                   <div className="flex items-center gap-3 min-w-0 pr-2">
                     <div
-                      className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                      style={{ backgroundColor: 'var(--primary)/10', color: 'var(--primary)' }}
+                      className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border"
+                      style={{
+                        backgroundColor: 'var(--card)',
+                        borderColor: 'var(--border)',
+                        color: 'var(--primary)',
+                      }}
                     >
                       <Banknote className="w-5 h-5" />
                     </div>
                     <div className="min-w-0">
                       <Label htmlFor="toggle-cash" className="text-sm font-semibold cursor-pointer block truncate" style={{ color: 'var(--foreground)' }}>
-                        Dinheiro na entrega
+                        Dinheiro na Entrega
                       </Label>
                       <p className="text-xs truncate" style={{ color: 'var(--muted-foreground)' }}>
-                        Pagamento em espécie no momento da entrega ou retirada
+                        Pagamento em espécie no momento da entrega ou retirada no local
                       </p>
                     </div>
                   </div>
@@ -1232,37 +1343,50 @@ function AdminSettingsPage() {
             {/* 4. PEDIDOS E ESTOQUE */}
             {/* ============================================================ */}
             <section
-              className="rounded-2xl border p-5 sm:p-6 shadow-sm transition-all"
+              className="rounded-2xl border p-5 sm:p-6 shadow-xs transition-all"
               style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-start sm:items-center gap-3">
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: 'var(--primary)/15', color: 'var(--primary)' }}
+                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--primary)',
+                    }}
                   >
                     <Package className="w-5 h-5" />
                   </div>
                   <div>
                     <h2 className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
-                      Pedidos e estoque
+                      Pedidos e Estoque
                     </h2>
                     <p className="text-xs sm:text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                      Regras de fluxo de novos pedidos, tempo de preparo e controle de estoque
+                      Regras de recebimento de novos pedidos, tempo de preparo e controle de estoque.
                     </p>
                   </div>
                 </div>
 
-                <Button
-                  size="sm"
+                <button
+                  type="button"
                   onClick={() => handleSaveSection('orders')}
                   disabled={savingSection === 'orders' || savingAll}
-                  className="self-end sm:self-auto h-9 px-3.5 text-xs sm:text-sm cursor-pointer"
+                  className="self-end sm:self-auto inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer shadow-xs"
                   style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
                 >
-                  <Save className="w-3.5 h-3.5 mr-1.5" />
-                  {savingSection === 'orders' ? 'Salvando...' : 'Salvar pedidos'}
-                </Button>
+                  {savingSection === 'orders' ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Salvando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Salvar pedidos</span>
+                    </>
+                  )}
+                </button>
               </div>
 
               <div className="mt-5 space-y-4">
@@ -1274,10 +1398,10 @@ function AdminSettingsPage() {
                   >
                     <div className="space-y-0.5 pr-2">
                       <Label htmlFor="toggle-accept-orders" className="text-sm font-semibold cursor-pointer block" style={{ color: 'var(--foreground)' }}>
-                        Permitir novos pedidos
+                        Permitir Novos Pedidos
                       </Label>
                       <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                        Habilita a finalização de compras no catálogo
+                        Habilita a finalização de compras no catálogo da loja
                       </p>
                     </div>
                     <AdminSwitch
@@ -1294,10 +1418,10 @@ function AdminSettingsPage() {
                   >
                     <div className="space-y-0.5 pr-2">
                       <Label htmlFor="toggle-stock-control" className="text-sm font-semibold cursor-pointer block" style={{ color: 'var(--foreground)' }}>
-                        Controle de estoque
+                        Controle de Estoque
                       </Label>
                       <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                        Subtrai do estoque a cada pedido confirmado
+                        Subtrai automaticamente do estoque a cada pedido confirmado
                       </p>
                     </div>
                     <AdminSwitch
@@ -1314,9 +1438,9 @@ function AdminSettingsPage() {
                     className="p-4 rounded-xl border space-y-2"
                     style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
                   >
-                    <Label htmlFor="prep-time-input" className="text-xs sm:text-sm font-medium flex items-center gap-1.5 block" style={{ color: 'var(--foreground)' }}>
+                    <Label htmlFor="prep-time-input" className="text-xs sm:text-sm font-semibold flex items-center gap-1.5 block" style={{ color: 'var(--foreground)' }}>
                       <Clock className="w-3.5 h-3.5" style={{ color: 'var(--muted-foreground)' }} />
-                      <span>Tempo estimado de preparação (minutos)</span>
+                      <span>Tempo Estimado de Preparação (minutos)</span>
                     </Label>
                     <div className="flex items-center gap-3">
                       <Input
@@ -1331,14 +1455,19 @@ function AdminSettingsPage() {
                             prep_time_minutes: Math.max(1, parseInt(e.target.value, 10) || 30),
                           })
                         }
-                        className="h-11 rounded-xl text-sm w-32"
+                        className="h-11 rounded-xl text-sm w-32 font-mono"
+                        style={{
+                          backgroundColor: 'var(--card)',
+                          borderColor: 'var(--border)',
+                          color: 'var(--foreground)',
+                        }}
                       />
                       <span className="text-sm font-medium" style={{ color: 'var(--muted-foreground)' }}>
                         minutos (~{(ordersStock.prep_time_minutes / 60).toFixed(1).replace('.0', '')}h)
                       </span>
                     </div>
                     <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                      Informa ao cliente a média de tempo para produção e despacho.
+                      Informa ao cliente a média de tempo para produção e despacho dos pedidos.
                     </p>
                   </div>
                 </div>
@@ -1349,23 +1478,27 @@ function AdminSettingsPage() {
             {/* 5. CONTA ADMINISTRATIVA */}
             {/* ============================================================ */}
             <section
-              className="rounded-2xl border p-5 sm:p-6 shadow-sm transition-all"
+              className="rounded-2xl border p-5 sm:p-6 shadow-xs transition-all"
               style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-start sm:items-center gap-3">
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: 'var(--primary)/15', color: 'var(--primary)' }}
+                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--primary)',
+                    }}
                   >
                     <UserCheck className="w-5 h-5" />
                   </div>
                   <div>
                     <h2 className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
-                      Conta administrativa
+                      Conta Administrativa
                     </h2>
                     <p className="text-xs sm:text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                      Dados da sua sessão autenticada e segurança de acesso
+                      Dados da sua sessão autenticada e segurança de acesso.
                     </p>
                   </div>
                 </div>
@@ -1388,7 +1521,7 @@ function AdminSettingsPage() {
                     style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
                   >
                     <span className="text-xs font-medium uppercase tracking-wider block" style={{ color: 'var(--muted-foreground)' }}>
-                      Nome do administrador
+                      Nome do Administrador
                     </span>
                     <div className="text-sm font-semibold mt-1" style={{ color: 'var(--foreground)' }}>
                       {profile?.name || user?.user_metadata?.name || 'Administrador'}
@@ -1401,7 +1534,7 @@ function AdminSettingsPage() {
                     style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
                   >
                     <span className="text-xs font-medium uppercase tracking-wider block" style={{ color: 'var(--muted-foreground)' }}>
-                      E-mail de acesso
+                      E-mail de Acesso
                     </span>
                     <div className="text-sm font-semibold mt-1 truncate" style={{ color: 'var(--foreground)' }}>
                       {user?.email || 'admin@saturnoembalagens.com.br'}
@@ -1411,25 +1544,29 @@ function AdminSettingsPage() {
 
                 {/* Account Actions */}
                 <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                  <Button
+                  <button
                     type="button"
-                    variant="outline"
                     onClick={() => setIsPasswordModalOpen(true)}
-                    className="h-11 rounded-xl text-sm font-medium flex items-center justify-center gap-2 cursor-pointer"
+                    className="inline-flex items-center justify-center gap-2 h-11 px-4 rounded-xl text-sm font-medium border transition-colors hover:opacity-80 cursor-pointer"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--foreground)',
+                    }}
                   >
                     <KeyRound className="w-4 h-4 text-amber-500" />
-                    Alterar senha
-                  </Button>
+                    <span>Alterar senha</span>
+                  </button>
 
-                  <Button
+                  <button
                     type="button"
-                    variant="destructive"
                     onClick={handleLogout}
-                    className="h-11 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                    className="inline-flex items-center justify-center gap-2 h-11 px-4 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 shadow-xs cursor-pointer"
+                    style={{ backgroundColor: 'var(--destructive)' }}
                   >
                     <LogOut className="w-4 h-4" />
-                    Sair da conta
-                  </Button>
+                    <span>Sair da conta</span>
+                  </button>
                 </div>
               </div>
             </section>
@@ -1438,21 +1575,41 @@ function AdminSettingsPage() {
 
         {/* ── Dialog Criar/Editar Zona de Frete ── */}
         <Dialog open={isZoneModalOpen} onOpenChange={setIsZoneModalOpen}>
-          <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogContent
+            className="sm:max-w-md rounded-2xl"
+            style={{
+              backgroundColor: 'var(--card)',
+              borderColor: 'var(--border)',
+              color: 'var(--foreground)',
+            }}
+          >
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-lg font-bold">
-                <Navigation className="w-5 h-5 text-primary" />
-                {zoneForm.id ? 'Editar Zona de Frete' : 'Nova Zona de Frete'}
-              </DialogTitle>
-              <DialogDescription className="text-xs sm:text-sm">
-                Defina o nome da zona, faixa de distância e taxa cobrada para entrega.
-              </DialogDescription>
+              <div className="flex items-center gap-2.5 pr-6">
+                <div
+                  className="w-9 h-9 rounded-lg flex items-center justify-center border shrink-0"
+                  style={{
+                    backgroundColor: 'var(--background)',
+                    borderColor: 'var(--border)',
+                    color: 'var(--primary)',
+                  }}
+                >
+                  <Navigation className="w-5 h-5" />
+                </div>
+                <div>
+                  <DialogTitle className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
+                    {zoneForm.id ? 'Editar Zona de Frete' : 'Nova Zona de Frete'}
+                  </DialogTitle>
+                  <DialogDescription style={{ color: 'var(--muted-foreground)' }}>
+                    Defina o nome, faixa de distância e taxa cobrada para entrega.
+                  </DialogDescription>
+                </div>
+              </div>
             </DialogHeader>
 
-            <form onSubmit={handleSaveZone} className="space-y-4 py-3">
-              <div>
-                <Label htmlFor="zone-name" className="text-xs sm:text-sm font-medium mb-1.5 block" style={{ color: 'var(--foreground)' }}>
-                  Nome da Zona <span className="text-destructive">*</span>
+            <form onSubmit={handleSaveZone} className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="zone-name" className="text-xs sm:text-sm font-semibold block" style={{ color: 'var(--foreground)' }}>
+                  Nome da Zona <span style={{ color: 'var(--destructive)' }}>*</span>
                 </Label>
                 <Input
                   id="zone-name"
@@ -1462,13 +1619,18 @@ function AdminSettingsPage() {
                   onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })}
                   className="rounded-xl h-11"
                   disabled={savingZone}
+                  style={{
+                    backgroundColor: 'var(--background)',
+                    borderColor: 'var(--border)',
+                    color: 'var(--foreground)',
+                  }}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="zone-min" className="text-xs sm:text-sm font-medium mb-1.5 block" style={{ color: 'var(--foreground)' }}>
-                    Distância Mín. (km) *
+                <div className="space-y-1.5">
+                  <Label htmlFor="zone-min" className="text-xs sm:text-sm font-semibold block" style={{ color: 'var(--foreground)' }}>
+                    Distância Mín. (km) <span style={{ color: 'var(--destructive)' }}>*</span>
                   </Label>
                   <Input
                     id="zone-min"
@@ -1480,14 +1642,19 @@ function AdminSettingsPage() {
                     onChange={(e) =>
                       setZoneForm({ ...zoneForm, min_distance_km: Math.max(0, parseFloat(e.target.value) || 0) })
                     }
-                    className="rounded-xl h-11"
+                    className="rounded-xl h-11 font-mono"
                     disabled={savingZone}
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--foreground)',
+                    }}
                   />
                 </div>
 
-                <div>
-                  <Label htmlFor="zone-max" className="text-xs sm:text-sm font-medium mb-1.5 block" style={{ color: 'var(--foreground)' }}>
-                    Distância Máx. (km) {!zoneForm.has_no_max && '*'}
+                <div className="space-y-1.5">
+                  <Label htmlFor="zone-max" className="text-xs sm:text-sm font-semibold block" style={{ color: 'var(--foreground)' }}>
+                    Distância Máx. (km) {!zoneForm.has_no_max && <span style={{ color: 'var(--destructive)' }}>*</span>}
                   </Label>
                   <Input
                     id="zone-max"
@@ -1504,13 +1671,18 @@ function AdminSettingsPage() {
                       })
                     }
                     placeholder="Sem limite"
-                    className="rounded-xl h-11"
+                    className="rounded-xl h-11 font-mono"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--foreground)',
+                    }}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="inline-flex items-center gap-2 text-xs font-medium cursor-pointer" style={{ color: 'var(--foreground)' }}>
+                <label className="inline-flex items-center gap-2 text-xs font-medium cursor-pointer select-none" style={{ color: 'var(--foreground)' }}>
                   <input
                     type="checkbox"
                     checked={zoneForm.has_no_max}
@@ -1528,9 +1700,9 @@ function AdminSettingsPage() {
                 </label>
               </div>
 
-              <div>
-                <Label htmlFor="zone-price" className="text-xs sm:text-sm font-medium mb-1.5 block" style={{ color: 'var(--foreground)' }}>
-                  Valor do Frete (R$) <span className="text-destructive">*</span>
+              <div className="space-y-1.5">
+                <Label htmlFor="zone-price" className="text-xs sm:text-sm font-semibold block" style={{ color: 'var(--foreground)' }}>
+                  Valor do Frete (R$) <span style={{ color: 'var(--destructive)' }}>*</span>
                 </Label>
                 <Input
                   id="zone-price"
@@ -1542,18 +1714,31 @@ function AdminSettingsPage() {
                   onChange={(e) =>
                     setZoneForm({ ...zoneForm, price: Math.max(0, parseFloat(e.target.value) || 0) })
                   }
-                  className="rounded-xl h-11"
+                  className="rounded-xl h-11 font-mono"
                   disabled={savingZone}
+                  style={{
+                    backgroundColor: 'var(--background)',
+                    borderColor: 'var(--border)',
+                    color: 'var(--foreground)',
+                  }}
                 />
-                <span className="text-[11px] text-muted-foreground mt-1 block">
+                <span className="text-[11px] text-muted-foreground block">
                   Defina 0 para frete grátis nesta faixa.
                 </span>
               </div>
 
-              <div className="pt-2 border-t flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
-                <Label htmlFor="zone-active" className="text-xs sm:text-sm font-semibold cursor-pointer" style={{ color: 'var(--foreground)' }}>
-                  Zona ativa
-                </Label>
+              <div
+                className="pt-2 border-t flex items-center justify-between"
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <div>
+                  <Label htmlFor="zone-active" className="text-xs sm:text-sm font-semibold cursor-pointer block" style={{ color: 'var(--foreground)' }}>
+                    Zona Ativa
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Determina se a faixa será aplicada no cálculo de frete
+                  </p>
+                </div>
                 <AdminSwitch
                   id="zone-active"
                   checked={zoneForm.is_active}
@@ -1563,45 +1748,148 @@ function AdminSettingsPage() {
               </div>
 
               <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-2">
-                <Button
+                <button
                   type="button"
-                  variant="outline"
                   onClick={() => setIsZoneModalOpen(false)}
                   disabled={savingZone}
-                  className="h-10 rounded-xl cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors hover:opacity-80 disabled:opacity-50 cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--background)',
+                    borderColor: 'var(--border)',
+                    color: 'var(--foreground)',
+                  }}
                 >
                   Cancelar
-                </Button>
-                <Button
+                </button>
+                <button
                   type="submit"
                   disabled={savingZone}
-                  className="h-10 rounded-xl font-semibold cursor-pointer"
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
                   style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
                 >
-                  {savingZone ? 'Salvando...' : zoneForm.id ? 'Salvar alterações' : 'Criar zona'}
-                </Button>
+                  {savingZone ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Salvando...</span>
+                    </>
+                  ) : zoneForm.id ? (
+                    'Salvar alterações'
+                  ) : (
+                    'Criar zona'
+                  )}
+                </button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
 
-        {/* Change Password Dialog */}
-        <Dialog open={isPasswordModalOpen} onOpenChange={setIsPasswordModalOpen}>
-          <DialogContent className="sm:max-w-md rounded-2xl">
+        {/* ── Dialog Excluir Zona de Frete ── */}
+        <Dialog open={isDeleteZoneOpen} onOpenChange={setIsDeleteZoneOpen}>
+          <DialogContent
+            className="sm:max-w-md rounded-2xl"
+            style={{
+              backgroundColor: 'var(--card)',
+              borderColor: 'var(--border)',
+              color: 'var(--foreground)',
+            }}
+          >
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-lg font-bold">
-                <KeyRound className="w-5 h-5 text-primary" />
-                Alterar senha de acesso
-              </DialogTitle>
-              <DialogDescription className="text-xs sm:text-sm">
-                Você pode definir uma nova senha diretamente ou solicitar o link de redefinição por e-mail ({user?.email}).
-              </DialogDescription>
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+                  style={{ backgroundColor: 'rgba(220, 38, 38, 0.12)', color: 'var(--destructive)' }}
+                >
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <DialogTitle className="text-base font-bold" style={{ color: 'var(--foreground)' }}>
+                    Excluir Zona de Frete
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-muted-foreground">
+                    Esta ação removerá a regra de entrega.
+                  </DialogDescription>
+                </div>
+              </div>
             </DialogHeader>
 
-            <div className="space-y-4 py-3">
+            <div className="py-2 text-sm" style={{ color: 'var(--foreground)' }}>
+              Tem certeza que deseja excluir a zona de frete <strong>{zoneToDelete?.name}</strong>?
+            </div>
+
+            <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsDeleteZoneOpen(false)}
+                disabled={deletingZoneId !== null}
+                className="px-4 py-2.5 rounded-xl border text-xs font-semibold transition-colors hover:opacity-80 cursor-pointer"
+                style={{
+                  backgroundColor: 'var(--background)',
+                  borderColor: 'var(--border)',
+                  color: 'var(--foreground)',
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteZone}
+                disabled={deletingZoneId !== null}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                style={{ backgroundColor: 'var(--destructive)' }}
+              >
+                {deletingZoneId !== null ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Excluindo...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Confirmar exclusão</span>
+                  </>
+                )}
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Change Password Dialog */}
+        <Dialog open={isPasswordModalOpen} onOpenChange={setIsPasswordModalOpen}>
+          <DialogContent
+            className="sm:max-w-md rounded-2xl"
+            style={{
+              backgroundColor: 'var(--card)',
+              borderColor: 'var(--border)',
+              color: 'var(--foreground)',
+            }}
+          >
+            <DialogHeader>
+              <div className="flex items-center gap-2.5 pr-6">
+                <div
+                  className="w-9 h-9 rounded-lg flex items-center justify-center border shrink-0"
+                  style={{
+                    backgroundColor: 'var(--background)',
+                    borderColor: 'var(--border)',
+                    color: 'var(--primary)',
+                  }}
+                >
+                  <KeyRound className="w-5 h-5 text-amber-500" />
+                </div>
+                <div>
+                  <DialogTitle className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
+                    Alterar Senha de Acesso
+                  </DialogTitle>
+                  <DialogDescription style={{ color: 'var(--muted-foreground)' }}>
+                    Defina uma nova senha ou solicite o link de recuperação por e-mail.
+                  </DialogDescription>
+                </div>
+              </div>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
               <div className="space-y-1.5">
                 <Label htmlFor="admin-new-password" style={{ color: 'var(--foreground)' }}>
-                  Nova senha
+                  Nova Senha
                 </Label>
                 <Input
                   id="admin-new-password"
@@ -1610,12 +1898,17 @@ function AdminSettingsPage() {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="rounded-xl h-11"
+                  style={{
+                    backgroundColor: 'var(--background)',
+                    borderColor: 'var(--border)',
+                    color: 'var(--foreground)',
+                  }}
                 />
               </div>
 
               <div className="space-y-1.5">
                 <Label htmlFor="admin-confirm-password" style={{ color: 'var(--foreground)' }}>
-                  Confirmar nova senha
+                  Confirmar Nova Senha
                 </Label>
                 <Input
                   id="admin-confirm-password"
@@ -1624,6 +1917,11 @@ function AdminSettingsPage() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="rounded-xl h-11"
+                  style={{
+                    backgroundColor: 'var(--background)',
+                    borderColor: 'var(--border)',
+                    color: 'var(--foreground)',
+                  }}
                 />
               </div>
 
@@ -1631,39 +1929,53 @@ function AdminSettingsPage() {
                 <p className="text-xs mb-2" style={{ color: 'var(--muted-foreground)' }}>
                   Prefere receber um link de redefinição no seu e-mail cadastrado?
                 </p>
-                <Button
+                <button
                   type="button"
-                  variant="outline"
-                  size="sm"
                   onClick={handleSendResetEmail}
                   disabled={resettingPassword}
-                  className="w-full text-xs h-9 cursor-pointer"
+                  className="w-full inline-flex items-center justify-center gap-1.5 text-xs h-9 rounded-xl border transition-colors hover:opacity-80 cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--background)',
+                    borderColor: 'var(--border)',
+                    color: 'var(--foreground)',
+                  }}
                 >
-                  <Mail className="w-3.5 h-3.5 mr-1.5" />
-                  Enviar e-mail de recuperação para {user?.email}
-                </Button>
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>Enviar e-mail de recuperação para {user?.email}</span>
+                </button>
               </div>
             </div>
 
             <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-2">
-              <Button
+              <button
                 type="button"
-                variant="outline"
                 onClick={() => setIsPasswordModalOpen(false)}
                 disabled={resettingPassword}
-                className="h-10 rounded-xl cursor-pointer"
+                className="px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors hover:opacity-80 disabled:opacity-50 cursor-pointer"
+                style={{
+                  backgroundColor: 'var(--background)',
+                  borderColor: 'var(--border)',
+                  color: 'var(--foreground)',
+                }}
               >
                 Cancelar
-              </Button>
-              <Button
+              </button>
+              <button
                 type="button"
                 onClick={handleUpdateDirectPassword}
                 disabled={resettingPassword}
-                className="h-10 rounded-xl font-semibold cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
                 style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
               >
-                {resettingPassword ? 'Atualizando...' : 'Atualizar senha'}
-              </Button>
+                {resettingPassword ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Atualizando...</span>
+                  </>
+                ) : (
+                  'Atualizar senha'
+                )}
+              </button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
