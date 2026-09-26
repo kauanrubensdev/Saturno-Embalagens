@@ -516,6 +516,10 @@ export type Database = {
         Args: { p_event_id: string; p_order_id: string; p_payment_intent_id: string }
         Returns: Json
       }
+      customer_change_pending_payment_method: {
+        Args: { p_order_id: string; p_payment_method: string }
+        Returns: Json
+      }
       decrement_checkout_stock: {
         Args: { p_order_id?: string; p_product_id: string; p_quantity: number }
         Returns: Json

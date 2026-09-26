@@ -1625,14 +1625,21 @@ export function CheckoutPage() {
         setPendingOrderId(targetOrderId);
         setPendingOrderData(completedOrderData);
       } else {
-        // If order already exists in state, update payment_method if changed
-        await supabase
-          .from('orders')
-          .update({
-            payment_method: dbPaymentMethod,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', targetOrderId);
+        // If order already exists in state, update payment_method if changed via secure RPC
+        const { error: changeMethodErr } = await supabase.rpc(
+          'customer_change_pending_payment_method',
+          {
+            p_order_id: targetOrderId,
+            p_payment_method: dbPaymentMethod,
+          }
+        );
+
+        if (changeMethodErr) {
+          throw new Error(
+            'Não foi possível atualizar a forma de pagamento do pedido. ' +
+            changeMethodErr.message
+          );
+        }
 
         completedOrderData = {
           ...completedOrderData,
