@@ -231,36 +231,17 @@ export function HeroOrbitVisual() {
             />
           </g>
 
-          {/* 2. EMBALAGEM EM ÓRBITA TRASEIRA (HAMBÚRGUER) */}
+          {/* 2. SÍMBOLO OFICIAL SATURNO EM ÓRBITA */}
           <g className="burger-box" filter="url(#boxShadow)">
-            <g transform="translate(475, 230) scale(0.78)">
-              <polygon
-                points="0,-36 46,-12 0,12 -46,-12"
-                fill="url(#burgerTop)"
-                stroke="#FFF8ED"
-                strokeWidth="1.5"
-                strokeLinejoin="round"
+            <g transform="translate(475, 230)">
+              <image
+                href="/favicon.png"
+                x="-40"
+                y="-40"
+                width="80"
+                height="80"
+                preserveAspectRatio="xMidYMid meet"
               />
-              <polygon
-                points="-46,-12 0,12 0,44 -46,20"
-                fill="url(#burgerLeft)"
-                stroke="#E5D6C1"
-                strokeWidth="1.5"
-                strokeLinejoin="round"
-              />
-              <polygon
-                points="0,12 46,-12 46,20 0,44"
-                fill="url(#burgerRight)"
-                stroke="#D8C5AD"
-                strokeWidth="1.5"
-                strokeLinejoin="round"
-              />
-              <line x1="-46" y1="-2" x2="0" y2="22" stroke="#FE5516" strokeWidth="2" strokeLinecap="round" />
-              <line x1="0" y1="22" x2="46" y2="-2" stroke="#FE5516" strokeWidth="2" strokeLinecap="round" />
-              <ellipse cx="0" cy="-12" rx="12" ry="6" fill="#FF4103" opacity="0.95" />
-              <circle cx="0" cy="-12" r="2" fill="#F5F5DC" />
-              <line x1="-15" y1="-20" x2="-8" y2="-17" stroke="#BAA78E" strokeWidth="1.2" strokeLinecap="round" />
-              <line x1="8" y1="-17" x2="15" y2="-20" stroke="#BAA78E" strokeWidth="1.2" strokeLinecap="round" />
             </g>
           </g>
 
