@@ -97,52 +97,76 @@ function Index() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-12 lg:gap-16 items-center">
             {/* Left: Content */}
             <div className="max-w-xl">
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-4 sm:mb-6 text-xs font-semibold tracking-wider uppercase" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}>
-                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                Qualidade e preço justo
+              <div className="mb-4 sm:mb-6">
+                <img
+                  src="/favicon.png"
+                  alt="Saturno Embalagens"
+                  className="w-10 h-10 sm:w-12 sm:h-12 object-contain"
+                />
               </div>
-              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold leading-tight mb-4 sm:mb-6" style={{ color: 'var(--foreground)' }}>
-                Embalagens que{' '}
-                <span style={{ color: 'var(--primary)' }}>valorizam</span>{' '}
-                seu delivery
+              <h1
+                className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold leading-tight mb-4 sm:mb-6"
+                style={{
+                  fontFamily: "'Power Grotesk', var(--font-family)",
+                  color: 'var(--foreground)',
+                }}
+              >
+                Embalagens que<br className="hidden sm:inline" />{' '}
+                levam seu negócio<br className="hidden sm:inline" />{' '}
+                <span
+                  style={{
+                    fontFamily: "'Harabara', 'Power Grotesk', var(--font-family)",
+                    color: '#FF4103',
+                  }}
+                >
+                  mais longe.
+                </span>
               </h1>
-              <p className="text-base sm:text-lg md:text-xl mb-6 sm:mb-10 leading-relaxed max-w-lg" style={{ color: 'var(--muted-foreground)' }}>
-                Caixas e embalagens para deixar seu produto bem apresentado, protegido e pronto para chegar ao cliente.
+              <p
+                className="text-base sm:text-lg md:text-xl mb-6 sm:mb-10 leading-relaxed max-w-lg"
+                style={{
+                  fontFamily: 'var(--font-family)',
+                  color: 'var(--muted-foreground)',
+                }}
+              >
+                Qualidade, resistência e apresentação para quem leva o delivery a sério.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-                <Link to="/catalog" className="inline-flex items-center justify-center gap-2.5 rounded-xl px-6 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-bold no-underline transition-all hover:opacity-90 hover:scale-[1.02]" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)', boxShadow: '0 4px 14px rgba(255,65,3,0.25)' }}>
-                  Ver catálogo
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                  </svg>
+                <Link
+                  to="/catalog"
+                  className="inline-flex items-center justify-center gap-2.5 rounded-xl px-6 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-bold no-underline transition-all hover:opacity-90 hover:scale-[1.02]"
+                  style={{
+                    fontFamily: 'var(--font-family)',
+                    backgroundColor: 'var(--primary)',
+                    color: 'var(--primary-foreground)',
+                    boxShadow: '0 4px 14px rgba(255,65,3,0.25)',
+                  }}
+                >
+                  Ver produtos →
                 </Link>
-                <a href="#categorias" className="inline-flex items-center justify-center gap-2.5 rounded-xl px-6 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold no-underline transition-all hover:opacity-80" style={{ backgroundColor: 'transparent', color: 'var(--foreground)', borderWidth: '1px', borderStyle: 'solid', borderColor: 'var(--border)' }}>
-                  Conheça nossas categorias
+                <a
+                  href="#categorias"
+                  className="inline-flex items-center justify-center gap-2.5 rounded-xl px-6 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold no-underline transition-all hover:opacity-80"
+                  style={{
+                    fontFamily: 'var(--font-family)',
+                    backgroundColor: 'transparent',
+                    color: 'var(--foreground)',
+                    borderWidth: '1px',
+                    borderStyle: 'solid',
+                    borderColor: 'var(--border)',
+                  }}
+                >
+                  Nossas categorias
                 </a>
               </div>
             </div>
 
-            {/* Right: Visual Element */}
-            <div className="hidden lg:flex items-center justify-center">
-              <div className="relative w-full max-w-md aspect-square">
-                {/* Main shape */}
-                <div className="absolute inset-0 rounded-3xl" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }} />
-                {/* Accent shape */}
-                <div className="absolute top-8 right-8 w-32 h-32 rounded-2xl rotate-12" style={{ backgroundColor: 'var(--primary)', opacity: 0.15 }} />
-                <div className="absolute bottom-12 left-12 w-24 h-24 rounded-2xl -rotate-6" style={{ backgroundColor: 'var(--primary)', opacity: 0.1 }} />
-                {/* Icon */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-32 h-32 rounded-2xl flex items-center justify-center" style={{ backgroundColor: 'var(--primary)' }}>
-                    <svg className="w-16 h-16 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                    </svg>
-                  </div>
-                </div>
-                {/* Small decorative elements */}
-                <div className="absolute top-16 left-16 w-3 h-3 rounded-full" style={{ backgroundColor: 'var(--primary)' }} />
-                <div className="absolute bottom-20 right-20 w-4 h-4 rounded-full" style={{ backgroundColor: 'var(--muted)' }} />
-                <div className="absolute top-24 right-24 w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--border)' }} />
-              </div>
+            {/* Right: Area reservada para animacao de Saturno */}
+            <div
+              id="hero-animation-slot"
+              className="flex items-center justify-center w-full min-h-[280px] sm:min-h-[360px] lg:min-h-[460px]"
+            >
+              {/* Espaco reservado para a animacao de Saturno com embalagens orbitando */}
             </div>
           </div>
         </div>
