@@ -98,14 +98,6 @@ function Index() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-12 lg:gap-16 items-center">
             {/* Left: Content */}
             <div className="max-w-xl">
-              {/* Pequena assinatura visual da marca acima da headline */}
-              <div className="mb-4 sm:mb-6">
-                <img
-                  src="/favicon.png"
-                  alt="Saturno Embalagens"
-                  className="w-8 h-8 sm:w-9 sm:h-9 object-contain"
-                />
-              </div>
 
               <h1
                 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-normal leading-tight mb-4 sm:mb-6"
