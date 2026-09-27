@@ -22,7 +22,11 @@ export const Route = createRootRoute({
       { name: 'viewport', content: 'width=device-width, initial-scale=1, maximum-scale=5' },
       { title: 'Saturno Embalagens' },
     ],
-    links: [{ rel: 'stylesheet', href: styles }],
+    links: [
+      { rel: 'icon', type: 'image/png', href: '/favicon.png' },
+      { rel: 'apple-touch-icon', href: '/favicon.png' },
+      { rel: 'stylesheet', href: styles },
+    ],
   }),
   component: RootLayout,
 });
