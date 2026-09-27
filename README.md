@@ -1,24 +1,47 @@
-# Project Bloom
+# Saturno Embalagens
 
-Projeto 14/09/2026
+E-commerce da Saturno Embalagens, desenvolvido para facilitar a compra de embalagens para delivery.
 
-This project was built with [Lovable](https://lovable.dev).
+## 🪐 Sobre
 
-## Build with Lovable
+A Saturno Embalagens oferece embalagens para diferentes tipos de delivery, com uma experiência de compra simples, rápida e responsiva.
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/b5bb11ee-225f-4d16-a60b-227147088b70).
+O projeto conta com uma loja online e uma área administrativa para gerenciamento da operação.
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+## ✨ Funcionalidades
 
-## Development
+- Catálogo de produtos
+- Categorias de produtos
+- Busca de produtos
+- Carrinho de compras
+- Cadastro e login de clientes
+- Gerenciamento de endereços
+- Checkout
+- Entrega e retirada
+- Pagamentos online
+- Acompanhamento de pedidos
+- Painel administrativo
+- Gerenciamento de produtos, pedidos e estoque
+- Tema claro e escuro
+- Layout responsivo
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+## 🛠️ Tecnologias
 
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
-```
+- React
+- TypeScript
+- TanStack Start
+- Tailwind CSS
+- Supabase
+- Vite
+- Vercel
+
+## 🎨 Identidade visual
+
+A interface utiliza a identidade visual da Saturno Embalagens, com destaque para os tons de azul escuro, laranja e creme.
+
+## 🚀 Desenvolvimento
+
+### Instalação
+
+```bash
+npm install
