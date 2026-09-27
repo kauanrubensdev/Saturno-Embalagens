@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { ProductCard } from '@/components/customer/ProductCard';
 import { CategoryMenu } from '@/components/customer/CategoryMenu';
 import { Header } from '@/components/customer/Header';
+import { HeroOrbitVisual } from '@/components/customer/HeroOrbitVisual';
 import {
   RotateCcw,
   AlertCircle,
@@ -97,13 +98,6 @@ function Index() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-12 lg:gap-16 items-center">
             {/* Left: Content */}
             <div className="max-w-xl">
-              <div className="mb-4 sm:mb-6">
-                <img
-                  src="/saturno-planet.png"
-                  alt="Saturno Embalagens"
-                  className="w-10 h-10 sm:w-12 sm:h-12 object-contain"
-                />
-              </div>
               <h1
                 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold leading-tight mb-4 sm:mb-6"
                 style={{
@@ -161,12 +155,12 @@ function Index() {
               </div>
             </div>
 
-            {/* Right: Area reservada para animacao de Saturno */}
+            {/* Right: Area da animacao de Saturno com embalagens */}
             <div
               id="hero-animation-slot"
               className="flex items-center justify-center w-full min-h-[280px] sm:min-h-[360px] lg:min-h-[460px]"
             >
-              {/* Espaco reservado para a animacao de Saturno com embalagens orbitando */}
+              <HeroOrbitVisual />
             </div>
           </div>
         </div>
