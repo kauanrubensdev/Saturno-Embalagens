@@ -13,7 +13,7 @@ export function HeroOrbitVisual() {
           <radialGradient id="saturnWarmHalo" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor="#FF4103" stopOpacity="0.18" />
             <stop offset="60%" stopColor="#FF4103" stopOpacity="0.04" />
-            <stop offset="100%" stopColor="#001621" stopOpacity="0" />
+            <stop offset="100%" stopColor="#FF4103" stopOpacity="0" />
           </radialGradient>
 
           {/* Gradiente Sólido e Rico do Planeta Saturno */}
@@ -370,7 +370,7 @@ export function HeroOrbitVisual() {
           </g>
 
           <g className="particle-b">
-            <circle cx="350" cy="350" r="3" fill="#F5F5DC" />
+            <circle cx="350" cy="350" r="3" fill="#FF8243" />
             <circle cx="350" cy="350" r="6" fill="#FE5516" opacity="0.4" />
           </g>
         </g>

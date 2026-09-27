@@ -100,23 +100,18 @@ function Index() {
             <div className="max-w-xl">
               {/* Pequena assinatura visual da marca acima da headline */}
               <div className="mb-4 sm:mb-6">
-                <svg
-                  viewBox="0 0 48 32"
-                  className="w-9 h-6 sm:w-11 sm:h-7"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <ellipse cx="24" cy="16" rx="20" ry="6.5" stroke="#FF4103" strokeWidth="2.5" strokeLinecap="round" transform="rotate(-18 24 16)" opacity="0.8" />
-                  <circle cx="24" cy="16" r="9.5" fill="#FF4103" />
-                  <path d="M 6.5,21.5 A 20 6.5 0 0 0 41.5 10.5" stroke="#FF4103" strokeWidth="2.5" strokeLinecap="round" transform="rotate(-18 24 16)" />
-                </svg>
+                <img
+                  src="/favicon.png"
+                  alt="Saturno Embalagens"
+                  className="w-8 h-8 sm:w-9 sm:h-9 object-contain"
+                />
               </div>
 
               <h1
                 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-normal leading-tight mb-4 sm:mb-6"
                 style={{
                   fontFamily: "'Power Grotesk', sans-serif",
-                  color: '#F5F5DC',
+                  color: 'var(--foreground)',
                 }}
               >
                 Embalagens que<br className="hidden sm:inline" />{' '}
@@ -134,7 +129,8 @@ function Index() {
                 className="text-base sm:text-lg md:text-xl mb-6 sm:mb-10 leading-relaxed max-w-lg"
                 style={{
                   fontFamily: 'var(--font-family)',
-                  color: 'var(--muted-foreground)',
+                  color: 'var(--foreground)',
+                  opacity: 0.85,
                 }}
               >
                 Qualidade, resistência e apresentação para quem leva o delivery a sério.
