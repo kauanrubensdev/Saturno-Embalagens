@@ -99,7 +99,7 @@ function Index() {
             <div className="max-w-xl">
               <div className="mb-4 sm:mb-6">
                 <img
-                  src="/favicon.png"
+                  src="/saturno-planet.png"
                   alt="Saturno Embalagens"
                   className="w-10 h-10 sm:w-12 sm:h-12 object-contain"
                 />
@@ -108,7 +108,7 @@ function Index() {
                 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold leading-tight mb-4 sm:mb-6"
                 style={{
                   fontFamily: "'Power Grotesk', var(--font-family)",
-                  color: 'var(--foreground)',
+                  color: '#F5F5DC',
                 }}
               >
                 Embalagens que<br className="hidden sm:inline" />{' '}
