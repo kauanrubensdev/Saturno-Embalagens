@@ -55,12 +55,12 @@ export function Header({ showNav = false }: HeaderProps) {
 
         {/* Navigation */}
         {showNav && (
-          <>
+          <div className="flex items-center gap-1 sm:gap-2 mr-auto ml-1 sm:ml-2">
             <div
-              className="hidden md:block w-px h-6 mx-2"
+              className="hidden md:block w-px h-6 mx-1"
               style={{ backgroundColor: 'var(--border)' }}
             />
-            <nav className="flex items-center gap-1">
+            <nav className="flex items-center gap-1 sm:gap-2">
               <Link
                 to="/catalog"
                 className="px-2.5 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg no-underline transition-all duration-150"
@@ -71,8 +71,34 @@ export function Header({ showNav = false }: HeaderProps) {
               >
                 Catálogo
               </Link>
+              <a
+                href="https://wa.me/5531994838720?text=Ol%C3%A1!%20Gostaria%20de%20fazer%20uma%20arte%20personalizada%20para%20minhas%20embalagens."
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Solicitar arte personalizada pelo WhatsApp"
+                title="Solicitar arte personalizada pelo WhatsApp"
+                className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-xl no-underline transition-all duration-150 hover:opacity-85 hover:scale-[1.02] flex-shrink-0"
+                style={{
+                  backgroundColor: 'var(--accent)',
+                  color: 'var(--accent-foreground)',
+                  border: '1px solid var(--border)',
+                }}
+              >
+                <svg
+                  className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                  style={{ color: '#25D366' }}
+                >
+                  <path d="M17.472 14.382c-.301-.15-1.78-.878-2.056-.978-.275-.1-.476-.15-.676.15-.2.301-.777.978-.952 1.179-.176.2-.351.226-.652.075-.301-.15-1.272-.469-2.423-1.496-.895-.799-1.5-1.786-1.676-2.087-.175-.301-.019-.464.132-.614.136-.135.301-.351.451-.527.15-.175.2-.301.301-.501.101-.2.05-.376-.025-.526-.075-.15-.676-1.63-.927-2.232-.244-.587-.492-.507-.676-.516-.175-.009-.376-.01-.577-.01-.2 0-.526.075-.802.376-.275.301-1.052 1.028-1.052 2.508 0 1.48 1.077 2.908 1.228 3.109.15.2 2.12 3.237 5.136 4.54.717.31 1.277.496 1.713.634.72.229 1.375.197 1.893.12.578-.087 1.78-.727 2.03-1.43.25-.702.25-1.304.175-1.43-.075-.125-.275-.201-.576-.351zM12.04 2C6.516 2 2.028 6.488 2.028 12.012c0 1.942.556 3.755 1.521 5.289L2 22.04l4.873-1.503a9.97 9.97 0 005.167 1.475h.004c5.524 0 10.012-4.488 10.012-10.012A10.01 10.01 0 0012.04 2zm0 18.318c-1.69 0-3.345-.45-4.792-1.304l-.343-.204-2.887.89.907-2.813-.223-.356A8.28 8.28 0 013.73 12.012c0-4.582 3.728-8.31 8.31-8.31 2.22 0 4.308.865 5.878 2.435a8.264 8.264 0 012.434 5.875c0 4.583-3.728 8.31-8.312 8.31z" />
+                </svg>
+                <span>
+                  Arte<span className="hidden sm:inline"> personalizada</span>
+                </span>
+              </a>
             </nav>
-          </>
+          </div>
         )}
 
         {/* Right side */}
