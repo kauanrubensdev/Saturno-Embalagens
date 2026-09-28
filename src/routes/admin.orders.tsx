@@ -37,7 +37,9 @@ import {
   FileText,
   Copy,
   Printer,
+  Receipt,
 } from 'lucide-react';
+import { OrderReceiptPrint, printReceipt80mm, printOrderA4 } from '@/components/admin/OrderReceiptPrint';
 
 // ─── Domain types ────────────────────────────────────────────────────────────
 
@@ -74,7 +76,10 @@ interface CustomerProfile {
 
 interface Order {
   id: string;
-  user_id: string;
+  user_id: string | null;
+  origin?: string | null;
+  customer_name?: string | null;
+  customer_phone?: string | null;
   status: OrderStatus;
   payment_status: PaymentStatus;
   payment_method: PaymentMethod;
@@ -241,7 +246,7 @@ function OrderPrintSheet({ order }: OrderPrintSheetProps) {
   const orderItems = order.order_items || [];
 
   return (
-    <div className="saturno-print-sheet">
+    <div className="saturno-print-sheet saturno-print-sheet-a4">
       <div className="p-8 max-w-4xl mx-auto text-black bg-white font-sans text-sm leading-normal">
         {/* Header */}
         <header className="border-b-2 border-black pb-4 mb-5 flex justify-between items-start">
@@ -451,10 +456,45 @@ function AdminOrdersPage() {
   const [cancelItems, setCancelItems] = useState<OrderItem[]>([]);
   const [loadingCancelItems, setLoadingCancelItems] = useState(false);
 
+  // receipt printing (80mm)
+  const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
+  const [printingReceiptId, setPrintingReceiptId] = useState<string | null>(null);
+
   // status updates in flight
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [updatingPaymentOrderId, setUpdatingPaymentOrderId] = useState<string | null>(null);
   const [simulatingPixId, setSimulatingPixId] = useState<string | null>(null);
+
+  // ── Print handlers ────────────────────────────────────────────────────────
+  const handlePrintReceipt = async (order: Order) => {
+    setPrintingReceiptId(order.id);
+    try {
+      let orderToPrint = order;
+      if (!order.order_items || order.order_items.length === 0) {
+        const { data: items, error: itemsError } = await supabase
+          .from('order_items')
+          .select('id, product_id, product_name, product_price, quantity, total_price')
+          .eq('order_id', order.id)
+          .order('product_name', { ascending: true });
+
+        if (itemsError) throw itemsError;
+        orderToPrint = { ...order, order_items: (items as OrderItem[]) || [] };
+      }
+      setReceiptOrder(orderToPrint);
+      setTimeout(() => {
+        printReceipt80mm();
+      }, 50);
+    } catch (err) {
+      console.error('[ADMIN-ORDERS] handlePrintReceipt error:', err);
+      toast.error('Erro ao carregar itens para impressão do comprovante.');
+    } finally {
+      setPrintingReceiptId(null);
+    }
+  };
+
+  const handlePrintOrderA4 = () => {
+    printOrderA4();
+  };
 
   // ── Fetch all orders with joined profile + shipping_address ─────────────
   const fetchOrders = useCallback(async (isSilent = false) => {
@@ -470,6 +510,7 @@ function AdminOrdersPage() {
           subtotal, shipping_cost, total,
           delivery_type, shipping_address_id, pickup_address,
           customer_note, created_at, updated_at,
+          origin, customer_name, customer_phone,
           abacate_pix_id,
           profile:profiles!orders_user_id_fkey ( id, name, phone ),
           shipping_address:addresses!orders_shipping_address_id_fkey (
@@ -1194,6 +1235,26 @@ function AdminOrdersPage() {
                         <td className="px-4 py-3.5 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
+                              onClick={() => handlePrintReceipt(order)}
+                              disabled={printingReceiptId === order.id}
+                              aria-label={`Imprimir comprovante ${shortId(order.id)}`}
+                              title="Imprimir Comprovante (Cupom 80mm)"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors hover:opacity-80 cursor-pointer disabled:opacity-50"
+                              style={{
+                                backgroundColor: 'var(--background)',
+                                borderColor: 'var(--border)',
+                                color: 'var(--foreground)',
+                              }}
+                            >
+                              {printingReceiptId === order.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                              ) : (
+                                <Receipt className="w-3.5 h-3.5 text-primary" />
+                              )}
+                              <span className="hidden xl:inline">Comprovante</span>
+                            </button>
+
+                            <button
                               onClick={() => openDetail(order)}
                               aria-label={`Ver detalhes do pedido ${shortId(order.id)}`}
                               title="Ver detalhes do pedido"
@@ -1379,7 +1440,26 @@ function AdminOrdersPage() {
                         </div>
                       )}
 
-                      <div className="flex items-center gap-2 justify-end">
+                      <div className="flex items-center gap-2 justify-end flex-wrap">
+                        <button
+                          onClick={() => handlePrintReceipt(order)}
+                          disabled={printingReceiptId === order.id}
+                          className="px-2.5 py-2 rounded-lg text-xs font-medium border transition-colors hover:opacity-80 cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                          style={{
+                            backgroundColor: 'var(--background)',
+                            borderColor: 'var(--border)',
+                            color: 'var(--foreground)',
+                          }}
+                          title="Imprimir Comprovante (Cupom 80mm)"
+                        >
+                          {printingReceiptId === order.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                          ) : (
+                            <Receipt className="w-3.5 h-3.5 text-primary" />
+                          )}
+                          <span>Comprovante</span>
+                        </button>
+
                         <button
                           onClick={() => openDetail(order)}
                           className="px-3 py-2 rounded-lg text-xs font-medium border transition-colors hover:opacity-80 cursor-pointer"
@@ -1573,21 +1653,44 @@ function AdminOrdersPage() {
                 Detalhes do Pedido {selectedOrder ? shortId(selectedOrder.id) : ''}
               </DialogTitle>
               {selectedOrder && !loadingDetail && (
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all hover:bg-muted cursor-pointer shadow-sm no-print"
-                  style={{
-                    backgroundColor: 'var(--background)',
-                    borderColor: 'var(--border)',
-                    color: 'var(--foreground)',
-                  }}
-                  title="Imprimir comprovante do pedido"
-                  aria-label="Imprimir Pedido"
-                >
-                  <Printer className="w-3.5 h-3.5 text-primary" />
-                  <span>Imprimir Pedido</span>
-                </button>
+                <div className="flex items-center gap-2 flex-wrap no-print">
+                  <button
+                    type="button"
+                    onClick={() => handlePrintReceipt(selectedOrder)}
+                    disabled={printingReceiptId === selectedOrder.id}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all hover:bg-muted cursor-pointer shadow-sm disabled:opacity-50"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--foreground)',
+                    }}
+                    title="Imprimir comprovante compacto (80mm)"
+                    aria-label="Imprimir Comprovante"
+                  >
+                    {printingReceiptId === selectedOrder.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                    ) : (
+                      <Receipt className="w-3.5 h-3.5 text-primary" />
+                    )}
+                    <span>Imprimir Comprovante</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handlePrintOrderA4}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all hover:bg-muted cursor-pointer shadow-sm"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--foreground)',
+                    }}
+                    title="Imprimir folha detalhada A4 do pedido"
+                    aria-label="Imprimir Pedido A4"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-primary" />
+                    <span>Imprimir Pedido (A4)</span>
+                  </button>
+                </div>
               )}
             </div>
           </DialogHeader>
@@ -1949,20 +2052,18 @@ function AdminOrdersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── PRINT COMPONENT & STYLES (A4 & thermal ready) ── */}
+      {/* ── PRINT COMPONENTS & STYLES (A4 Detailed & 80mm Thermal Receipt) ── */}
       <OrderPrintSheet order={selectedOrder} />
+      <OrderReceiptPrint order={receiptOrder || selectedOrder} isPrintOnly={true} />
 
       <style>{`
         @media screen {
-          .saturno-print-sheet {
+          .saturno-print-sheet-a4,
+          .saturno-receipt-sheet-80mm.print-only {
             display: none !important;
           }
         }
         @media print {
-          @page {
-            size: A4 portrait;
-            margin: 12mm 15mm;
-          }
           body {
             background-color: #ffffff !important;
             color: #000000 !important;
@@ -1972,11 +2073,47 @@ function AdminOrdersPage() {
           body * {
             visibility: hidden !important;
           }
-          .saturno-print-sheet,
-          .saturno-print-sheet * {
+
+          /* ── MODO COMPROVANTE 80MM (CUPOM TÉRMICO) ── */
+          body[data-print-target="receipt-80mm"] {
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          body[data-print-target="receipt-80mm"] @page {
+            size: 80mm auto;
+            margin: 0;
+          }
+          body[data-print-target="receipt-80mm"] .saturno-receipt-sheet-80mm,
+          body[data-print-target="receipt-80mm"] .saturno-receipt-sheet-80mm * {
             visibility: visible !important;
           }
-          .saturno-print-sheet {
+          body[data-print-target="receipt-80mm"] .saturno-receipt-sheet-80mm {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 80mm !important;
+            max-width: 80mm !important;
+            margin: 0 auto !important;
+            padding: 4mm !important;
+            box-sizing: border-box !important;
+            display: block !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+            box-shadow: none !important;
+            border: none !important;
+            z-index: 999999 !important;
+          }
+
+          /* ── MODO IMPRESSÃO DETALHADA A4 DO PEDIDO ── */
+          body:not([data-print-target="receipt-80mm"]) @page {
+            size: A4 portrait;
+            margin: 12mm 15mm;
+          }
+          body:not([data-print-target="receipt-80mm"]) .saturno-print-sheet-a4,
+          body:not([data-print-target="receipt-80mm"]) .saturno-print-sheet-a4 * {
+            visibility: visible !important;
+          }
+          body:not([data-print-target="receipt-80mm"]) .saturno-print-sheet-a4 {
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
@@ -1990,6 +2127,7 @@ function AdminOrdersPage() {
             border: none !important;
             z-index: 999999 !important;
           }
+
           .print-avoid-break {
             break-inside: avoid !important;
             page-break-inside: avoid !important;

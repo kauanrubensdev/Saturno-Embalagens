@@ -2,6 +2,7 @@ import { createFileRoute, redirect, Link } from '@tanstack/react-router';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminLayout } from '@/components/admin/AdminLayout';
+import { OrderReceiptPrint, printReceipt80mm, ReceiptData } from '@/components/admin/OrderReceiptPrint';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -1130,89 +1131,19 @@ function AdminPosPage() {
                 </p>
               </div>
 
-              {/* Detalhes do Comprovante */}
-              <div className="p-6 space-y-4 text-xs" id="pos-receipt-print">
-                {/* Cabeçalho do Recibo */}
-                <div className="text-center pb-3 border-b space-y-1" style={{ borderColor: 'var(--border)' }}>
-                  <p className="font-bold text-sm" style={{ color: 'var(--foreground)' }}>
-                    SATURNO EMBALAGENS
-                  </p>
-                  <p className="text-muted-foreground text-[11px]">Comprovante de Venda Presencial (PDV)</p>
-                  <p className="text-muted-foreground text-[10px]">
-                    {formatDateTime(completedOrder.created_at)}
-                  </p>
+              {/* Visualização do Comprovante Reutilizável */}
+              <div className="p-4 bg-muted/10 max-h-[55vh] overflow-y-auto flex justify-center">
+                <div className="bg-white text-black rounded-lg shadow-sm border border-neutral-300 overflow-hidden">
+                  <OrderReceiptPrint order={completedOrder} isPrintOnly={false} />
                 </div>
-
-                {/* Cliente & Pagamento */}
-                <div className="space-y-1.5 pb-3 border-b" style={{ borderColor: 'var(--border)' }}>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Cliente:</span>
-                    <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
-                      {completedOrder.customer_name || 'Venda Balcão (Sem cadastro)'}
-                    </span>
-                  </div>
-                  {completedOrder.customer_phone && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Telefone:</span>
-                      <span style={{ color: 'var(--foreground)' }}>{completedOrder.customer_phone}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Forma de Pagamento:</span>
-                    <span className="font-bold text-primary">
-                      {getPaymentMethodLabel(completedOrder.payment_method)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Status do Pedido:</span>
-                    <span className="font-semibold text-emerald-600">Concluído / Entregue</span>
-                  </div>
-                </div>
-
-                {/* Lista de Itens */}
-                <div className="space-y-2 pb-3 border-b" style={{ borderColor: 'var(--border)' }}>
-                  <span className="font-bold uppercase tracking-wider text-[10px] text-muted-foreground">
-                    Itens da Venda
-                  </span>
-                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                    {completedOrder.items.map((it, idx) => (
-                      <div key={idx} className="flex justify-between items-center">
-                        <div className="min-w-0 flex-1 pr-2">
-                          <p className="truncate font-medium text-foreground">{it.name}</p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {it.quantity} × {formatCurrency(it.price)}
-                          </p>
-                        </div>
-                        <span className="font-bold text-foreground">
-                          {formatCurrency(it.price * it.quantity)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Total */}
-                <div className="flex justify-between items-baseline pt-1 text-sm font-bold" style={{ color: 'var(--foreground)' }}>
-                  <span>VALOR TOTAL</span>
-                  <span className="text-lg font-extrabold text-primary">
-                    {formatCurrency(completedOrder.total)}
-                  </span>
-                </div>
-
-                {completedOrder.customer_note && (
-                  <div className="p-2 rounded bg-muted/30 text-[11px] text-muted-foreground">
-                    <span className="font-semibold block">Obs:</span>
-                    {completedOrder.customer_note}
-                  </div>
-                )}
               </div>
 
               {/* Botões do Modal */}
-              <div className="p-4 border-t bg-muted/20 flex flex-col sm:flex-row gap-2" style={{ borderColor: 'var(--border)' }}>
+              <div className="p-4 border-t bg-muted/20 flex flex-col sm:flex-row gap-2 no-print" style={{ borderColor: 'var(--border)' }}>
                 <button
                   type="button"
                   onClick={handlePrintReceipt}
-                  className="flex-1 py-2.5 px-3 rounded-lg border font-semibold text-xs flex items-center justify-center gap-2 hover:bg-muted/50 transition-colors"
+                  className="flex-1 py-2.5 px-3 rounded-lg border font-semibold text-xs flex items-center justify-center gap-2 hover:bg-muted/50 transition-colors cursor-pointer"
                   style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
                 >
                   <Printer className="w-4 h-4" />
@@ -1222,7 +1153,7 @@ function AdminPosPage() {
                 <button
                   type="button"
                   onClick={handleStartNewSale}
-                  className="flex-1 py-2.5 px-3 rounded-lg font-semibold text-xs text-white shadow flex items-center justify-center gap-2 transition-all hover:opacity-90"
+                  className="flex-1 py-2.5 px-3 rounded-lg font-semibold text-xs text-white shadow flex items-center justify-center gap-2 transition-all hover:opacity-90 cursor-pointer"
                   style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
                 >
                   <Plus className="w-4 h-4" />
@@ -1233,6 +1164,61 @@ function AdminPosPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ── COMPONENTE E ESTILOS DE IMPRESSÃO 80MM (CUPOM TÉRMICO) ── */}
+      <OrderReceiptPrint order={completedOrder} isPrintOnly={true} />
+
+      <style>{`
+        @media screen {
+          .saturno-receipt-sheet-80mm.print-only {
+            display: none !important;
+          }
+        }
+        @media print {
+          @page {
+            size: 80mm auto;
+            margin: 0;
+          }
+          body {
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          .saturno-receipt-sheet-80mm,
+          .saturno-receipt-sheet-80mm * {
+            visibility: visible !important;
+          }
+          .saturno-receipt-sheet-80mm {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 80mm !important;
+            max-width: 80mm !important;
+            margin: 0 auto !important;
+            padding: 4mm !important;
+            box-sizing: border-box !important;
+            display: block !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+            box-shadow: none !important;
+            border: none !important;
+            z-index: 999999 !important;
+          }
+          .print-avoid-break {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+        }
+      `}</style>
     </AdminLayout>
   );
 }
