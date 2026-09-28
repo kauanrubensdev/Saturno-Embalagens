@@ -25,6 +25,7 @@ import {
   AlertCircle,
   Tag,
   SlidersHorizontal,
+  Star,
 } from 'lucide-react';
 
 interface Category {
@@ -44,6 +45,7 @@ interface Product {
   image_url: string | null;
   images: string[] | null;
   is_active: boolean;
+  is_featured: boolean;
   category_id: string;
   created_at: string;
   category?: { id: string; name: string; slug: string } | null;
@@ -59,6 +61,7 @@ interface ProductFormData {
   image_url: string;
   category_id: string;
   is_active: boolean;
+  is_featured: boolean;
 }
 
 function generateSlug(name: string): string {
@@ -102,7 +105,7 @@ function AdminProductsPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'featured'>('all');
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -112,6 +115,7 @@ function AdminProductsPage() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [togglingFeaturedId, setTogglingFeaturedId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<ProductFormData>({
     name: '',
@@ -123,6 +127,7 @@ function AdminProductsPage() {
     image_url: '',
     category_id: '',
     is_active: true,
+    is_featured: false,
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
@@ -138,7 +143,7 @@ function AdminProductsPage() {
       const [productsRes, categoriesRes] = await Promise.all([
         supabase
           .from('products')
-          .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, category_id, created_at, category:categories(id, name, slug)')
+          .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, is_featured, category_id, created_at, category:categories(id, name, slug)')
           .order('created_at', { ascending: false }),
         supabase
           .from('categories')
@@ -179,7 +184,8 @@ function AdminProductsPage() {
       const matchesStatus =
         statusFilter === 'all' ||
         (statusFilter === 'active' && prod.is_active) ||
-        (statusFilter === 'inactive' && !prod.is_active);
+        (statusFilter === 'inactive' && !prod.is_active) ||
+        (statusFilter === 'featured' && prod.is_featured);
 
       return matchesSearch && matchesCategory && matchesStatus;
     });
@@ -254,6 +260,7 @@ function AdminProductsPage() {
       image_url: '',
       category_id: categories[0]?.id || '',
       is_active: true,
+      is_featured: false,
     });
     setFormErrors({});
     setIsDialogOpen(true);
@@ -271,6 +278,7 @@ function AdminProductsPage() {
       image_url: product.image_url || '',
       category_id: product.category_id,
       is_active: product.is_active,
+      is_featured: product.is_featured ?? false,
     });
     setFormErrors({});
     setIsDialogOpen(true);
@@ -299,6 +307,7 @@ function AdminProductsPage() {
         image_url: formData.image_url.trim() || null,
         category_id: formData.category_id,
         is_active: formData.is_active,
+        is_featured: formData.is_featured,
       };
 
       if (editingProduct) {
@@ -367,6 +376,35 @@ function AdminProductsPage() {
       toast.error('Erro ao alterar status do produto.');
     } finally {
       setTogglingId(null);
+    }
+  };
+
+  const handleToggleFeatured = async (product: Product) => {
+    try {
+      setTogglingFeaturedId(product.id);
+      const nextFeatured = !product.is_featured;
+      const { error: updateError } = await supabase
+        .from('products')
+        .update({ is_featured: nextFeatured })
+        .eq('id', product.id);
+
+      if (updateError) throw updateError;
+
+      toast.success(
+        nextFeatured
+          ? 'Produto adicionado aos destaques da Home!'
+          : 'Produto removido dos destaques da Home.'
+      );
+
+      // Update locally to avoid flash
+      setProducts((prev) =>
+        prev.map((p) => (p.id === product.id ? { ...p, is_featured: nextFeatured } : p))
+      );
+    } catch (err) {
+      console.error('Error toggling featured status:', err);
+      toast.error('Erro ao alterar destaque do produto.');
+    } finally {
+      setTogglingFeaturedId(null);
     }
   };
 
@@ -521,6 +559,7 @@ function AdminProductsPage() {
               <option value="all">Todos os status</option>
               <option value="active">Apenas Ativos</option>
               <option value="inactive">Apenas Inativos</option>
+              <option value="featured">Apenas em Destaque ★</option>
             </select>
           </div>
         </div>
@@ -542,6 +581,7 @@ function AdminProductsPage() {
                     </div>
                     <div className="h-6 w-24 rounded-full bg-muted/60" />
                     <div className="h-5 w-20 rounded bg-muted" />
+                    <div className="h-5 w-16 rounded-full bg-muted/60" />
                     <div className="h-5 w-16 rounded-full bg-muted/60" />
                     <div className="h-5 w-16 rounded-full bg-muted/60" />
                     <div className="h-8 w-24 rounded-xl bg-muted/60" />
@@ -660,6 +700,7 @@ function AdminProductsPage() {
                     <th className="py-3.5 px-4">Categoria</th>
                     <th className="py-3.5 px-4">Preço</th>
                     <th className="py-3.5 px-4 text-center">Estoque</th>
+                    <th className="py-3.5 px-4 text-center">Destaque</th>
                     <th className="py-3.5 px-4 text-center">Status</th>
                     <th className="py-3.5 px-4 text-right">Ações</th>
                   </tr>
@@ -667,6 +708,7 @@ function AdminProductsPage() {
                 <tbody className="divide-y text-xs sm:text-sm" style={{ borderColor: 'var(--border)' }}>
                   {filteredProducts.map((product) => {
                     const isToggling = togglingId === product.id;
+                    const isTogglingFeatured = togglingFeaturedId === product.id;
 
                     return (
                       <tr
@@ -749,6 +791,29 @@ function AdminProductsPage() {
                               ? 'Sem estoque'
                               : `${product.stock_quantity} un`}
                           </span>
+                        </td>
+
+                        {/* Destaque */}
+                        <td className="py-3.5 px-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleFeatured(product)}
+                            disabled={isTogglingFeatured}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
+                              product.is_featured
+                                ? 'bg-amber-500/15 text-amber-500 border-amber-500/30 hover:bg-amber-500/25'
+                                : 'bg-muted/40 text-muted-foreground border-transparent hover:border-border hover:text-foreground'
+                            }`}
+                            title={product.is_featured ? 'Remover da seção de destaques da Home' : 'Destacar na seção de destaques da Home'}
+                            aria-label={product.is_featured ? 'Remover dos destaques' : 'Destacar produto'}
+                          >
+                            {isTogglingFeatured ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Star className={`w-3.5 h-3.5 ${product.is_featured ? 'fill-amber-500 text-amber-500' : 'text-muted-foreground'}`} />
+                            )}
+                            <span>{product.is_featured ? 'Destaque' : 'Não destacado'}</span>
+                          </button>
                         </td>
 
                         {/* Status */}
@@ -845,6 +910,7 @@ function AdminProductsPage() {
             <div className="md:hidden space-y-3">
               {filteredProducts.map((product) => {
                 const isToggling = togglingId === product.id;
+                const isTogglingFeatured = togglingFeaturedId === product.id;
 
                 return (
                   <div
@@ -873,17 +939,39 @@ function AdminProductsPage() {
                           <h3 className="font-bold text-sm text-foreground truncate">
                             {product.name}
                           </h3>
-                          <span
-                            className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0"
-                            style={{
-                              backgroundColor: product.is_active
-                                ? 'rgba(22, 163, 74, 0.12)'
-                                : 'rgba(220, 38, 38, 0.12)',
-                              color: product.is_active ? '#16a34a' : '#dc2626',
-                            }}
-                          >
-                            {product.is_active ? 'Ativo' : 'Inativo'}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleFeatured(product)}
+                              disabled={isTogglingFeatured}
+                              className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer ${
+                                product.is_featured
+                                  ? 'bg-amber-500/15 text-amber-500 border-amber-500/30'
+                                  : 'bg-muted text-muted-foreground border-transparent'
+                              }`}
+                              title={product.is_featured ? 'Remover dos destaques da Home' : 'Destacar na Home'}
+                              aria-label={product.is_featured ? 'Remover dos destaques' : 'Destacar produto'}
+                            >
+                              {isTogglingFeatured ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Star className={`w-3 h-3 ${product.is_featured ? 'fill-amber-500 text-amber-500' : 'text-muted-foreground'}`} />
+                              )}
+                              <span>{product.is_featured ? 'Destaque' : 'Normal'}</span>
+                            </button>
+
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
+                              style={{
+                                backgroundColor: product.is_active
+                                  ? 'rgba(22, 163, 74, 0.12)'
+                                  : 'rgba(220, 38, 38, 0.12)',
+                                color: product.is_active ? '#16a34a' : '#dc2626',
+                              }}
+                            >
+                              {product.is_active ? 'Ativo' : 'Inativo'}
+                            </span>
+                          </div>
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -1242,6 +1330,33 @@ function AdminProductsPage() {
                   {formData.is_active
                     ? 'Visível para os clientes no catálogo e busca.'
                     : 'Oculto na loja pública (não pode ser comprado).'}
+                </p>
+              </div>
+            </div>
+
+            {/* Toggle Destaque */}
+            <div className="flex items-center gap-3 p-3 rounded-xl border bg-muted/20" style={{ borderColor: 'var(--border)' }}>
+              <button
+                type="button"
+                onClick={() => setFormData((prev) => ({ ...prev, is_featured: !prev.is_featured }))}
+                disabled={saving}
+                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer disabled:opacity-50"
+                style={{ backgroundColor: formData.is_featured ? '#f59e0b' : 'var(--muted)' }}
+                aria-label="Alternar produto em destaque"
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${
+                    formData.is_featured ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+              <div className="text-xs sm:text-sm">
+                <div className="flex items-center gap-1.5 font-semibold" style={{ color: 'var(--foreground)' }}>
+                  <Star className={`w-3.5 h-3.5 ${formData.is_featured ? 'fill-amber-500 text-amber-500' : 'text-muted-foreground'}`} />
+                  <span>Produto em destaque</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Produtos em destaque aparecem na página inicial.
                 </p>
               </div>
             </div>
