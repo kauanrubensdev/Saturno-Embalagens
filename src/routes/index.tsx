@@ -1,9 +1,17 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { ProductCard } from '@/components/customer/ProductCard';
 import { CategoryMenu } from '@/components/customer/CategoryMenu';
 import { Header } from '@/components/customer/Header';
+import { HeroOrbitVisual } from '@/components/customer/HeroOrbitVisual';
+import {
+  RotateCcw,
+  AlertCircle,
+  Package,
+  Layers,
+  ShoppingBag,
+} from 'lucide-react';
 
 export const Route = createFileRoute('/')({
   component: Index,
@@ -31,29 +39,54 @@ function Index() {
   const [categories, setCategories] = useState<FeaturedCategory[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadingCategories, setLoadingCategories] = useState(true);
+  const [productsError, setProductsError] = useState(false);
+  const [categoriesError, setCategoriesError] = useState(false);
+
+  const fetchFeaturedProducts = useCallback(async () => {
+    try {
+      setLoadingProducts(true);
+      setProductsError(false);
+      const { data, error } = await supabase
+        .from('products')
+        .select('id, name, slug, price, image_url, stock_quantity, category:categories(name)')
+        .eq('is_active', true)
+        .eq('is_featured', true)
+        .limit(8);
+
+      if (error) throw error;
+      setFeaturedProducts((data as FeaturedProduct[]) || []);
+    } catch (err) {
+      console.error('[HOME] Erro ao buscar produtos em destaque:', err);
+      setProductsError(true);
+    } finally {
+      setLoadingProducts(false);
+    }
+  }, []);
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      setLoadingCategories(true);
+      setCategoriesError(false);
+      const { data, error } = await supabase
+        .from('categories')
+        .select('id, name, slug, image_url')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+
+      if (error) throw error;
+      setCategories((data as FeaturedCategory[]) || []);
+    } catch (err) {
+      console.error('[HOME] Erro ao buscar categorias:', err);
+      setCategoriesError(true);
+    } finally {
+      setLoadingCategories(false);
+    }
+  }, []);
 
   useEffect(() => {
-    supabase
-      .from('products')
-      .select('id, name, slug, price, image_url, stock_quantity, category:categories(name)')
-      .eq('is_active', true)
-      .eq('is_featured', true)
-      .limit(8)
-      .then(({ data, error }) => {
-        if (!error && data) setFeaturedProducts(data as FeaturedProduct[]);
-        setLoadingProducts(false);
-      });
-
-    supabase
-      .from('categories')
-      .select('id, name, slug, image_url')
-      .eq('is_active', true)
-      .order('sort_order', { ascending: true })
-      .then(({ data, error }) => {
-        if (!error && data) setCategories(data as FeaturedCategory[]);
-        setLoadingCategories(false);
-      });
-  }, []);
+    fetchFeaturedProducts();
+    fetchCategories();
+  }, [fetchFeaturedProducts, fetchCategories]);
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--background)', color: 'var(--foreground)' }}>
@@ -65,52 +98,71 @@ function Index() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-12 lg:gap-16 items-center">
             {/* Left: Content */}
             <div className="max-w-xl">
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-4 sm:mb-6 text-xs font-semibold tracking-wider uppercase" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}>
-                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                Qualidade e preço justo
-              </div>
-              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold leading-tight mb-4 sm:mb-6" style={{ color: 'var(--foreground)' }}>
-                Embalagens que{' '}
-                <span style={{ color: 'var(--primary)' }}>valorizam</span>{' '}
-                seu delivery
+
+              <h1
+                className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-normal leading-tight mb-4 sm:mb-6"
+                style={{
+                  fontFamily: "'Power Grotesk', sans-serif",
+                  color: 'var(--foreground)',
+                }}
+              >
+                Embalagens que<br className="hidden sm:inline" />{' '}
+                levam seu negócio<br className="hidden sm:inline" />{' '}
+                <span
+                  style={{
+                    fontFamily: "'Harabara', sans-serif",
+                    color: '#FF4103',
+                  }}
+                >
+                  mais longe.
+                </span>
               </h1>
-              <p className="text-base sm:text-lg md:text-xl mb-6 sm:mb-10 leading-relaxed max-w-lg" style={{ color: 'var(--muted-foreground)' }}>
-                Caixas e embalagens para deixar seu produto bem apresentado, protegido e pronto para chegar ao cliente.
+              <p
+                className="text-base sm:text-lg md:text-xl mb-6 sm:mb-10 leading-relaxed max-w-lg"
+                style={{
+                  fontFamily: 'var(--font-family)',
+                  color: 'var(--foreground)',
+                  opacity: 0.85,
+                }}
+              >
+                Qualidade, resistência e apresentação para quem leva o delivery a sério.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-                <Link to="/catalog" className="inline-flex items-center justify-center gap-2.5 rounded-xl px-6 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-bold no-underline transition-all hover:opacity-90 hover:scale-[1.02]" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)', boxShadow: '0 4px 14px rgba(255,65,3,0.25)' }}>
-                  Ver catálogo
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                  </svg>
+                <Link
+                  to="/catalog"
+                  className="inline-flex items-center justify-center gap-2.5 rounded-xl px-6 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-bold no-underline transition-all hover:opacity-90 hover:scale-[1.02]"
+                  style={{
+                    fontFamily: 'var(--font-family)',
+                    backgroundColor: 'var(--primary)',
+                    color: 'var(--primary-foreground)',
+                    boxShadow: '0 4px 14px rgba(255,65,3,0.25)',
+                  }}
+                >
+                  Ver produtos →
                 </Link>
-                <a href="#categorias" className="inline-flex items-center justify-center gap-2.5 rounded-xl px-6 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold no-underline transition-all hover:opacity-80" style={{ backgroundColor: 'transparent', color: 'var(--foreground)', borderWidth: '1px', borderStyle: 'solid', borderColor: 'var(--border)' }}>
-                  Conheça nossas categorias
+                <a
+                  href="#categorias"
+                  className="inline-flex items-center justify-center gap-2.5 rounded-xl px-6 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold no-underline transition-all hover:opacity-80"
+                  style={{
+                    fontFamily: 'var(--font-family)',
+                    backgroundColor: 'transparent',
+                    color: 'var(--foreground)',
+                    borderWidth: '1px',
+                    borderStyle: 'solid',
+                    borderColor: 'var(--border)',
+                  }}
+                >
+                  Nossas categorias
                 </a>
               </div>
             </div>
 
-            {/* Right: Visual Element */}
-            <div className="hidden lg:flex items-center justify-center">
-              <div className="relative w-full max-w-md aspect-square">
-                {/* Main shape */}
-                <div className="absolute inset-0 rounded-3xl" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }} />
-                {/* Accent shape */}
-                <div className="absolute top-8 right-8 w-32 h-32 rounded-2xl rotate-12" style={{ backgroundColor: 'var(--primary)', opacity: 0.15 }} />
-                <div className="absolute bottom-12 left-12 w-24 h-24 rounded-2xl -rotate-6" style={{ backgroundColor: 'var(--primary)', opacity: 0.1 }} />
-                {/* Icon */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-32 h-32 rounded-2xl flex items-center justify-center" style={{ backgroundColor: 'var(--primary)' }}>
-                    <svg className="w-16 h-16 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                    </svg>
-                  </div>
-                </div>
-                {/* Small decorative elements */}
-                <div className="absolute top-16 left-16 w-3 h-3 rounded-full" style={{ backgroundColor: 'var(--primary)' }} />
-                <div className="absolute bottom-20 right-20 w-4 h-4 rounded-full" style={{ backgroundColor: 'var(--muted)' }} />
-                <div className="absolute top-24 right-24 w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--border)' }} />
-              </div>
+            {/* Right: Area da animacao de Saturno com embalagens */}
+            <div
+              id="hero-animation-slot"
+              className="flex items-center justify-center w-full min-h-[280px] sm:min-h-[360px] lg:min-h-[460px]"
+            >
+              <HeroOrbitVisual />
             </div>
           </div>
         </div>
@@ -133,15 +185,82 @@ function Index() {
           </div>
 
           {loadingCategories ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="animate-pulse rounded-2xl" style={{ backgroundColor: 'var(--muted)', height: '140px' }} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <div
+                  key={i}
+                  className="animate-pulse rounded-2xl overflow-hidden border"
+                  style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
+                >
+                  <div style={{ height: '140px', backgroundColor: 'var(--muted)' }} />
+                  <div className="p-5 flex items-center justify-between">
+                    <div className="space-y-2 flex-1 mr-4">
+                      <div className="h-4 rounded-md w-3/4" style={{ backgroundColor: 'var(--muted)' }} />
+                      <div className="h-3 rounded-md w-1/3" style={{ backgroundColor: 'var(--muted)' }} />
+                    </div>
+                    <div className="w-8 h-8 rounded-full" style={{ backgroundColor: 'var(--muted)' }} />
+                  </div>
+                </div>
               ))}
+            </div>
+          ) : categoriesError ? (
+            <div
+              className="p-8 sm:p-12 rounded-2xl border text-center space-y-4 max-w-lg mx-auto"
+              style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
+            >
+              <div
+                className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto text-destructive"
+                style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
+              >
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <p className="font-bold text-sm sm:text-base" style={{ color: 'var(--foreground)' }}>
+                  Não foi possível carregar as categorias
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Ocorreu uma instabilidade ao conectar com o servidor. Tente novamente.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={fetchCategories}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90 cursor-pointer shadow-sm"
+                style={{ backgroundColor: 'var(--primary)' }}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Tentar novamente</span>
+              </button>
             </div>
           ) : categories.length > 0 ? (
             <CategoryMenu categories={categories} />
           ) : (
-            <p className="text-center py-12" style={{ color: 'var(--muted-foreground)' }}>Nenhuma categoria disponível.</p>
+            <div
+              className="p-8 sm:p-12 rounded-2xl border text-center space-y-4 max-w-lg mx-auto"
+              style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
+            >
+              <div
+                className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto text-muted-foreground"
+                style={{ backgroundColor: 'var(--muted)' }}
+              >
+                <Layers className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="font-bold text-sm sm:text-base" style={{ color: 'var(--foreground)' }}>
+                  Nenhuma categoria disponível no momento
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Novas categorias de embalagens serão adicionadas em breve.
+                </p>
+              </div>
+              <Link
+                to="/catalog"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold text-white no-underline transition-all hover:opacity-90"
+                style={{ backgroundColor: 'var(--primary)' }}
+              >
+                <span>Ver catálogo completo</span>
+              </Link>
+            </div>
           )}
         </div>
       </section>
@@ -178,17 +297,53 @@ function Index() {
           {loadingProducts ? (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
               {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                <div key={i} className="animate-pulse rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+                <div
+                  key={i}
+                  className="animate-pulse rounded-xl overflow-hidden border"
+                  style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+                >
                   <div style={{ aspectRatio: '4/3', backgroundColor: 'var(--muted)' }} />
                   <div className="p-3 sm:p-4 space-y-3">
-                    <div style={{ backgroundColor: 'var(--muted)', height: '16px', borderRadius: '4px' }} />
-                    <div style={{ backgroundColor: 'var(--muted)', height: '14px', borderRadius: '4px', width: '70%' }} />
+                    <div style={{ backgroundColor: 'var(--muted)', height: '16px', borderRadius: '4px', width: '85%' }} />
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <div style={{ backgroundColor: 'var(--muted)', height: '18px', borderRadius: '4px', width: '45%' }} />
+                      <div style={{ backgroundColor: 'var(--muted)', height: '18px', borderRadius: '4px', width: '35%' }} />
+                    </div>
                     <div className="pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-                      <div style={{ backgroundColor: 'var(--muted)', height: '20px', borderRadius: '4px', width: '50%' }} />
+                      <div style={{ backgroundColor: 'var(--muted)', height: '12px', borderRadius: '4px', width: '50%' }} />
                     </div>
                   </div>
                 </div>
               ))}
+            </div>
+          ) : productsError ? (
+            <div
+              className="p-8 sm:p-12 rounded-2xl border text-center space-y-4 max-w-lg mx-auto"
+              style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+            >
+              <div
+                className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto text-destructive"
+                style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
+              >
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <p className="font-bold text-sm sm:text-base" style={{ color: 'var(--foreground)' }}>
+                  Não foi possível carregar os produtos em destaque
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Ocorreu uma instabilidade momentânea na conexão. Clique abaixo para tentar recarregar.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={fetchFeaturedProducts}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90 cursor-pointer shadow-sm"
+                style={{ backgroundColor: 'var(--primary)' }}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Tentar novamente</span>
+              </button>
             </div>
           ) : featuredProducts.length > 0 ? (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
@@ -197,17 +352,31 @@ function Index() {
               ))}
             </div>
           ) : (
-            <div className="text-center py-16 rounded-2xl" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
-              <svg className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--muted-foreground)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
-              <p className="text-base mb-4" style={{ color: 'var(--muted-foreground)' }}>Nenhum produto em destaque no momento.</p>
+            <div
+              className="text-center py-16 px-4 rounded-2xl border max-w-lg mx-auto space-y-4"
+              style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+            >
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto text-muted-foreground"
+                style={{ backgroundColor: 'var(--muted)' }}
+              >
+                <Package className="w-7 h-7 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="font-bold text-base mb-1" style={{ color: 'var(--foreground)' }}>
+                  Nenhum produto em destaque no momento
+                </p>
+                <p className="text-xs text-muted-foreground max-w-xs mx-auto">
+                  Confira nosso catálogo completo para conhecer todas as opções disponíveis.
+                </p>
+              </div>
               <Link 
                 to="/catalog" 
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold no-underline transition-all hover:opacity-90"
-                style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
+                className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-semibold text-white no-underline transition-all hover:opacity-90 shadow-sm"
+                style={{ backgroundColor: 'var(--primary)' }}
               >
-                Ver todos os produtos
+                <ShoppingBag className="w-3.5 h-3.5" />
+                <span>Ver catálogo de produtos</span>
               </Link>
             </div>
           )}
@@ -263,11 +432,11 @@ function Index() {
             {/* Brand Column */}
             <div className="md:col-span-1">
               <Link to="/" className="inline-flex items-center gap-2.5 mb-5 no-underline group">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105" style={{ backgroundColor: 'var(--primary)' }}>
-                  <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                  </svg>
-                </div>
+                <img
+                  src="/favicon.png"
+                  alt="Saturno Embalagens"
+                  className="w-10 h-10 object-contain transition-transform group-hover:scale-105"
+                />
                 <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>SaturnoEmbalagens</span>
               </Link>
               <p className="text-sm leading-relaxed mb-6" style={{ color: 'var(--muted-foreground)' }}>

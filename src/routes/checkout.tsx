@@ -1,5 +1,5 @@
 import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-router';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Header } from '@/components/customer/Header';
 import { useAuth } from '@/hooks/useAuth';
 import { useCart } from '@/hooks/useCart';
@@ -18,17 +18,36 @@ import {
   Clock,
   ShieldCheck,
   FileText,
-  QrCode,
-  Copy,
   CreditCard,
   AlertCircle,
-  RefreshCw,
   ExternalLink,
+  ArrowLeft,
+  Smartphone,
+  QrCode,
+  Copy,
+  RefreshCw,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import type { Profile } from '@/types/auth';
+import type { User } from '@supabase/supabase-js';
+import { loadStripe, StripeElementsOptions } from '@stripe/stripe-js';
+import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
+
+// ── Stripe public key — safe to expose in the frontend ──────────────────────
+const STRIPE_PUBLISHABLE_KEY =
+  (import.meta.env['VITE_STRIPE_PUBLISHABLE_KEY'] as string) || '';
+
+// Lazy-initialize Stripe to avoid loading the SDK on every page
+let stripePromise: ReturnType<typeof loadStripe> | null = null;
+const getStripe = () => {
+  if (!stripePromise && STRIPE_PUBLISHABLE_KEY) {
+    stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
+  }
+  return stripePromise;
+};
 
 export const Route = createFileRoute('/checkout')({
-  beforeLoad: async ({ context }) => {
+  beforeLoad: async ({ context }: { context: any }) => {
     if (!context.auth?.authReady) {
       return;
     }
@@ -38,6 +57,16 @@ export const Route = createFileRoute('/checkout')({
   },
   component: CheckoutPage,
 });
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export type PaymentMethodOption =
+  | 'abacate_pix'
+  | 'card'
+  | 'apple_pay'
+  | 'google_pay'
+  | 'boleto'
+  | 'cash_on_delivery';
 
 interface CustomerAddress {
   id: string;
@@ -72,34 +101,999 @@ interface CompletedOrderData {
   }[];
 }
 
-interface PixPaymentState {
+/** State for orders paying via AbacatePay PIX */
+export interface AbacatePixPaymentState {
   orderId: string;
   total: number;
-  pixQrCodeUrl: string | null;
-  pixCopyPaste: string | null;
-  pixExpiresAt: string | null;
-  hostedInstructionsUrl: string | null;
+  pixId: string;
+  brCode: string;
+  qrCodeBase64: string | null;
+  expiresAt: string | null;
   orderData: CompletedOrderData;
-  isPaid: boolean;
 }
 
-const PICKUP_ADDRESS_TEXT =
+/** State for orders that require online payment via Stripe */
+interface StripePaymentState {
+  orderId: string;
+  total: number;
+  clientSecret: string;
+  selectedMethod: 'card' | 'apple_pay' | 'google_pay' | 'boleto';
+  orderData: CompletedOrderData;
+  /** Whether confirmed payment by Stripe (via realtime or polling) */
+  isPaid: boolean;
+  /** Whether the boleto PDF URL is available after payment submission */
+  boletoPdfUrl: string | null;
+  boletoHostedUrl: string | null;
+}
+
+interface DeliverySettingsConfig {
+  delivery_enabled: boolean;
+  pickup_enabled: boolean;
+  shipping_cost: number;
+  pickup_address: string;
+}
+
+export interface PaymentSettingsConfig {
+  pix_enabled: boolean;
+  card_enabled: boolean;
+  apple_pay_enabled: boolean;
+  google_pay_enabled: boolean;
+  boleto_enabled: boolean;
+  cash_on_delivery_enabled: boolean;
+}
+
+export const DEFAULT_PAYMENT_SETTINGS: PaymentSettingsConfig = {
+  pix_enabled: true,
+  card_enabled: true,
+  apple_pay_enabled: true,
+  google_pay_enabled: true,
+  boleto_enabled: true,
+  cash_on_delivery_enabled: true,
+};
+
+const PAYMENT_PRIORITY_ORDER: PaymentMethodOption[] = [
+  'abacate_pix',
+  'card',
+  'apple_pay',
+  'google_pay',
+  'boleto',
+  'cash_on_delivery',
+];
+
+function isPaymentMethodEnabled(
+  method: PaymentMethodOption | null | undefined,
+  cfg: PaymentSettingsConfig
+): boolean {
+  if (!method) return false;
+  switch (method) {
+    case 'abacate_pix':
+      return cfg.pix_enabled;
+    case 'card':
+      return cfg.card_enabled;
+    case 'apple_pay':
+      return cfg.apple_pay_enabled;
+    case 'google_pay':
+      return cfg.google_pay_enabled;
+    case 'boleto':
+      return cfg.boleto_enabled;
+    case 'cash_on_delivery':
+      return cfg.cash_on_delivery_enabled;
+    default:
+      return false;
+  }
+}
+
+function getFirstAvailablePaymentMethod(cfg: PaymentSettingsConfig): PaymentMethodOption | null {
+  for (const method of PAYMENT_PRIORITY_ORDER) {
+    if (isPaymentMethodEnabled(method, cfg)) {
+      return method;
+    }
+  }
+  return null;
+}
+
+interface FreeShippingConfig {
+  enabled: boolean;
+  cost?: number;
+}
+
+interface ShippingZone {
+  id: string;
+  name: string;
+  min_distance_km: number;
+  max_distance_km: number | null;
+  price: number;
+  is_active: boolean;
+}
+
+interface CalculatedShippingState {
+  loading: boolean;
+  available: boolean | null;
+  shipping_cost: number | null;
+  region_label: string | null;
+  zone_id: string | null;
+  zone_name: string | null;
+  estimated_days_min: number | null;
+  estimated_days_max: number | null;
+  error: string | null;
+}
+
+const INITIAL_CALCULATED_SHIPPING: CalculatedShippingState = {
+  loading: false,
+  available: null,
+  shipping_cost: null,
+  region_label: null,
+  zone_id: null,
+  zone_name: null,
+  estimated_days_min: null,
+  estimated_days_max: null,
+  error: null,
+};
+
+const DEFAULT_PICKUP_ADDRESS =
   'R. Urupema, nº 150 - São Cosme de Baixo, Santa Luzia - MG, 33130-140';
 
+const DEFAULT_DELIVERY_SETTINGS: DeliverySettingsConfig = {
+  delivery_enabled: true,
+  pickup_enabled: true,
+  shipping_cost: 0,
+  pickup_address: DEFAULT_PICKUP_ADDRESS,
+};
+
+const PICKUP_ADDRESS_TEXT = DEFAULT_PICKUP_ADDRESS;
+
+// ── Brand Icons ─────────────────────────────────────────────────────────────
+
+function ApplePayIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.37c.61-.75 1.04-1.8 0.92-2.87-.9.04-2.03.62-2.67 1.37-.56.65-.99 1.7-0.85 2.72 1.01.08 2.01-.52 2.6-1.22z" />
+    </svg>
+  );
+}
+
+function GooglePayIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12.24 10.285V14.4h6.872c-.297 1.636-1.75 4.8-6.872 4.8-4.14 0-7.518-3.39-7.518-7.56 0-4.17 3.378-7.56 7.518-7.56 2.355 0 3.93.996 4.827 1.848l3.297-3.174C18.291 1.014 15.534 0 12.24 0 5.478 0 0 5.484 0 12.24s5.478 12.24 12.24 12.24c7.065 0 11.754-4.962 11.754-11.958 0-.804-.087-1.416-.192-2.238H12.24z" />
+    </svg>
+  );
+}
+
+// ── StripePaymentForm Component ──────────────────────────────────────────────
+// Rendered inside the <Elements> provider; has access to useStripe/useElements
+
+interface StripePaymentFormProps {
+  stripePaymentState: StripePaymentState;
+  customerProfile: Profile | null;
+  customerUser: { email?: string } | null;
+  onPaymentConfirmed: () => void;
+  onBoletoIssued: (pdfUrl: string | null, hostedUrl: string | null) => void;
+  onChangeMethod: () => void;
+  formatBRL: (val: number) => string;
+}
+
+function StripePaymentForm({
+  stripePaymentState,
+  customerProfile,
+  customerUser,
+  onPaymentConfirmed,
+  onBoletoIssued,
+  onChangeMethod,
+  formatBRL,
+}: StripePaymentFormProps) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentReady, setPaymentReady] = useState(false);
+  const [walletAvailable, setWalletAvailable] = useState<boolean | null>(null);
+
+  const selectedMethod = stripePaymentState.selectedMethod;
+  const isExpressWallet = selectedMethod === 'apple_pay' || selectedMethod === 'google_pay';
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+
+    setIsSubmitting(true);
+    setPaymentError(null);
+
+    try {
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          return_url: window.location.href,
+        },
+        redirect: 'if_required',
+      });
+
+      if (error) {
+        let errorMsg = error.message || 'Erro ao processar o pagamento.';
+        const lowerMsg = errorMsg.toLowerCase();
+        if (
+          lowerMsg.includes('the boleto tax id cannot match your legal entity tax id') ||
+          lowerMsg.includes('tax id cannot match')
+        ) {
+          errorMsg =
+            'O CPF/CNPJ informado pertence à loja emissora. Informe seu próprio CPF ou CNPJ de comprador.';
+        }
+        setPaymentError(errorMsg);
+        toast.error(errorMsg);
+        return;
+      }
+
+      if (paymentIntent) {
+        // Check if this is a boleto payment (status = requires_action, next_action = display_boleto_details)
+        if (paymentIntent.status === 'requires_action') {
+          const nextAction = (paymentIntent as any).next_action;
+          if (nextAction?.type === 'display_boleto_details') {
+            const boleto = nextAction.display_boleto_details;
+            const pdfUrl = boleto?.boleto_pdf || boleto?.pdf || null;
+            const hostedUrl = boleto?.hosted_voucher_url || null;
+            onBoletoIssued(pdfUrl, hostedUrl);
+            toast.success(
+              'Boleto gerado com sucesso! Realize o pagamento dentro do prazo para confirmar seu pedido.'
+            );
+            return;
+          }
+        }
+
+        if (paymentIntent.status === 'succeeded') {
+          onPaymentConfirmed();
+          toast.success('Pagamento confirmado com sucesso!');
+        } else if (paymentIntent.status === 'processing') {
+          toast.info(
+            'Seu pagamento está sendo processado. Você será notificado assim que for confirmado.'
+          );
+        }
+      }
+    } catch (err: any) {
+      console.error('[STRIPE-PAYMENT-FORM] Falha na confirmação do pagamento.');
+      let errorMsg = err?.message || 'Erro inesperado ao processar pagamento.';
+      if (
+        typeof errorMsg === 'string' &&
+        (errorMsg.toLowerCase().includes('the boleto tax id cannot match your legal entity tax id') ||
+          errorMsg.toLowerCase().includes('tax id cannot match'))
+      ) {
+        errorMsg =
+          'O CPF/CNPJ informado pertence à loja emissora. Informe seu próprio CPF ou CNPJ de comprador.';
+      }
+      setPaymentError(errorMsg);
+      toast.error(errorMsg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Express Checkout handler for Apple Pay & Google Pay
+  const handleExpressConfirm = async (_event: any) => {
+    if (!stripe || !elements) return;
+    setIsSubmitting(true);
+    setPaymentError(null);
+
+    try {
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        clientSecret: stripePaymentState.clientSecret,
+        confirmParams: {
+          return_url: window.location.href,
+        },
+        redirect: 'if_required',
+      });
+
+      if (error) {
+        const errorMsg = error.message || 'Erro ao processar o pagamento com carteira digital.';
+        setPaymentError(errorMsg);
+        toast.error(errorMsg);
+        return;
+      }
+
+      if (paymentIntent) {
+        if (paymentIntent.status === 'succeeded') {
+          onPaymentConfirmed();
+          toast.success('Pagamento confirmado com sucesso!');
+        } else if (paymentIntent.status === 'processing') {
+          toast.info('Seu pagamento está sendo processado.');
+        }
+      }
+    } catch (err: any) {
+      console.error('[STRIPE-EXPRESS-CONFIRM] Erro ao confirmar pagamento:', err);
+      const errorMsg = err?.message || 'Erro inesperado ao processar pagamento.';
+      setPaymentError(errorMsg);
+      toast.error(errorMsg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleExpressReady = (event: any) => {
+    setPaymentReady(true);
+    const methods = event?.availablePaymentMethods;
+    if (selectedMethod === 'apple_pay') {
+      setWalletAvailable(Boolean(methods?.applePay));
+    } else if (selectedMethod === 'google_pay') {
+      setWalletAvailable(Boolean(methods?.googlePay));
+    } else {
+      setWalletAvailable(true);
+    }
+  };
+
+  const expressCheckoutOptions = useMemo(() => {
+    const isApplePay = selectedMethod === 'apple_pay';
+    const isGooglePay = selectedMethod === 'google_pay';
+    return {
+      buttonTheme: {
+        applePay: 'black' as const,
+        googlePay: 'black' as const,
+      },
+      buttonHeight: 48,
+      paymentMethods: {
+        applePay: isApplePay ? ('always' as const) : ('never' as const),
+        googlePay: isGooglePay ? ('always' as const) : ('never' as const),
+        link: 'never' as const,
+        paypal: 'never' as const,
+        amazonPay: 'never' as const,
+        klarna: 'never' as const,
+      },
+    };
+  }, [selectedMethod]);
+
+  // Tailored PaymentElement options based on the chosen individual method (Card or Boleto)
+  const paymentElementOptions = useMemo(() => {
+    if (selectedMethod === 'card') {
+      return {
+        layout: 'tabs' as const,
+        paymentMethodOrder: ['card'],
+        wallets: {
+          applePay: 'never' as const,
+          googlePay: 'never' as const,
+        },
+      };
+    }
+    if (selectedMethod === 'boleto') {
+      const shippingAddress = stripePaymentState.orderData?.shipping_address;
+      const billingDetails: Record<string, any> = {};
+
+      if (customerProfile?.name) {
+        billingDetails['name'] = customerProfile.name;
+      }
+      if (customerUser?.email) {
+        billingDetails['email'] = customerUser.email;
+      }
+      if (customerProfile?.phone) {
+        billingDetails['phone'] = customerProfile.phone;
+      }
+      if (shippingAddress) {
+        const addressObj: Record<string, string> = {
+          country: 'BR',
+        };
+        if (shippingAddress.street) {
+          addressObj['line1'] = `${shippingAddress.street}${shippingAddress.number ? `, ${shippingAddress.number}` : ''}`;
+        }
+        const line2 = [shippingAddress.complement, shippingAddress.neighborhood]
+          .filter(Boolean)
+          .join(' - ');
+        if (line2) {
+          addressObj['line2'] = line2;
+        }
+        if (shippingAddress.city) {
+          addressObj['city'] = shippingAddress.city;
+        }
+        if (shippingAddress.state) {
+          addressObj['state'] = shippingAddress.state;
+        }
+        if (shippingAddress.zip_code) {
+          addressObj['postal_code'] = shippingAddress.zip_code;
+        }
+        billingDetails['address'] = addressObj;
+      }
+
+      const options: any = {
+        layout: 'tabs',
+        paymentMethodOrder: ['boleto'],
+        wallets: {
+          applePay: 'never',
+          googlePay: 'never',
+        },
+      };
+
+      if (Object.keys(billingDetails).length > 0) {
+        options.defaultValues = { billingDetails };
+      }
+
+      return options;
+    }
+    return {
+      layout: 'tabs' as const,
+    };
+  }, [
+    selectedMethod,
+    customerProfile?.name,
+    customerUser?.email,
+    stripePaymentState.orderData?.shipping_address,
+  ]);
+
+  const buttonLabel = useMemo(() => {
+    if (selectedMethod === 'boleto') {
+      return `Gerar Boleto (${formatBRL(stripePaymentState.total)})`;
+    }
+    return `Confirmar Pagamento com Cartão (${formatBRL(stripePaymentState.total)})`;
+  }, [selectedMethod, stripePaymentState.total, formatBRL]);
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Stripe Loading Placeholder */}
+      {!paymentReady && (
+        <div
+          className="p-6 rounded-xl border border-dashed flex flex-col items-center justify-center gap-3 text-center my-2"
+          style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}
+        >
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
+              Carregando opções de pagamento...
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Inicializando ambiente seguro com a Stripe
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Express Checkout Element (Apple Pay & Google Pay) or Payment Element (Card & Boleto) */}
+      {isExpressWallet ? (
+        <div className="space-y-4">
+          <div className={!paymentReady ? 'hidden' : 'block'}>
+            <ExpressCheckoutElement
+              options={expressCheckoutOptions}
+              onConfirm={handleExpressConfirm}
+              onReady={handleExpressReady}
+            />
+          </div>
+
+          {/* Fallback guidance if wallet is not available on this specific device/browser */}
+          {paymentReady && walletAvailable === false && (
+            <div
+              className="p-4 rounded-xl border text-xs space-y-2 text-left"
+              style={{
+                backgroundColor: 'rgba(234, 179, 8, 0.08)',
+                borderColor: 'rgba(234, 179, 8, 0.3)',
+                color: '#854d0e',
+              }}
+            >
+              <div className="flex items-center gap-1.5 font-bold">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                <span>
+                  {selectedMethod === 'apple_pay'
+                    ? 'Apple Pay indisponível neste navegador ou dispositivo'
+                    : 'Google Pay indisponível neste navegador ou dispositivo'}
+                </span>
+              </div>
+              <p className="leading-relaxed">
+                {selectedMethod === 'apple_pay'
+                  ? 'Para pagar com Apple Pay, utilize o navegador Safari em um dispositivo Apple (iPhone, iPad ou Mac) com um cartão configurado na sua Carteira (Apple Wallet).'
+                  : 'Para pagar com Google Pay, utilize o Google Chrome ou um dispositivo Android com sua conta Google e um cartão cadastrado no Google Pay.'}
+              </p>
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={onChangeMethod}
+                  className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white transition-all hover:opacity-90 flex items-center justify-center gap-1.5 cursor-pointer"
+                  style={{ backgroundColor: 'var(--primary)' }}
+                >
+                  <CreditCard className="w-3.5 h-3.5" />
+                  <span>Trocar para Cartão de Crédito / Boleto</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className={!paymentReady ? 'hidden' : 'block'}>
+          <PaymentElement onReady={() => setPaymentReady(true)} options={paymentElementOptions} />
+        </div>
+      )}
+
+      {paymentError && (
+        <div
+          className="p-3.5 rounded-xl text-xs border flex items-start gap-2"
+          style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.08)',
+            borderColor: 'rgba(239, 68, 68, 0.25)',
+            color: '#dc2626',
+          }}
+        >
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>{paymentError}</span>
+        </div>
+      )}
+
+      <div className="space-y-2.5 pt-2">
+        {!isExpressWallet && (
+          <button
+            type="submit"
+            disabled={!stripe || !elements || !paymentReady || isSubmitting}
+            className="w-full py-3.5 px-6 rounded-xl font-bold text-white text-sm transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+            style={{ backgroundColor: 'var(--primary)' }}
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>
+                  {selectedMethod === 'boleto'
+                    ? 'Gerando boleto...'
+                    : 'Processando pagamento...'}
+                </span>
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="w-5 h-5" />
+                <span>{buttonLabel}</span>
+              </>
+            )}
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={onChangeMethod}
+          disabled={isSubmitting}
+          className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Trocar forma de pagamento</span>
+        </button>
+      </div>
+
+      <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1">
+        <ShieldCheck className="w-3.5 h-3.5 text-success" />
+        Pagamento seguro processado via Stripe. Seus dados estão protegidos.
+      </p>
+    </form>
+  );
+}
+
+// ── AbacatePixPaymentScreen Component ────────────────────────────────────────
+
+interface AbacatePixPaymentScreenProps {
+  pixState: AbacatePixPaymentState;
+  onChangeMethod: () => void;
+  onRegeneratePix: () => Promise<void>;
+  formatBRL: (val: number) => string;
+}
+
+function AbacatePixPaymentScreen({
+  pixState,
+  onChangeMethod,
+  onRegeneratePix,
+  formatBRL,
+}: AbacatePixPaymentScreenProps) {
+  const [copied, setCopied] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [timeLeftSeconds, setTimeLeftSeconds] = useState<number | null>(() => {
+    if (!pixState.expiresAt) return null;
+    const diff = Math.floor((new Date(pixState.expiresAt).getTime() - Date.now()) / 1000);
+    return Math.max(0, diff);
+  });
+
+  // Countdown timer
+  useEffect(() => {
+    if (!pixState.expiresAt) return;
+
+    const updateTimer = () => {
+      const diff = Math.floor((new Date(pixState.expiresAt!).getTime() - Date.now()) / 1000);
+      setTimeLeftSeconds(Math.max(0, diff));
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [pixState.expiresAt]);
+
+  const isExpired = timeLeftSeconds !== null && timeLeftSeconds <= 0;
+
+  const formattedTimeLeft = useMemo(() => {
+    if (timeLeftSeconds === null) return null;
+    const minutes = Math.floor(timeLeftSeconds / 60);
+    const seconds = timeLeftSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }, [timeLeftSeconds]);
+
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(pixState.brCode);
+      setCopied(true);
+      toast.success('Código PIX copiado!');
+      setTimeout(() => setCopied(false), 3000);
+    } catch {
+      toast.error('Erro ao copiar código. Selecione o texto e copie manualmente.');
+    }
+  };
+
+  const handleRegenerate = async () => {
+    setIsRegenerating(true);
+    try {
+      await onRegeneratePix();
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  const qrImageSrc = useMemo(() => {
+    if (!pixState.qrCodeBase64) return null;
+    if (pixState.qrCodeBase64.startsWith('data:') || pixState.qrCodeBase64.startsWith('http')) {
+      return pixState.qrCodeBase64;
+    }
+    return `data:image/png;base64,${pixState.qrCodeBase64}`;
+  }, [pixState.qrCodeBase64]);
+
+  return (
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+      <Header showNav />
+
+      <main className="flex-1 max-w-2xl mx-auto px-4 py-6 sm:py-10 w-full">
+        {/* Status Card */}
+        <div
+          className="rounded-2xl p-6 sm:p-8 text-center mb-6 border"
+          style={{
+            backgroundColor: 'var(--card)',
+            borderColor: 'var(--border)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+        >
+          <div
+            className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 text-primary"
+            style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)' }}
+          >
+            <QrCode className="w-8 h-8 sm:w-10 sm:h-10" />
+          </div>
+
+          <span
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider mb-2 text-primary"
+            style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)' }}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            Pagamento Instantâneo PIX
+          </span>
+
+          <h1
+            className="text-xl sm:text-2xl font-bold mb-2"
+            style={{ color: 'var(--foreground)' }}
+          >
+            Pagamento via PIX
+          </h1>
+
+          <p className="text-xs sm:text-sm text-muted-foreground max-w-md mx-auto">
+            Escaneie o QR Code usando o aplicativo do seu banco ou utilize o PIX Copia e Cola.
+          </p>
+
+          {/* Order metadata badges */}
+          <div
+            className="flex flex-wrap items-center justify-center gap-2 sm:gap-4 mt-4 pt-4 border-t"
+            style={{ borderColor: 'var(--border)' }}
+          >
+            <div
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold"
+              style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
+            >
+              <span>Pedido: </span>
+              <span className="text-primary font-mono font-bold">
+                #{pixState.orderId.slice(0, 8).toUpperCase()}
+              </span>
+            </div>
+            <div
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold"
+              style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
+            >
+              <span>Valor: </span>
+              <span className="text-primary font-bold">{formatBRL(pixState.total)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* PIX Details Card */}
+        <div
+          className="rounded-2xl p-5 sm:p-6 mb-6 border space-y-6"
+          style={{
+            backgroundColor: 'var(--card)',
+            borderColor: 'var(--border)',
+          }}
+        >
+          {/* Expiration warning / timer */}
+          {isExpired ? (
+            <div
+              className="p-4 rounded-xl border text-xs sm:text-sm flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left"
+              style={{
+                backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                borderColor: 'rgba(239, 68, 68, 0.25)',
+                color: '#dc2626',
+              }}
+            >
+              <div className="flex items-center gap-2 font-semibold">
+                <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-500" />
+                <span>Este código PIX expirou.</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleRegenerate}
+                disabled={isRegenerating}
+                className="py-2 px-4 rounded-xl text-xs font-bold text-white transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer flex-shrink-0"
+                style={{ backgroundColor: 'var(--primary)' }}
+              >
+                {isRegenerating ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Gerando...</span>
+                  </>
+                ) : (
+                  <span>Gerar novo PIX</span>
+                )}
+              </button>
+            </div>
+          ) : formattedTimeLeft ? (
+            <div
+              className="p-3 rounded-xl border text-xs flex items-center justify-center gap-2 font-medium"
+              style={{
+                backgroundColor: 'rgba(59, 130, 246, 0.06)',
+                borderColor: 'rgba(59, 130, 246, 0.2)',
+                color: 'var(--primary)',
+              }}
+            >
+              <Clock className="w-4 h-4" />
+              <span>Este PIX expira em: </span>
+              <strong className="font-mono text-sm">{formattedTimeLeft}</strong>
+            </div>
+          ) : null}
+
+          {/* QR Code Section */}
+          <div className="text-center space-y-3">
+            <h2 className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>
+              1. Escaneie o QR Code
+            </h2>
+            <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+              Abra o app do seu banco, escolha <strong>Pagar com PIX</strong> e aponte a câmera para o QR Code:
+            </p>
+
+            <div className="flex justify-center pt-2">
+              <div
+                className={`p-4 rounded-2xl border bg-white inline-block shadow-sm transition-opacity ${
+                  isExpired ? 'opacity-30 grayscale' : 'opacity-100'
+                }`}
+              >
+                {qrImageSrc ? (
+                  <img
+                    src={qrImageSrc}
+                    alt="QR Code PIX AbacatePay"
+                    className="w-48 h-48 sm:w-56 sm:h-56 object-contain block mx-auto"
+                  />
+                ) : (
+                  <div className="w-48 h-48 sm:w-56 sm:h-56 flex flex-col items-center justify-center text-muted-foreground gap-2">
+                    <QrCode className="w-12 h-12" />
+                    <span className="text-xs">QR Code indisponível</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* PIX Copia e Cola Section */}
+          <div className="space-y-3 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+            <h2 className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>
+              2. PIX Copia e Cola
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Se preferir pagar pelo celular ou computador, copie o código abaixo:
+            </p>
+
+            <div className="space-y-2">
+              <div
+                className="p-3 rounded-xl border text-xs font-mono break-all max-h-24 overflow-y-auto select-all"
+                style={{
+                  backgroundColor: 'var(--muted)',
+                  borderColor: 'var(--border)',
+                  color: 'var(--foreground)',
+                }}
+              >
+                {pixState.brCode}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCopyCode}
+                disabled={isExpired}
+                className={`w-full py-3 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                  copied
+                    ? 'bg-green-600 text-white hover:bg-green-700'
+                    : 'text-white hover:opacity-90'
+                }`}
+                style={{
+                  backgroundColor: copied ? '#16a34a' : 'var(--primary)',
+                }}
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-4 h-4 stroke-[3]" />
+                    <span>Código PIX copiado!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    <span>Copiar Código PIX</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Status feedback box */}
+          <div
+            className="p-4 rounded-xl border text-xs flex items-center gap-3"
+            style={{
+              backgroundColor: 'rgba(59, 130, 246, 0.06)',
+              borderColor: 'rgba(59, 130, 246, 0.2)',
+            }}
+          >
+            <Loader2 className="w-4 h-4 text-primary animate-spin flex-shrink-0" />
+            <div className="space-y-0.5">
+              <p className="font-semibold text-primary">
+                Aguardando confirmação do pagamento...
+              </p>
+              <p className="text-muted-foreground">
+                O status do seu pedido será atualizado após a liquidação da transferência.
+              </p>
+            </div>
+          </div>
+
+          {/* Change payment method button */}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={onChangeMethod}
+              className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Trocar forma de pagamento</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Order Summary */}
+        <div
+          className="rounded-2xl p-5 sm:p-6 mb-6 border space-y-4 text-xs sm:text-sm"
+          style={{
+            backgroundColor: 'var(--card)',
+            borderColor: 'var(--border)',
+          }}
+        >
+          <h2 className="font-bold text-base" style={{ color: 'var(--foreground)' }}>
+            Detalhes do Pedido
+          </h2>
+
+          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+            {pixState.orderData.items.map((item, idx) => (
+              <div key={idx} className="py-2.5 flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate" style={{ color: 'var(--foreground)' }}>
+                    {item.product_name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {item.quantity} un. × {formatBRL(item.product_price)}
+                  </p>
+                </div>
+                <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                  {formatBRL(item.total_price)}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div
+            className="pt-3 border-t space-y-2 text-xs sm:text-sm"
+            style={{ borderColor: 'var(--border)' }}
+          >
+            <div className="flex justify-between text-muted-foreground">
+              <span>Subtotal</span>
+              <span>{formatBRL(pixState.orderData.subtotal)}</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span>{pixState.orderData.delivery_type === 'pickup' ? 'Retirada' : 'Entrega'}</span>
+              {pixState.orderData.shipping_cost === 0 ? (
+                <span className="text-success font-medium">Grátis</span>
+              ) : (
+                <span className="font-medium" style={{ color: 'var(--foreground)' }}>
+                  {formatBRL(pixState.orderData.shipping_cost)}
+                </span>
+              )}
+            </div>
+            <div
+              className="pt-2 border-t flex justify-between font-bold text-sm"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <span style={{ color: 'var(--foreground)' }}>Total</span>
+              <span className="text-primary text-base font-black">{formatBRL(pixState.total)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Navigation */}
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <Link
+            to="/account"
+            className="inline-flex items-center justify-center py-3 px-6 rounded-xl font-semibold text-white transition-all hover:opacity-90"
+            style={{ backgroundColor: 'var(--primary)' }}
+          >
+            <FileText className="w-4 h-4 mr-2" />
+            Ver meus pedidos
+          </Link>
+          <Link
+            to="/"
+            className="inline-flex items-center justify-center py-3 px-6 rounded-xl font-medium transition-all hover:opacity-80 border"
+            style={{
+              backgroundColor: 'var(--card)',
+              borderColor: 'var(--border)',
+              color: 'var(--foreground)',
+            }}
+          >
+            Voltar para o início
+          </Link>
+        </div>
+      </main>
+
+      <footer
+        className="border-t mt-12"
+        style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+      >
+        <div className="max-w-5xl mx-auto px-4 py-8 text-center">
+          <p className="text-xs text-muted-foreground">
+            © 2026 Saturno Embalagens. Todos os direitos reservados.
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+// ── Main CheckoutPage ────────────────────────────────────────────────────────
+
 export function CheckoutPage() {
-  const { authReady, user } = useAuth();
+  const { authReady, user, profile } = useAuth();
   const { cart, loading: cartLoading, clearCart, getSubtotal } = useCart();
   const navigate = useNavigate();
 
   // Form states
   const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup'>('delivery');
-  const [paymentMethod, setPaymentMethod] = useState<'cash_on_delivery' | 'pix'>('cash_on_delivery');
+  const [paymentConfig, setPaymentConfig] = useState<PaymentSettingsConfig>(DEFAULT_PAYMENT_SETTINGS);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodOption>(
+    () => getFirstAvailablePaymentMethod(DEFAULT_PAYMENT_SETTINGS) || 'abacate_pix'
+  );
   const [customerNote, setCustomerNote] = useState('');
   const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string>('');
   const [loadingAddresses, setLoadingAddresses] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // New address modal state
+  // Store delivery settings & shipping zones
+  const [deliveryConfig, setDeliveryConfig] = useState<DeliverySettingsConfig>(DEFAULT_DELIVERY_SETTINGS);
+  const [freeShippingConfig, setFreeShippingConfig] = useState<FreeShippingConfig>({ enabled: false, cost: 0 });
+  const [shippingZones, setShippingZones] = useState<ShippingZone[]>([]);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+
+  // Auto-select first available payment method whenever paymentConfig changes or current method is disabled
+  useEffect(() => {
+    setPaymentMethod((current) => {
+      if (isPaymentMethodEnabled(current, paymentConfig)) {
+        return current;
+      }
+      return getFirstAvailablePaymentMethod(paymentConfig) || 'abacate_pix';
+    });
+  }, [paymentConfig]);
+
+  // Dynamic Shipping RPC State
+  const [calculatedShipping, setCalculatedShipping] = useState<CalculatedShippingState>(INITIAL_CALCULATED_SHIPPING);
+
+  // New address modal
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
   const [searchingCep, setSearchingCep] = useState(false);
@@ -114,86 +1108,258 @@ export function CheckoutPage() {
     is_default: false,
   });
 
-  // Submission & Flow states
+  // Flow states
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<CompletedOrderData | null>(null);
-  const [pixState, setPixState] = useState<PixPaymentState | null>(null);
-  const [copiedPix, setCopiedPix] = useState(false);
-  const [checkingPixStatus, setCheckingPixStatus] = useState(false);
-  const [timeRemaining, setTimeRemaining] = useState<string | null>(null);
+  const [stripePaymentState, setStripePaymentState] = useState<StripePaymentState | null>(null);
+  const [abacatePixState, setAbacatePixState] = useState<AbacatePixPaymentState | null>(null);
+  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
+  const [pendingOrderData, setPendingOrderData] = useState<CompletedOrderData | null>(null);
 
-  // Polling ref
+  // Stripe confirmation state
   const pollingRef = useRef<number | null>(null);
 
-  // Fetch customer addresses
-  useEffect(() => {
-    if (!user) return;
+  // ── Fetch store delivery settings & active shipping zones ─────────────────
+  const fetchStoreSettings = useCallback(async () => {
+    try {
+      setLoadingSettings(true);
+      const [settingsRes, zonesRes] = await Promise.all([
+        supabase.from('settings').select('*'),
+        supabase.from('shipping_zones').select('*').eq('is_active', true).order('min_distance_km', { ascending: true }),
+      ]);
 
-    const fetchAddresses = async () => {
-      try {
-        setLoadingAddresses(true);
-        const { data, error } = await supabase
-          .from('addresses')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('is_default', { ascending: false })
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
-
-        const addrList = (data as CustomerAddress[]) || [];
-        setAddresses(addrList);
-
-        if (addrList.length > 0) {
-          const defaultAddr = addrList.find((a) => a.is_default) || addrList[0];
-          setSelectedAddressId(defaultAddr.id);
-        }
-      } catch (err) {
-        console.error('[CHECKOUT] Erro ao carregar endereços:', err);
-      } finally {
-        setLoadingAddresses(false);
+      if (settingsRes.error) {
+        throw settingsRes.error;
       }
-    };
 
-    fetchAddresses();
-  }, [user]);
+      if (zonesRes.data) {
+        setShippingZones((zonesRes.data as ShippingZone[]) || []);
+      }
 
-  // PIX Expiration Countdown
+      if (settingsRes.data && settingsRes.data.length > 0) {
+        const settingsMap = new Map<string, any>();
+        settingsRes.data.forEach((row) => {
+          settingsMap.set(row.key, row.value);
+        });
+
+        // 1. Delivery settings
+        const savedDelivery = settingsMap.get('delivery_settings');
+        const legacyFreeShipping = settingsMap.get('free_shipping');
+        const legacyPickup = settingsMap.get('pickup_address');
+
+        let deliveryEnabled = true;
+        let pickupEnabled = true;
+        let shippingCost = 0;
+        let pickupAddress = DEFAULT_PICKUP_ADDRESS;
+
+        if (savedDelivery) {
+          deliveryEnabled = savedDelivery.delivery_enabled ?? true;
+          pickupEnabled = savedDelivery.pickup_enabled ?? true;
+          shippingCost = typeof savedDelivery.shipping_cost === 'number' ? savedDelivery.shipping_cost : 0;
+          if (savedDelivery.pickup_address && typeof savedDelivery.pickup_address === 'string' && savedDelivery.pickup_address.trim()) {
+            pickupAddress = savedDelivery.pickup_address;
+          }
+        }
+
+        if (legacyPickup) {
+          if (typeof legacyPickup === 'string' && legacyPickup.trim()) {
+            pickupAddress = legacyPickup;
+          } else if (typeof legacyPickup === 'object' && legacyPickup?.street) {
+            pickupAddress = `${legacyPickup.street}, nº ${legacyPickup.number || ''} - ${legacyPickup.neighborhood || ''}, ${legacyPickup.city || ''} - ${legacyPickup.state || ''}, ${legacyPickup.zip_code || ''}`;
+          }
+        }
+
+        let freeShipping = { enabled: false, cost: shippingCost };
+        if (legacyFreeShipping) {
+          freeShipping = {
+            enabled: Boolean(legacyFreeShipping.enabled),
+            cost: typeof legacyFreeShipping.cost === 'number' ? legacyFreeShipping.cost : shippingCost,
+          };
+        }
+
+        setDeliveryConfig({
+          delivery_enabled: deliveryEnabled,
+          pickup_enabled: pickupEnabled,
+          shipping_cost: shippingCost,
+          pickup_address: pickupAddress,
+        });
+
+        setFreeShippingConfig(freeShipping);
+
+        // 2. Payment methods settings
+        const savedPayments = settingsMap.get('payment_methods');
+        const paymentCfg: PaymentSettingsConfig = {
+          pix_enabled: savedPayments?.pix_enabled ?? true,
+          card_enabled: savedPayments?.card_enabled ?? true,
+          apple_pay_enabled: savedPayments?.apple_pay_enabled ?? true,
+          google_pay_enabled: savedPayments?.google_pay_enabled ?? true,
+          boleto_enabled: savedPayments?.boleto_enabled ?? true,
+          cash_on_delivery_enabled: savedPayments?.cash_on_delivery_enabled ?? true,
+        };
+        setPaymentConfig(paymentCfg);
+
+        // Auto-select receipt method if only one is enabled
+        if (!deliveryEnabled && pickupEnabled) {
+          setDeliveryType('pickup');
+        } else if (deliveryEnabled && !pickupEnabled) {
+          setDeliveryType('delivery');
+        }
+      }
+    } catch (err) {
+      console.error('[CHECKOUT] Erro ao carregar configurações de entrega e pagamentos:', err);
+      setLoadError('Não foi possível carregar as informações do checkout.');
+    } finally {
+      setLoadingSettings(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!pixState?.pixExpiresAt || pixState.isPaid) {
-      setTimeRemaining(null);
+    fetchStoreSettings();
+  }, [fetchStoreSettings]);
+
+  // ── Fetch addresses ────────────────────────────────────────────────────────
+  const fetchAddresses = useCallback(async () => {
+    if (!user) {
+      setLoadingAddresses(false);
       return;
     }
 
-    const updateTimer = () => {
-      const expires = new Date(pixState.pixExpiresAt!).getTime();
-      const now = new Date().getTime();
-      const diff = expires - now;
+    try {
+      setLoadingAddresses(true);
+      const { data, error } = await supabase
+        .from('addresses')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('is_default', { ascending: false })
+        .order('created_at', { ascending: false });
 
-      if (diff <= 0) {
-        setTimeRemaining('Expirado');
-        return;
+      if (error) throw error;
+
+      const addrList = (data as CustomerAddress[]) || [];
+      setAddresses(addrList);
+
+      if (addrList.length > 0) {
+        const defaultAddr = addrList.find((a) => a.is_default) || addrList[0];
+        if (defaultAddr?.id) {
+          setSelectedAddressId(defaultAddr.id);
+        }
+      }
+    } catch (err) {
+      console.error('[CHECKOUT] Erro ao carregar endereços:', err);
+      // Non-critical if user just has no address yet, but log it
+    } finally {
+      setLoadingAddresses(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchAddresses();
+  }, [fetchAddresses]);
+
+  // ── Fetch shipping cost via secure RPC ─────────────────────────────────────
+  const fetchShippingForAddress = useCallback(async (addressId: string) => {
+    if (!addressId || deliveryType === 'pickup') {
+      setCalculatedShipping({
+        loading: false,
+        available: null,
+        shipping_cost: 0,
+        region_label: null,
+        zone_id: null,
+        zone_name: null,
+        estimated_days_min: null,
+        estimated_days_max: null,
+        error: null,
+      });
+      return;
+    }
+
+    try {
+      setCalculatedShipping((prev) => ({ ...prev, loading: true, error: null }));
+      const { data, error } = await supabase.rpc('calculate_order_shipping', {
+        p_address_id: addressId,
+      });
+
+      if (error) {
+        throw error;
       }
 
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-      setTimeRemaining(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
-    };
+      const res = data as {
+        available: boolean;
+        shipping_cost: number | null;
+        region_label: string | null;
+        zone_id: string | null;
+        zone_name: string | null;
+        estimated_days_min: number | null;
+        estimated_days_max: number | null;
+        zip_code?: string;
+      };
 
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [pixState?.pixExpiresAt, pixState?.isPaid]);
+      setCalculatedShipping({
+        loading: false,
+        available: res.available,
+        shipping_cost: res.shipping_cost,
+        region_label: res.region_label,
+        zone_id: res.zone_id,
+        zone_name: res.zone_name,
+        estimated_days_min: res.estimated_days_min,
+        estimated_days_max: res.estimated_days_max,
+        error: null,
+      });
+    } catch (err: any) {
+      console.error('[CHECKOUT] Erro ao calcular frete por CEP:', err);
+      setCalculatedShipping({
+        loading: false,
+        available: false,
+        shipping_cost: null,
+        region_label: null,
+        zone_id: null,
+        zone_name: null,
+        estimated_days_min: null,
+        estimated_days_max: null,
+        error: 'Não foi possível calcular o frete para este endereço. Tente novamente.',
+      });
+    }
+  }, [deliveryType]);
 
-  // Realtime subscription & Polling for PIX payment confirmation
   useEffect(() => {
-    if (!pixState || pixState.isPaid) return;
+    if (deliveryType === 'delivery' && selectedAddressId) {
+      fetchShippingForAddress(selectedAddressId);
+    } else if (deliveryType === 'pickup') {
+      setCalculatedShipping({
+        loading: false,
+        available: true,
+        shipping_cost: 0,
+        region_label: null,
+        zone_id: null,
+        zone_name: null,
+        estimated_days_min: null,
+        estimated_days_max: null,
+        error: null,
+      });
+    }
+  }, [deliveryType, selectedAddressId, fetchShippingForAddress]);
 
-    const orderId = pixState.orderId;
+  // In-page retry handler without reloading the browser
+  const handleRetryAll = useCallback(() => {
+    setLoadError(null);
+    fetchStoreSettings();
+    if (user) {
+      fetchAddresses();
+      if (selectedAddressId && deliveryType === 'delivery') {
+        fetchShippingForAddress(selectedAddressId);
+      }
+    }
+  }, [fetchStoreSettings, fetchAddresses, user, selectedAddressId, deliveryType, fetchShippingForAddress]);
 
-    // 1. Supabase Realtime Subscription
+  // ── Realtime subscription for online payment confirmation ─────────────────
+  useEffect(() => {
+    if (!stripePaymentState || stripePaymentState.isPaid) return;
+    if (stripePaymentState.boletoPdfUrl !== null) return; // boleto issued — don't poll
+
+    const orderId = stripePaymentState.orderId;
+
     const channel = supabase
-      .channel(`order-pix-${orderId}`)
+      .channel(`order-payment-${orderId}`)
       .on(
         'postgres_changes',
         {
@@ -205,14 +1371,14 @@ export function CheckoutPage() {
         (payload) => {
           const updated = payload.new as any;
           if (updated && updated.payment_status === 'paid') {
-            toast.success('Pagamento PIX confirmado com sucesso!');
-            setPixState((prev) => (prev ? { ...prev, isPaid: true } : null));
+            toast.success('Pagamento confirmado com sucesso!');
+            setStripePaymentState((prev) => (prev ? { ...prev, isPaid: true } : null));
           }
         }
       )
       .subscribe();
 
-    // 2. Controlled Polling Fallback (every 5 seconds)
+    // Polling fallback (every 8s)
     const checkStatus = async () => {
       try {
         const { data, error } = await supabase
@@ -222,24 +1388,24 @@ export function CheckoutPage() {
           .single();
 
         if (!error && data && data.payment_status === 'paid') {
-          toast.success('Pagamento PIX confirmado com sucesso!');
-          setPixState((prev) => (prev ? { ...prev, isPaid: true } : null));
+          toast.success('Pagamento confirmado!');
+          setStripePaymentState((prev) => (prev ? { ...prev, isPaid: true } : null));
         }
       } catch (err) {
-        console.warn('[CHECKOUT-PIX-POLLING] Erro ao checar status:', err);
+        console.warn('[CHECKOUT-STRIPE-POLLING] Erro ao checar status:', err);
       }
     };
 
-    const interval = setInterval(checkStatus, 5000);
+    const interval = setInterval(checkStatus, 8000);
     pollingRef.current = interval as unknown as number;
 
     return () => {
       supabase.removeChannel(channel);
       clearInterval(interval);
     };
-  }, [pixState?.orderId, pixState?.isPaid]);
+  }, [stripePaymentState?.orderId, stripePaymentState?.isPaid, stripePaymentState?.boletoPdfUrl]);
 
-  // Handle CEP auto-fill
+  // ── CEP auto-fill ──────────────────────────────────────────────────────────
   const handleCepBlur = async () => {
     const rawCep = addressForm.zip_code.replace(/\D/g, '');
     if (rawCep.length !== 8) return;
@@ -308,7 +1474,6 @@ export function CheckoutPage() {
       setSelectedAddressId(newAddr.id);
       setIsAddressModalOpen(false);
 
-      // Reset form
       setAddressForm({
         zip_code: '',
         street: '',
@@ -327,62 +1492,124 @@ export function CheckoutPage() {
     }
   };
 
-  // Calculations
+  // ── Calculations ──────────────────────────────────────────────────────────
+  const shippingCost = useMemo(() => {
+    if (deliveryType === 'pickup') {
+      return 0;
+    }
+    if (calculatedShipping.available && typeof calculatedShipping.shipping_cost === 'number') {
+      return calculatedShipping.shipping_cost;
+    }
+    return 0;
+  }, [deliveryType, calculatedShipping.available, calculatedShipping.shipping_cost]);
+
   const subtotal = getSubtotal();
-  const shippingCost = 0; // Free shipping
   const total = subtotal + shippingCost;
 
   const selectedAddress = useMemo(() => {
     return addresses.find((a) => a.id === selectedAddressId) || null;
   }, [addresses, selectedAddressId]);
 
-  // Format currencies
   const formatBRL = (val: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
-  // Copy PIX Code to clipboard
-  const handleCopyPix = async () => {
-    if (!pixState?.pixCopyPaste) return;
-    try {
-      await navigator.clipboard.writeText(pixState.pixCopyPaste);
-      setCopiedPix(true);
-      toast.success('Código PIX copiado para a área de transferência!');
-      setTimeout(() => setCopiedPix(false), 3000);
-    } catch (err) {
-      toast.error('Erro ao copiar código PIX. Tente selecionar o texto manualmente.');
-    }
-  };
+  // ── Payment confirmed callback ─────────────────────────────────────────────
+  const handlePaymentConfirmed = useCallback(() => {
+    void clearCart();
+    setPendingOrderId(null);
+    setPendingOrderData(null);
+    setStripePaymentState((prev) => (prev ? { ...prev, isPaid: true } : null));
+  }, [clearCart]);
 
-  // Manual Check "Já realizei o pagamento"
-  const handleManualCheckPix = async () => {
-    if (!pixState?.orderId) return;
+  // ── Boleto issued callback ─────────────────────────────────────────────────
+  const handleBoletoIssued = useCallback(
+    (pdfUrl: string | null, hostedUrl: string | null) => {
+      void clearCart();
+      setPendingOrderId(null);
+      setPendingOrderData(null);
+      setStripePaymentState((prev) =>
+        prev ? { ...prev, boletoPdfUrl: pdfUrl, boletoHostedUrl: hostedUrl } : null
+      );
+    },
+    [clearCart]
+  );
 
-    try {
-      setCheckingPixStatus(true);
-      const { data, error } = await supabase
-        .from('orders')
-        .select('payment_status')
-        .eq('id', pixState.orderId)
-        .single();
+  // ── Handle Change Method from Stripe screen ───────────────────────────────
+  const handleChangeMethod = useCallback(() => {
+    setStripePaymentState(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
-      if (error) throw error;
+  // ── Handle Change Method from PIX screen ──────────────────────────────────
+  const handlePixChangeMethod = useCallback(() => {
+    setAbacatePixState(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
-      if (data?.payment_status === 'paid') {
-        toast.success('Pagamento confirmado!');
-        setPixState((prev) => (prev ? { ...prev, isPaid: true } : null));
-      } else {
-        toast.info('Pagamento ainda em processamento. Aguarde alguns segundos após a transferência no seu banco.');
+  // ── Handle Regenerate PIX ─────────────────────────────────────────────────
+  const handleRegeneratePix = useCallback(async () => {
+    if (!abacatePixState) return;
+    const targetOrderId = abacatePixState.orderId;
+    const session = await supabase.auth.getSession();
+    const accessToken = session.data?.session?.access_token;
+
+    const { data: pixRes, error: pixErr } = await supabase.functions.invoke(
+      'create-abacate-pix',
+      {
+        body: {
+          order_id: targetOrderId,
+        },
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
       }
-    } catch (err: any) {
-      console.error('[CHECKOUT-CHECK-PIX]', err);
-      toast.error('Erro ao consultar status do pagamento.');
-    } finally {
-      setCheckingPixStatus(false);
+    );
+
+    if (pixErr || !pixRes?.success || !pixRes?.data?.brCode) {
+      console.error('[CHECKOUT] Erro ao regenerar PIX:', pixErr || pixRes?.error);
+      toast.error('Não foi possível gerar novo PIX. Tente novamente.');
+      return;
+    }
+
+    const pixData = pixRes.data;
+    setAbacatePixState((prev) =>
+      prev
+        ? {
+            ...prev,
+            pixId: pixData.id,
+            brCode: pixData.brCode,
+            qrCodeBase64: pixData.brCodeBase64 || null,
+            expiresAt: pixData.expiresAt || null,
+          }
+        : null
+    );
+
+    toast.success('Novo código PIX gerado com sucesso!');
+  }, [abacatePixState]);
+
+  // ── Label helper ──────────────────────────────────────────────────────────
+  const getPaymentMethodDisplayLabel = (method: PaymentMethodOption) => {
+    switch (method) {
+      case 'abacate_pix':
+        return 'PIX';
+      case 'card':
+        return 'Cartão de Crédito / Débito';
+      case 'apple_pay':
+        return 'Apple Pay';
+      case 'google_pay':
+        return 'Google Pay';
+      case 'boleto':
+        return 'Boleto Bancário';
+      case 'cash_on_delivery':
+        return 'Dinheiro na entrega';
+      default:
+        return 'Pagamento Online';
     }
   };
 
-  // Finalize order handler
+  // ── Finalize order handler ─────────────────────────────────────────────────
   const handleFinalizeOrder = async () => {
+    // 1. Double-click prevention
+    if (isSubmitting) return;
+
     if (!user) {
       toast.error('Faça login para finalizar o pedido');
       navigate({ to: '/login' });
@@ -394,187 +1621,361 @@ export function CheckoutPage() {
       return;
     }
 
+    if (!deliveryConfig.delivery_enabled && !deliveryConfig.pickup_enabled) {
+      toast.error('Nenhuma opção de recebimento está disponível no momento.');
+      return;
+    }
+
+    if (deliveryType === 'delivery' && !deliveryConfig.delivery_enabled) {
+      toast.error('A opção de entrega está desativada no momento.');
+      return;
+    }
+
+    if (deliveryType === 'pickup' && !deliveryConfig.pickup_enabled) {
+      toast.error('A opção de retirada está desativada no momento.');
+      return;
+    }
+
     if (deliveryType === 'delivery' && !selectedAddressId) {
       toast.error('Por favor, selecione ou cadastre um endereço de entrega.');
       return;
     }
 
+    // Immediately start loading state BEFORE any asynchronous operation
+    setIsSubmitting(true);
+
     try {
-      setIsSubmitting(true);
+      // 1. REVALIDATE SETTINGS (PAYMENT METHODS & DELIVERY) DIRECTLY FROM DATABASE
+      const { data: dbSettings, error: settingsErr } = await supabase
+        .from('settings')
+        .select('*');
 
-      // 1. REVALIDATE STOCK & STATUS DIRECTLY FROM DATABASE
-      const productIds = cart.items.map((i) => i.product_id);
-      const { data: dbProducts, error: prodErr } = await supabase
-        .from('products')
-        .select('id, name, price, stock_quantity, is_active')
-        .in('id', productIds);
-
-      if (prodErr || !dbProducts) {
-        throw new Error('Não foi possível verificar a disponibilidade dos produtos.');
+      if (settingsErr) {
+        console.warn('[CHECKOUT] Aviso ao buscar settings no banco:', settingsErr.message);
       }
 
-      // Check each item
-      for (const item of cart.items) {
-        const liveProd = dbProducts.find((p) => p.id === item.product_id);
-        if (!liveProd || !liveProd.is_active) {
-          throw new Error(`O produto "${item.product?.name || 'Item'}" não está mais disponível.`);
-        }
-        if (liveProd.stock_quantity < item.quantity) {
-          throw new Error(
-            `Estoque insuficiente para "${liveProd.name}". Quantidade disponível: ${liveProd.stock_quantity}, solicitada: ${item.quantity}.`
-          );
-        }
+      const settingsMap = new Map<string, any>();
+      if (dbSettings && dbSettings.length > 0) {
+        dbSettings.forEach((row) => settingsMap.set(row.key, row.value));
       }
 
-      // 2. COMPUTE SNAPSHOT TOTALS
-      const verifiedSubtotal = cart.items.reduce((sum, item) => {
-        const liveProd = dbProducts.find((p) => p.id === item.product_id);
-        const unitPrice = liveProd ? liveProd.price : item.product.price;
-        return sum + unitPrice * item.quantity;
-      }, 0);
-
-      const verifiedShipping = 0;
-      const verifiedTotal = verifiedSubtotal + verifiedShipping;
-
-      // 3. CREATE ORDER IN public.orders
-      const orderPayload = {
-        user_id: user.id,
-        delivery_type: deliveryType,
-        shipping_address_id: deliveryType === 'delivery' ? selectedAddressId : null,
-        pickup_address: deliveryType === 'pickup' ? PICKUP_ADDRESS_TEXT : null,
-        payment_method: paymentMethod,
-        payment_status: 'pending',
-        subtotal: verifiedSubtotal,
-        shipping_cost: verifiedShipping,
-        total: verifiedTotal,
-        customer_note: customerNote.trim() || null,
-        status: 'pending',
+      // Live Payment Methods Validation
+      const livePaymentMethods = settingsMap.get('payment_methods');
+      const livePaymentConfig: PaymentSettingsConfig = {
+        pix_enabled: livePaymentMethods?.pix_enabled ?? true,
+        card_enabled: livePaymentMethods?.card_enabled ?? true,
+        apple_pay_enabled: livePaymentMethods?.apple_pay_enabled ?? true,
+        google_pay_enabled: livePaymentMethods?.google_pay_enabled ?? true,
+        boleto_enabled: livePaymentMethods?.boleto_enabled ?? true,
+        cash_on_delivery_enabled: livePaymentMethods?.cash_on_delivery_enabled ?? true,
       };
 
-      const { data: createdOrder, error: orderErr } = await supabase
-        .from('orders')
-        .insert(orderPayload)
-        .select()
-        .single();
-
-      if (orderErr || !createdOrder) {
-        throw new Error(orderErr?.message || 'Erro ao criar pedido no banco de dados.');
+      if (!isPaymentMethodEnabled(paymentMethod, livePaymentConfig)) {
+        setPaymentConfig(livePaymentConfig);
+        throw new Error('A forma de pagamento selecionada foi desativada pela loja. Escolha outra forma de pagamento.');
       }
 
-      // 4. CREATE ORDER ITEMS (SNAPSHOT)
-      const orderItemsPayload = cart.items.map((item) => {
-        const liveProd = dbProducts.find((p) => p.id === item.product_id)!;
-        return {
-          order_id: createdOrder.id,
-          product_id: item.product_id,
-          product_name: liveProd.name,
-          product_price: liveProd.price,
-          quantity: item.quantity,
-          total_price: liveProd.price * item.quantity,
-        };
-      });
+      const dbPaymentMethod =
+        paymentMethod === 'cash_on_delivery'
+          ? 'cash_on_delivery'
+          : paymentMethod === 'abacate_pix'
+            ? 'abacate_pix'
+            : 'stripe_online';
+      const paymentMethodLabel = getPaymentMethodDisplayLabel(paymentMethod);
 
-      const { error: itemsErr } = await supabase.from('order_items').insert(orderItemsPayload);
+      let targetOrderId = pendingOrderId;
+      let completedOrderData = pendingOrderData;
+      let verifiedTotal = total;
 
-      if (itemsErr) {
-        console.error('[CHECKOUT] Erro ao inserir order_items:', itemsErr);
-        throw new Error('Falha ao registrar os itens do pedido: ' + itemsErr.message);
-      }
-
-      // 5. UPDATE STOCK & REGISTER MOVEMENTS (Concurrent reservation)
-      for (const item of cart.items) {
-        const liveProd = dbProducts.find((p) => p.id === item.product_id)!;
-        const newStock = Math.max(0, liveProd.stock_quantity - item.quantity);
-
-        // Update product stock
-        const { error: stockUpdateErr } = await supabase
+      // If an order has not been created yet for this checkout session:
+      if (!targetOrderId || !completedOrderData) {
+        // 2. REVALIDATE STOCK & STATUS DIRECTLY FROM DATABASE
+        const productIds = cart.items.map((i) => i.product_id);
+        const { data: dbProducts, error: prodErr } = await supabase
           .from('products')
-          .update({ stock_quantity: newStock })
-          .eq('id', item.product_id);
+          .select('id, name, price, stock_quantity, is_active')
+          .in('id', productIds);
 
-        if (stockUpdateErr) {
-          console.warn('[CHECKOUT] Aviso ao atualizar estoque do produto:', stockUpdateErr.message);
+        if (prodErr || !dbProducts) {
+          throw new Error('Não foi possível verificar a disponibilidade dos produtos.');
         }
 
-        // Record movement
-        const { error: movErr } = await supabase.from('stock_movements').insert({
-          product_id: item.product_id,
-          quantity: item.quantity,
-          movement_type: 'out',
-          reason: `Pedido #${createdOrder.id.slice(0, 8).toUpperCase()}`,
-          reference: createdOrder.id,
-          performed_by: user.id,
-        });
-
-        if (movErr) {
-          console.warn('[CHECKOUT] Aviso ao inserir stock_movements:', movErr.message);
+        for (const item of cart.items) {
+          const liveProd = dbProducts.find((p) => p.id === item.product_id);
+          if (!liveProd || !liveProd.is_active) {
+            throw new Error(`O produto "${item.product?.name || 'Item'}" não está mais disponível.`);
+          }
+          if (liveProd.stock_quantity < item.quantity) {
+            throw new Error(
+              `Estoque insuficiente para "${liveProd.name}". Disponível: ${liveProd.stock_quantity}, solicitado: ${item.quantity}.`
+            );
+          }
         }
-      }
 
-      const completedOrderData: CompletedOrderData = {
-        id: createdOrder.id,
-        created_at: createdOrder.created_at,
-        total: verifiedTotal,
-        subtotal: verifiedSubtotal,
-        shipping_cost: verifiedShipping,
-        delivery_type: deliveryType,
-        payment_method: paymentMethod === 'pix' ? 'PIX' : 'Dinheiro na entrega',
-        payment_status: 'pending',
-        customer_note: customerNote.trim() || null,
-        shipping_address: deliveryType === 'delivery' ? selectedAddress : null,
-        pickup_address: deliveryType === 'pickup' ? PICKUP_ADDRESS_TEXT : null,
-        items: orderItemsPayload.map((it) => ({
-          product_name: it.product_name,
-          product_price: it.product_price,
-          quantity: it.quantity,
-          total_price: it.total_price,
-        })),
-      };
+        // 3. REVALIDATE DELIVERY & COMPUTE LIVE SHIPPING VIA SECURE RPC
+        let verifiedShipping = 0;
+        let verifiedPickupAddress = deliveryConfig.pickup_address || DEFAULT_PICKUP_ADDRESS;
 
-      // 6. CLEAR CART
-      await clearCart();
+        const liveDelivery = settingsMap.get('delivery_settings');
+        const livePickup = settingsMap.get('pickup_address');
 
-      // 7. HANDLE PAYMENT METHOD BRANCH
-      if (paymentMethod === 'pix') {
-        // Invoke Edge Function to generate Stripe PIX
-        try {
-          const { data: pixRes, error: pixErr } = await supabase.functions.invoke('create-pix-payment', {
-            body: { order_id: createdOrder.id },
+        const liveDeliveryEnabled = liveDelivery?.delivery_enabled ?? true;
+        const livePickupEnabled = liveDelivery?.pickup_enabled ?? true;
+
+        if (deliveryType === 'delivery' && !liveDeliveryEnabled) {
+          throw new Error('A opção de entrega foi desativada pela loja. Atualize a página.');
+        }
+        if (deliveryType === 'pickup' && !livePickupEnabled) {
+          throw new Error('A opção de retirada foi desativada pela loja. Atualize a página.');
+        }
+
+        if (livePickup && typeof livePickup === 'string' && livePickup.trim()) {
+          verifiedPickupAddress = livePickup;
+        } else if (liveDelivery?.pickup_address && typeof liveDelivery.pickup_address === 'string' && liveDelivery.pickup_address.trim()) {
+          verifiedPickupAddress = liveDelivery.pickup_address;
+        }
+
+        if (deliveryType === 'pickup') {
+          verifiedShipping = 0;
+        } else {
+          // CALL RPC calculate_order_shipping for fresh live revalidation before order creation
+          const { data: rpcData, error: rpcErr } = await supabase.rpc('calculate_order_shipping', {
+            p_address_id: selectedAddressId,
           });
 
-          if (pixErr) {
-            console.error('[CHECKOUT] Erro na Edge Function create-pix-payment:', pixErr);
-            toast.error('Pedido registrado! Chave Stripe ou Edge Function pendente de configuração no Supabase.');
+          if (rpcErr) {
+            throw new Error('Não foi possível validar o frete para o endereço selecionado: ' + rpcErr.message);
           }
 
-          setPixState({
-            orderId: createdOrder.id,
-            total: verifiedTotal,
-            pixQrCodeUrl: pixRes?.pix_qr_code_url || null,
-            pixCopyPaste: pixRes?.pix_copy_paste || null,
-            pixExpiresAt: pixRes?.pix_expires_at || null,
-            hostedInstructionsUrl: pixRes?.hosted_instructions_url || null,
-            orderData: completedOrderData,
-            isPaid: false,
+          const freshShipping = rpcData as {
+            available: boolean;
+            shipping_cost: number | null;
+            region_label: string | null;
+            zone_id: string | null;
+            zone_name: string | null;
+            estimated_days_min: number | null;
+            estimated_days_max: number | null;
+            zip_code?: string;
+          };
+
+          if (!freshShipping || !freshShipping.available || freshShipping.shipping_cost === null) {
+            throw new Error('Este endereço não possui entrega disponível no momento.');
+          }
+
+          // Check for divergence between preview and live revalidated shipping cost
+          if (calculatedShipping.shipping_cost !== null && freshShipping.shipping_cost !== calculatedShipping.shipping_cost) {
+            setCalculatedShipping({
+              loading: false,
+              available: freshShipping.available,
+              shipping_cost: freshShipping.shipping_cost,
+              region_label: freshShipping.region_label,
+              zone_id: freshShipping.zone_id,
+              zone_name: freshShipping.zone_name,
+              estimated_days_min: freshShipping.estimated_days_min,
+              estimated_days_max: freshShipping.estimated_days_max,
+              error: null,
+            });
+
+            toast.warning(
+              `O valor do frete foi atualizado para ${formatBRL(freshShipping.shipping_cost)}. Por favor, confira o resumo e confirme o pedido novamente.`
+            );
+            setIsSubmitting(false);
+            return;
+          }
+
+          verifiedShipping = freshShipping.shipping_cost;
+        }
+
+        const verifiedSubtotal = cart.items.reduce((sum, item) => {
+          const liveProd = dbProducts.find((p) => p.id === item.product_id);
+          const unitPrice = liveProd ? liveProd.price : item.product.price;
+          return sum + unitPrice * item.quantity;
+        }, 0);
+
+        verifiedTotal = verifiedSubtotal + verifiedShipping;
+
+        // 3. CREATE ORDER IN public.orders
+        const orderPayload = {
+          user_id: user.id,
+          delivery_type: deliveryType,
+          shipping_address_id: deliveryType === 'delivery' ? selectedAddressId : null,
+          pickup_address: deliveryType === 'pickup' ? verifiedPickupAddress : null,
+          payment_method: dbPaymentMethod,
+          payment_status: 'pending',
+          subtotal: verifiedSubtotal,
+          shipping_cost: verifiedShipping,
+          total: verifiedTotal,
+          customer_note: customerNote.trim() || null,
+          status: 'pending',
+        };
+
+        const { data: createdOrder, error: orderErr } = await supabase
+          .from('orders')
+          .insert(orderPayload)
+          .select()
+          .single();
+
+        if (orderErr || !createdOrder) {
+          throw new Error(orderErr?.message || 'Erro ao criar pedido no banco de dados.');
+        }
+
+        targetOrderId = createdOrder.id;
+
+        // 4. CREATE ORDER ITEMS (SNAPSHOT)
+        const orderItemsPayload = cart.items.map((item) => {
+          const liveProd = dbProducts.find((p) => p.id === item.product_id)!;
+          return {
+            order_id: createdOrder.id,
+            product_id: item.product_id,
+            product_name: liveProd.name,
+            product_price: liveProd.price,
+            quantity: item.quantity,
+            total_price: liveProd.price * item.quantity,
+          };
+        });
+
+        const { error: itemsErr } = await supabase.from('order_items').insert(orderItemsPayload);
+        if (itemsErr) {
+          throw new Error('Falha ao registrar os itens do pedido: ' + itemsErr.message);
+        }
+
+        // 5. UPDATE STOCK & REGISTER MOVEMENTS VIA SECURE ATOMIC RPC
+        for (const item of cart.items) {
+          const { error: stockRpcErr } = await supabase.rpc('decrement_checkout_stock', {
+            p_product_id: item.product_id,
+            p_quantity: item.quantity,
+            p_order_id: createdOrder.id,
           });
 
-          toast.success('Pedido criado! Conclua o pagamento via PIX.');
-        } catch (edgeErr: any) {
-          console.warn('[CHECKOUT] Falha ao invocar Edge Function:', edgeErr);
-          setPixState({
-            orderId: createdOrder.id,
-            total: verifiedTotal,
-            pixQrCodeUrl: null,
-            pixCopyPaste: null,
-            pixExpiresAt: null,
-            hostedInstructionsUrl: null,
-            orderData: completedOrderData,
-            isPaid: false,
-          });
+          if (stockRpcErr) {
+            throw new Error(
+              'Não foi possível reservar o estoque do produto. ' +
+              stockRpcErr.message
+            );
+          }
         }
+
+        completedOrderData = {
+          id: createdOrder.id,
+          created_at: createdOrder.created_at,
+          total: verifiedTotal,
+          subtotal: verifiedSubtotal,
+          shipping_cost: verifiedShipping,
+          delivery_type: deliveryType,
+          payment_method: paymentMethodLabel,
+          payment_status: 'pending',
+          customer_note: customerNote.trim() || null,
+          shipping_address: deliveryType === 'delivery' ? selectedAddress : null,
+          pickup_address: deliveryType === 'pickup' ? verifiedPickupAddress : null,
+          items: orderItemsPayload.map((it) => ({
+            product_name: it.product_name,
+            product_price: it.product_price,
+            quantity: it.quantity,
+            total_price: it.total_price,
+          })),
+        };
+
+        setPendingOrderId(targetOrderId);
+        setPendingOrderData(completedOrderData);
       } else {
-        // Cash on delivery completed
+        // If order already exists in state, update payment_method if changed via secure RPC
+        const { error: changeMethodErr } = await supabase.rpc(
+          'customer_change_pending_payment_method',
+          {
+            p_order_id: targetOrderId,
+            p_payment_method: dbPaymentMethod,
+          }
+        );
+
+        if (changeMethodErr) {
+          throw new Error(
+            'Não foi possível atualizar a forma de pagamento do pedido. ' +
+            changeMethodErr.message
+          );
+        }
+
+        completedOrderData = {
+          ...completedOrderData,
+          payment_method: paymentMethodLabel,
+        };
+        setPendingOrderData(completedOrderData);
+        verifiedTotal = completedOrderData.total;
+      }
+
+      // 6. BRANCH: AbacatePay PIX vs Stripe vs cash_on_delivery
+      if (paymentMethod === 'abacate_pix') {
+        const session = await supabase.auth.getSession();
+        const accessToken = session.data?.session?.access_token;
+
+        const { data: pixRes, error: pixErr } = await supabase.functions.invoke(
+          'create-abacate-pix',
+          {
+            body: {
+              order_id: targetOrderId,
+            },
+            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+          }
+        );
+
+        if (pixErr || !pixRes?.success || !pixRes?.data?.brCode) {
+          console.error('[CHECKOUT] Erro na Edge Function create-abacate-pix:', pixErr || pixRes?.error);
+          throw new Error(
+            'Não foi possível gerar a cobrança PIX. Tente novamente ou escolha outra forma de pagamento.'
+          );
+        }
+
+        const pixData = pixRes.data;
+        setAbacatePixState({
+          orderId: targetOrderId,
+          total: verifiedTotal,
+          pixId: pixData.id,
+          brCode: pixData.brCode,
+          qrCodeBase64: pixData.brCodeBase64 || null,
+          expiresAt: pixData.expiresAt || null,
+          orderData: completedOrderData,
+        });
+
+        toast.success('Cobrança PIX gerada com sucesso!');
+      } else if (paymentMethod !== 'cash_on_delivery') {
+        const session = await supabase.auth.getSession();
+        const accessToken = session.data?.session?.access_token;
+
+        const { data: paymentRes, error: paymentErr } = await supabase.functions.invoke(
+          'create-stripe-payment',
+          {
+            body: {
+              order_id: targetOrderId,
+              payment_method: paymentMethod,
+            },
+            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+          }
+        );
+
+        if (paymentErr || !paymentRes?.client_secret) {
+          console.error('[CHECKOUT] Erro na Edge Function create-stripe-payment:', paymentErr);
+          throw new Error(
+            'Não foi possível inicializar o ambiente de pagamento. Tente novamente em instantes.'
+          );
+        }
+
+        setStripePaymentState({
+          orderId: targetOrderId,
+          total: verifiedTotal,
+          clientSecret: paymentRes.client_secret,
+          selectedMethod: paymentMethod,
+          orderData: completedOrderData,
+          isPaid: false,
+          boletoPdfUrl: null,
+          boletoHostedUrl: null,
+        });
+
+        toast.success('Ambiente de pagamento carregado.');
+      } else {
+        // Cash on delivery — clear cart and confirm order immediately
+        await clearCart();
         setCompletedOrder(completedOrderData);
+        setPendingOrderId(null);
+        setPendingOrderData(null);
         toast.success('Pedido finalizado com sucesso!');
       }
 
@@ -587,22 +1988,191 @@ export function CheckoutPage() {
     }
   };
 
-  // ── LOADING STATE ──
-  if (!authReady || cartLoading) {
+  // ── SKELETON LOADING STATE (Preserves 2-column desktop / 1-column mobile layout, eliminates CLS) ──
+  if (!authReady || cartLoading || (loadingSettings && loadingAddresses)) {
     return (
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
         <Header showNav />
-        <div className="flex-1 max-w-5xl mx-auto px-4 py-16 w-full flex items-center justify-center">
-          <div className="text-center space-y-4">
-            <Loader2 className="w-10 h-10 animate-spin mx-auto text-primary" />
-            <p className="text-sm text-muted-foreground">Carregando informações do checkout...</p>
+        <main className="flex-1 max-w-6xl mx-auto px-4 py-6 sm:py-8 w-full animate-pulse">
+          {/* Breadcrumb & Title Skeleton */}
+          <div className="mb-6 space-y-2">
+            <div className="h-4 w-44 rounded bg-muted/70" />
+            <div className="h-8 w-56 rounded-lg bg-muted" />
           </div>
-        </div>
+
+          {/* 2-Column Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+            {/* Left Column (7 cols): Checkout Info Skeleton */}
+            <div className="lg:col-span-7 space-y-6">
+              {/* Step 1: Receiving Type Skeleton */}
+              <div
+                className="rounded-2xl p-5 sm:p-6 border space-y-4"
+                style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-muted flex-shrink-0" />
+                  <div className="h-5 w-44 rounded bg-muted" />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="h-20 rounded-xl border border-border bg-muted/40" />
+                  <div className="h-20 rounded-xl border border-border bg-muted/40" />
+                </div>
+                <div className="space-y-2 pt-2">
+                  <div className="h-4 w-36 rounded bg-muted/60" />
+                  <div className="h-20 rounded-xl border border-border bg-muted/30" />
+                </div>
+              </div>
+
+              {/* Step 2: Payment Method Skeleton */}
+              <div
+                className="rounded-2xl p-5 sm:p-6 border space-y-4"
+                style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-muted flex-shrink-0" />
+                  <div className="h-5 w-48 rounded bg-muted" />
+                </div>
+                <div className="space-y-3">
+                  <div className="h-16 rounded-xl border border-border bg-muted/40" />
+                  <div className="h-16 rounded-xl border border-border bg-muted/40" />
+                  <div className="h-16 rounded-xl border border-border bg-muted/40" />
+                </div>
+              </div>
+
+              {/* Step 3: Customer Note Skeleton */}
+              <div
+                className="rounded-2xl p-5 sm:p-6 border space-y-4"
+                style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-muted flex-shrink-0" />
+                  <div className="h-5 w-48 rounded bg-muted" />
+                </div>
+                <div className="h-20 rounded-xl border border-border bg-muted/30" />
+              </div>
+            </div>
+
+            {/* Right Column (5 cols): Order Summary Skeleton */}
+            <div className="lg:col-span-5">
+              <div
+                className="rounded-2xl p-5 sm:p-6 border space-y-5"
+                style={{
+                  backgroundColor: 'var(--card)',
+                  borderColor: 'var(--border)',
+                  boxShadow: 'var(--shadow-sm)',
+                }}
+              >
+                <div
+                  className="flex items-center justify-between border-b pb-4"
+                  style={{ borderColor: 'var(--border)' }}
+                >
+                  <div className="h-5 w-36 rounded bg-muted" />
+                  <div className="h-4 w-20 rounded bg-muted/60" />
+                </div>
+
+                {/* Items Skeleton */}
+                <div className="space-y-3.5">
+                  <div className="flex gap-3">
+                    <div className="w-12 h-12 rounded-lg bg-muted flex-shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-3/4 rounded bg-muted" />
+                      <div className="h-3 w-1/2 rounded bg-muted/60" />
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <div className="w-12 h-12 rounded-lg bg-muted flex-shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-2/3 rounded bg-muted" />
+                      <div className="h-3 w-1/3 rounded bg-muted/60" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Values Breakdown Skeleton */}
+                <div
+                  className="space-y-2.5 pt-4 border-t"
+                  style={{ borderColor: 'var(--border)' }}
+                >
+                  <div className="flex justify-between">
+                    <div className="h-4 w-24 rounded bg-muted/70" />
+                    <div className="h-4 w-16 rounded bg-muted/70" />
+                  </div>
+                  <div className="flex justify-between">
+                    <div className="h-4 w-20 rounded bg-muted/70" />
+                    <div className="h-4 w-12 rounded bg-muted/70" />
+                  </div>
+                  <div
+                    className="flex justify-between pt-3 border-t"
+                    style={{ borderColor: 'var(--border)' }}
+                  >
+                    <div className="h-5 w-16 rounded bg-muted" />
+                    <div className="h-6 w-24 rounded bg-muted" />
+                  </div>
+                </div>
+
+                {/* Button Skeleton */}
+                <div className="h-12 w-full rounded-xl bg-primary/20" />
+              </div>
+            </div>
+          </div>
+        </main>
       </div>
     );
   }
 
-  // ── NOT AUTHENTICATED FALLBACK ──
+  // ── FRIENDLY LOAD ERROR STATE ──────────────────────────────────────────────
+  if (loadError) {
+    return (
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+        <Header showNav />
+        <main className="flex-1 max-w-md mx-auto px-4 py-16 sm:py-20 w-full flex items-center justify-center">
+          <div
+            className="w-full rounded-2xl p-6 sm:p-8 text-center border space-y-5 shadow-sm"
+            style={{
+              backgroundColor: 'var(--card)',
+              borderColor: 'var(--border)',
+            }}
+          >
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto"
+              style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#dc2626' }}
+            >
+              <AlertCircle className="w-7 h-7" />
+            </div>
+
+            <div className="space-y-2">
+              <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
+                Não foi possível carregar o checkout
+              </h1>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Verifique sua conexão e tente novamente.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={handleRetryAll}
+                className="w-full py-3 px-5 rounded-xl font-bold text-white text-sm transition-all hover:opacity-90 flex items-center justify-center gap-2 cursor-pointer"
+                style={{ backgroundColor: 'var(--primary)' }}
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Tentar novamente</span>
+              </button>
+              <Link
+                to="/cart"
+                className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors text-center no-underline"
+              >
+                Voltar ao carrinho
+              </Link>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // ── NOT AUTHENTICATED FALLBACK ─────────────────────────────────────────────
   if (!user) {
     return (
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
@@ -634,17 +2204,136 @@ export function CheckoutPage() {
     );
   }
 
-  // ── PIX PAYMENT SCREEN (PENDING OR CONFIRMED) ──
-  if (pixState) {
-    const isPaid = pixState.isPaid;
-    const qrCodeDisplay = pixState.pixQrCodeUrl || (pixState.pixCopyPaste ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(pixState.pixCopyPaste)}` : null);
+  // ── ORDER FINALIZATION TRANSITION LOADING STATE ───────────────────────────
+  // Covers the whole duration from clicking "Prosseguir para pagamento"
+  // until the Stripe Payment screen (or COD confirmation) is ready.
+  // Prevents the "Seu carrinho está vazio" flash when cart is cleared.
+  if (isSubmitting) {
+    return (
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+        <Header showNav />
+        <main className="flex-1 max-w-md mx-auto px-4 py-20 w-full flex items-center justify-center">
+          <div
+            className="w-full rounded-2xl p-8 sm:p-10 text-center border space-y-6 shadow-sm"
+            style={{
+              backgroundColor: 'var(--card)',
+              borderColor: 'var(--border)',
+            }}
+          >
+            {/* Animated Brand Pulse / Spinner */}
+            <div className="relative w-16 h-16 sm:w-20 sm:h-20 mx-auto flex items-center justify-center">
+              <div
+                className="absolute inset-0 rounded-2xl animate-ping opacity-15"
+                style={{ backgroundColor: 'var(--primary)' }}
+              />
+              <div
+                className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center shadow-md"
+                style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: 'var(--primary)' }}
+              >
+                <Loader2 className="w-8 h-8 sm:w-9 sm:h-9 animate-spin text-primary" />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
+                {paymentMethod === 'abacate_pix' ? 'Gerando seu PIX...' : 'Preparando seu pagamento...'}
+              </h1>
+              <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto">
+                {paymentMethod === 'abacate_pix'
+                  ? 'Estamos preparando sua cobrança. Aguarde alguns instantes.'
+                  : 'Estamos preparando seu pedido. Aguarde alguns instantes.'}
+              </p>
+            </div>
+
+            {/* Subtle Progress Bar */}
+            <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+              <div
+                className="h-full rounded-full animate-pulse"
+                style={{
+                  backgroundColor: 'var(--primary)',
+                  width: '75%',
+                }}
+              />
+            </div>
+
+            <div className="pt-2 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+              <ShieldCheck className="w-4 h-4 text-success" />
+              <span>Ambiente seguro e criptografado</span>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // ── ABACATEPAY PIX PAYMENT SCREEN ─────────────────────────────────────────
+  if (abacatePixState) {
+    return (
+      <AbacatePixPaymentScreen
+        pixState={abacatePixState}
+        onChangeMethod={handlePixChangeMethod}
+        onRegeneratePix={handleRegeneratePix}
+        formatBRL={formatBRL}
+      />
+    );
+  }
+
+  // ── STRIPE PAYMENT SCREEN ─────────────────────────────────────────────────
+  if (stripePaymentState) {
+    const {
+      isPaid,
+      boletoPdfUrl,
+      boletoHostedUrl,
+      orderData,
+      total: orderTotal,
+      clientSecret,
+      selectedMethod,
+    } = stripePaymentState;
+
+    const stripeAppearance = {
+      theme: 'stripe' as const,
+      variables: {
+        colorPrimary: 'var(--primary, #3b82f6)',
+        fontFamily: 'Inter, system-ui, sans-serif',
+        borderRadius: '12px',
+      },
+    };
+
+    const elementsOptions: StripeElementsOptions = {
+      clientSecret,
+      appearance: stripeAppearance,
+      locale: 'pt-BR',
+    };
+
+    const methodHeaderInfo = {
+      card: {
+        icon: <CreditCard className="w-8 h-8 sm:w-10 sm:h-10" />,
+        title: 'Pagamento com Cartão',
+        subtitle: 'Preencha os dados do seu cartão para concluir a compra.',
+      },
+      apple_pay: {
+        icon: <ApplePayIcon className="w-8 h-8 sm:w-10 sm:h-10" />,
+        title: 'Pagamento com Apple Pay',
+        subtitle: 'Conclua sua compra com segurança usando Apple Pay.',
+      },
+      google_pay: {
+        icon: <GooglePayIcon className="w-8 h-8 sm:w-10 sm:h-10" />,
+        title: 'Pagamento com Google Pay',
+        subtitle: 'Conclua sua compra com segurança usando Google Pay.',
+      },
+      boleto: {
+        icon: <FileText className="w-8 h-8 sm:w-10 sm:h-10" />,
+        title: 'Emissão de Boleto Bancário',
+        subtitle: 'Preencha seus dados para emitir o boleto bancário.',
+      },
+    }[selectedMethod];
 
     return (
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
         <Header showNav />
 
         <main className="flex-1 max-w-2xl mx-auto px-4 py-6 sm:py-10 w-full">
-          {/* Top Status Card */}
+          {/* Status Card */}
           <div
             className="rounded-2xl p-6 sm:p-8 text-center mb-6 border"
             style={{
@@ -667,12 +2356,90 @@ export function CheckoutPage() {
                 >
                   Pagamento Confirmado
                 </span>
-                <h1 className="text-2xl sm:text-3xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>
+                <h1
+                  className="text-2xl sm:text-3xl font-bold mb-2"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   Pagamento Realizado com Sucesso!
                 </h1>
                 <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
-                  O Stripe confirmou o seu pagamento PIX. Seu pedido já está sendo preparado pela nossa equipe.
+                  Seu pagamento foi confirmado pelo Stripe. Seu pedido já está sendo preparado pela
+                  nossa equipe.
                 </p>
+              </>
+            ) : boletoPdfUrl !== null || boletoHostedUrl !== null ? (
+              <>
+                <div
+                  className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+                  style={{ backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#d97706' }}
+                >
+                  <FileText className="w-8 h-8 sm:w-10 sm:h-10" />
+                </div>
+                <span
+                  className="inline-block text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider mb-2"
+                  style={{ backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#d97706' }}
+                >
+                  Boleto Gerado — Pagamento Pendente
+                </span>
+                <h1
+                  className="text-xl sm:text-2xl font-bold mb-2"
+                  style={{ color: 'var(--foreground)' }}
+                >
+                  Seu boleto está pronto para pagamento
+                </h1>
+                <p className="text-xs sm:text-sm text-muted-foreground max-w-md mx-auto mb-4">
+                  Realize o pagamento do boleto dentro do prazo de vencimento. A compensação pode
+                  levar <strong>até 3 dias úteis</strong>.
+                </p>
+
+                <div
+                  className="p-4 rounded-xl border text-xs mb-4 space-y-1 text-left"
+                  style={{
+                    backgroundColor: 'rgba(251, 191, 36, 0.06)',
+                    borderColor: 'rgba(251, 191, 36, 0.25)',
+                    color: '#92400e',
+                  }}
+                >
+                  <p className="font-semibold flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    Atenção à compensação bancária
+                  </p>
+                  <p>
+                    O boleto bancário não é compensado instantaneamente. O pedido começará a ser
+                    preparado assim que o banco nos confirmar a liquidação do título.
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2.5 justify-center">
+                  {boletoHostedUrl && (
+                    <a
+                      href={boletoHostedUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center py-2.5 px-5 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 gap-2"
+                      style={{ backgroundColor: 'var(--primary)' }}
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Visualizar Boleto
+                    </a>
+                  )}
+                  {boletoPdfUrl && (
+                    <a
+                      href={boletoPdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center py-2.5 px-5 rounded-xl text-sm font-semibold border transition-all hover:opacity-80 gap-2"
+                      style={{
+                        backgroundColor: 'var(--card)',
+                        borderColor: 'var(--border)',
+                        color: 'var(--foreground)',
+                      }}
+                    >
+                      <FileText className="w-4 h-4" />
+                      Baixar PDF
+                    </a>
+                  )}
+                </div>
               </>
             ) : (
               <>
@@ -680,171 +2447,92 @@ export function CheckoutPage() {
                   className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 text-primary"
                   style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)' }}
                 >
-                  <QrCode className="w-8 h-8 sm:w-10 sm:h-10" />
+                  {methodHeaderInfo.icon}
                 </div>
                 <span
                   className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider mb-2 text-primary"
                   style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)' }}
                 >
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Aguardando Pagamento PIX
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  {getPaymentMethodDisplayLabel(selectedMethod)}
                 </span>
-                <h1 className="text-xl sm:text-2xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>
-                  Escaneie o QR Code para pagar
+                <h1
+                  className="text-xl sm:text-2xl font-bold mb-2"
+                  style={{ color: 'var(--foreground)' }}
+                >
+                  {methodHeaderInfo.title}
                 </h1>
                 <p className="text-xs sm:text-sm text-muted-foreground max-w-md mx-auto">
-                  Abra o aplicativo do seu banco, escolha a opção <strong>Pagar com PIX</strong> e escaneie o código ou copie o código abaixo.
+                  {methodHeaderInfo.subtitle}
                 </p>
               </>
             )}
 
-            <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4 mt-4 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+            {/* Order metadata badges */}
+            <div
+              className="flex flex-wrap items-center justify-center gap-2 sm:gap-4 mt-4 pt-4 border-t"
+              style={{ borderColor: 'var(--border)' }}
+            >
               <div
                 className="px-3 py-1.5 rounded-xl text-xs font-semibold"
                 style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
               >
                 <span>Pedido: </span>
                 <span className="text-primary font-mono font-bold">
-                  #{pixState.orderId.slice(0, 8).toUpperCase()}
+                  #{stripePaymentState.orderId.slice(0, 8).toUpperCase()}
                 </span>
               </div>
-
               <div
                 className="px-3 py-1.5 rounded-xl text-xs font-semibold"
                 style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
               >
                 <span>Valor: </span>
-                <span className="text-primary font-bold">{formatBRL(pixState.total)}</span>
+                <span className="text-primary font-bold">{formatBRL(orderTotal)}</span>
               </div>
-
-              {timeRemaining && !isPaid && (
-                <div
-                  className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1"
-                  style={{ backgroundColor: 'rgba(251, 191, 36, 0.12)', color: '#d97706' }}
-                >
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>Expira em: {timeRemaining}</span>
-                </div>
-              )}
             </div>
           </div>
 
-          {/* PIX QR Code & Copy Box (Only if not paid) */}
-          {!isPaid && (
+          {/* Stripe Payment Element — only shown while awaiting payment */}
+          {!isPaid && boletoPdfUrl === null && boletoHostedUrl === null && (
             <div
-              className="rounded-2xl p-5 sm:p-6 mb-6 border space-y-6"
+              className="rounded-2xl p-5 sm:p-6 mb-6 border"
               style={{
                 backgroundColor: 'var(--card)',
                 borderColor: 'var(--border)',
               }}
             >
-              {/* QR Code Container */}
-              <div className="flex flex-col items-center justify-center space-y-3">
-                <div className="p-4 bg-white rounded-2xl border shadow-sm inline-block">
-                  {qrCodeDisplay ? (
-                    <img
-                      src={qrCodeDisplay}
-                      alt="QR Code PIX para pagamento"
-                      className="w-48 h-48 sm:w-56 sm:h-56 object-contain"
-                    />
-                  ) : (
-                    <div className="w-48 h-48 sm:w-56 sm:h-56 flex flex-col items-center justify-center text-center p-4 bg-gray-50 rounded-xl">
-                      <QrCode className="w-12 h-12 text-gray-400 mb-2" />
-                      <p className="text-xs text-gray-500">
-                        Código PIX gerado. Utilize o Copia e Cola abaixo.
-                      </p>
-                    </div>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground text-center">
-                  Aponte a câmera do aplicativo do seu banco para o QR Code
-                </p>
-              </div>
+              <h2 className="font-bold text-sm mb-4" style={{ color: 'var(--foreground)' }}>
+                {selectedMethod === 'boleto' ? 'Dados para Emissão do Boleto' : 'Dados do Pagamento'}
+              </h2>
 
-              {/* Copy & Paste Code */}
-              {pixState.pixCopyPaste ? (
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    Código PIX Copia e Cola
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      readOnly
-                      value={pixState.pixCopyPaste}
-                      className="w-full h-11 px-3 pr-24 rounded-xl border text-xs font-mono bg-muted/50 focus:outline-none select-all"
-                      style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
-                    />
-                    <button
-                      type="button"
-                      onClick={handleCopyPix}
-                      className="absolute right-1.5 top-1.5 h-8 px-3 rounded-lg text-xs font-semibold text-white flex items-center gap-1.5 transition-all hover:opacity-90 cursor-pointer"
-                      style={{ backgroundColor: copiedPix ? 'var(--success)' : 'var(--primary)' }}
-                    >
-                      {copiedPix ? (
-                        <>
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Copiado!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Copiar</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
+              {getStripe() ? (
+                <Elements options={elementsOptions} stripe={getStripe()!}>
+                  <StripePaymentForm
+                    stripePaymentState={stripePaymentState}
+                    customerProfile={profile}
+                    customerUser={user}
+                    onPaymentConfirmed={handlePaymentConfirmed}
+                    onBoletoIssued={handleBoletoIssued}
+                    onChangeMethod={handleChangeMethod}
+                    formatBRL={formatBRL}
+                  />
+                </Elements>
               ) : (
-                <div
-                  className="p-3.5 rounded-xl text-xs space-y-1 border"
-                  style={{
-                    backgroundColor: 'rgba(251, 191, 36, 0.08)',
-                    borderColor: 'rgba(251, 191, 36, 0.25)',
-                    color: '#d97706',
-                  }}
-                >
-                  <p className="font-semibold flex items-center gap-1.5">
-                    <AlertCircle className="w-4 h-4" />
-                    <span>Aguardando ativação das chaves Stripe</span>
-                  </p>
-                  <p className="opacity-90">
-                    O pedido foi registrado em sua conta. Assim que o secret do Stripe for informado no Supabase Edge Functions, o QR Code e código PIX serão gerados instantaneamente.
+                <div className="text-center py-8">
+                  <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">
+                    Stripe não está configurado. Verifique a variável{' '}
+                    <code className="font-mono text-xs bg-muted px-1 rounded">
+                      VITE_STRIPE_PUBLISHABLE_KEY
+                    </code>
+                    .
                   </p>
                 </div>
               )}
-
-              {/* Status and manual check action */}
-              <div
-                className="p-4 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-3"
-                style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}
-              >
-                <div className="flex items-center gap-2.5 text-xs">
-                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping flex-shrink-0" />
-                  <span className="font-medium" style={{ color: 'var(--foreground)' }}>
-                    Verificando pagamento automaticamente...
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleManualCheckPix}
-                  disabled={checkingPixStatus}
-                  className="w-full sm:w-auto px-4 py-2 rounded-xl text-xs font-semibold border transition-all hover:opacity-80 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  style={{
-                    backgroundColor: 'var(--card)',
-                    borderColor: 'var(--border)',
-                    color: 'var(--foreground)',
-                  }}
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${checkingPixStatus ? 'animate-spin' : ''}`} />
-                  <span>Já realizei o pagamento</span>
-                </button>
-              </div>
             </div>
           )}
 
-          {/* Order Summary Details */}
+          {/* Order Summary */}
           <div
             className="rounded-2xl p-5 sm:p-6 mb-6 border space-y-4 text-xs sm:text-sm"
             style={{
@@ -857,7 +2545,7 @@ export function CheckoutPage() {
             </h2>
 
             <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-              {pixState.orderData.items.map((item, idx) => (
+              {orderData.items.map((item, idx) => (
                 <div key={idx} className="py-2.5 flex items-center justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate" style={{ color: 'var(--foreground)' }}>
@@ -874,13 +2562,35 @@ export function CheckoutPage() {
               ))}
             </div>
 
-            <div className="pt-3 border-t flex justify-between font-bold text-sm" style={{ borderColor: 'var(--border)' }}>
-              <span style={{ color: 'var(--foreground)' }}>Total</span>
-              <span className="text-primary text-base font-black">{formatBRL(pixState.total)}</span>
+            <div
+              className="pt-3 border-t space-y-2 text-xs sm:text-sm"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <div className="flex justify-between text-muted-foreground">
+                <span>Subtotal</span>
+                <span>{formatBRL(orderData.subtotal)}</span>
+              </div>
+              <div className="flex justify-between text-muted-foreground">
+                <span>{orderData.delivery_type === 'pickup' ? 'Retirada' : 'Entrega'}</span>
+                {orderData.shipping_cost === 0 ? (
+                  <span className="text-success font-medium">Grátis</span>
+                ) : (
+                  <span className="font-medium" style={{ color: 'var(--foreground)' }}>
+                    {formatBRL(orderData.shipping_cost)}
+                  </span>
+                )}
+              </div>
+              <div
+                className="pt-2 border-t flex justify-between font-bold text-sm"
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <span style={{ color: 'var(--foreground)' }}>Total</span>
+                <span className="text-primary text-base font-black">{formatBRL(orderTotal)}</span>
+              </div>
             </div>
           </div>
 
-          {/* Bottom Action Navigation */}
+          {/* Navigation */}
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link
               to="/account"
@@ -890,7 +2600,6 @@ export function CheckoutPage() {
               <FileText className="w-4 h-4 mr-2" />
               Ver meus pedidos
             </Link>
-
             <Link
               to="/"
               className="inline-flex items-center justify-center py-3 px-6 rounded-xl font-medium transition-all hover:opacity-80 border"
@@ -919,7 +2628,7 @@ export function CheckoutPage() {
     );
   }
 
-  // ── CASH ON DELIVERY SUCCESS CONFIRMATION STATE ──
+  // ── CASH ON DELIVERY SUCCESS CONFIRMATION ──────────────────────────────────
   if (completedOrder) {
     return (
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
@@ -949,7 +2658,10 @@ export function CheckoutPage() {
               Pedido Confirmado
             </span>
 
-            <h1 className="text-2xl sm:text-3xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>
+            <h1
+              className="text-2xl sm:text-3xl font-bold mb-2"
+              style={{ color: 'var(--foreground)' }}
+            >
               Pedido realizado com sucesso!
             </h1>
 
@@ -981,7 +2693,6 @@ export function CheckoutPage() {
               Resumo do Pedido
             </h2>
 
-            {/* Items table */}
             <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
               {completedOrder.items.map((item, idx) => (
                 <div key={idx} className="py-3 flex items-center justify-between gap-4 text-sm">
@@ -1000,7 +2711,6 @@ export function CheckoutPage() {
               ))}
             </div>
 
-            {/* Financial Summary */}
             <div
               className="pt-4 border-t space-y-2 text-sm"
               style={{ borderColor: 'var(--border)' }}
@@ -1010,8 +2720,14 @@ export function CheckoutPage() {
                 <span>{formatBRL(completedOrder.subtotal)}</span>
               </div>
               <div className="flex justify-between text-muted-foreground">
-                <span>Frete</span>
-                <span className="text-success font-medium">Grátis</span>
+                <span>{completedOrder.delivery_type === 'pickup' ? 'Retirada' : 'Entrega'}</span>
+                {completedOrder.shipping_cost === 0 ? (
+                  <span className="text-success font-medium">Grátis</span>
+                ) : (
+                  <span className="font-medium" style={{ color: 'var(--foreground)' }}>
+                    {formatBRL(completedOrder.shipping_cost)}
+                  </span>
+                )}
               </div>
               <div
                 className="flex justify-between text-base font-bold pt-2 border-t"
@@ -1022,10 +2738,15 @@ export function CheckoutPage() {
               </div>
             </div>
 
-            {/* Delivery & Payment info grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+            <div
+              className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t"
+              style={{ borderColor: 'var(--border)' }}
+            >
               <div className="p-4 rounded-xl" style={{ backgroundColor: 'var(--muted)' }}>
-                <div className="flex items-center gap-2 mb-2 font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
+                <div
+                  className="flex items-center gap-2 mb-2 font-semibold text-sm"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   {completedOrder.delivery_type === 'delivery' ? (
                     <>
                       <Truck className="w-4 h-4 text-primary" />
@@ -1041,21 +2762,26 @@ export function CheckoutPage() {
                 {completedOrder.delivery_type === 'delivery' && completedOrder.shipping_address ? (
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     {completedOrder.shipping_address.street}, {completedOrder.shipping_address.number}
-                    {completedOrder.shipping_address.complement && ` (${completedOrder.shipping_address.complement})`}
+                    {completedOrder.shipping_address.complement &&
+                      ` (${completedOrder.shipping_address.complement})`}
                     <br />
-                    {completedOrder.shipping_address.neighborhood} — {completedOrder.shipping_address.city}/{completedOrder.shipping_address.state}
+                    {completedOrder.shipping_address.neighborhood} —{' '}
+                    {completedOrder.shipping_address.city}/{completedOrder.shipping_address.state}
                     <br />
                     CEP: {completedOrder.shipping_address.zip_code}
                   </p>
                 ) : (
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {PICKUP_ADDRESS_TEXT}
+                  <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
+                    {completedOrder.pickup_address || DEFAULT_PICKUP_ADDRESS}
                   </p>
                 )}
               </div>
 
               <div className="p-4 rounded-xl" style={{ backgroundColor: 'var(--muted)' }}>
-                <div className="flex items-center gap-2 mb-2 font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
+                <div
+                  className="flex items-center gap-2 mb-2 font-semibold text-sm"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   <Banknote className="w-4 h-4 text-primary" />
                   <span>Forma de Pagamento</span>
                 </div>
@@ -1070,8 +2796,13 @@ export function CheckoutPage() {
             </div>
 
             {completedOrder.customer_note && (
-              <div className="p-4 rounded-xl text-xs space-y-1" style={{ backgroundColor: 'var(--muted)' }}>
-                <span className="font-semibold" style={{ color: 'var(--foreground)' }}>Observações:</span>
+              <div
+                className="p-4 rounded-xl text-xs space-y-1"
+                style={{ backgroundColor: 'var(--muted)' }}
+              >
+                <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                  Observações:
+                </span>
                 <p className="text-muted-foreground">{completedOrder.customer_note}</p>
               </div>
             )}
@@ -1087,7 +2818,6 @@ export function CheckoutPage() {
               <FileText className="w-4 h-4 mr-2" />
               Ver meus pedidos
             </Link>
-
             <Link
               to="/"
               className="inline-flex items-center justify-center py-3 px-6 rounded-xl font-medium transition-all hover:opacity-80 border"
@@ -1116,7 +2846,7 @@ export function CheckoutPage() {
     );
   }
 
-  // ── EMPTY CART STATE ──
+  // ── EMPTY CART STATE ───────────────────────────────────────────────────────
   if (!cart || cart.items.length === 0) {
     return (
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
@@ -1131,7 +2861,10 @@ export function CheckoutPage() {
               <ShoppingBag className="w-10 h-10 text-primary" />
             </div>
 
-            <h1 className="text-2xl md:text-3xl font-bold mb-3" style={{ color: 'var(--foreground)' }}>
+            <h1
+              className="text-2xl md:text-3xl font-bold mb-3"
+              style={{ color: 'var(--foreground)' }}
+            >
               Seu carrinho está vazio
             </h1>
 
@@ -1165,7 +2898,67 @@ export function CheckoutPage() {
     );
   }
 
-  // ── MAIN CHECKOUT PAGE ──
+  // ── Payment Methods Definitions ───────────────────────────────────────────
+  const paymentOptions: {
+    id: PaymentMethodOption;
+    title: string;
+    description: string;
+    icon: React.ReactNode;
+    isAvailable: boolean;
+    unavailableBadge?: string | undefined;
+    badge?: string | undefined;
+  }[] = [
+    {
+      id: 'abacate_pix',
+      title: 'PIX',
+      description: 'Pagamento instantâneo via PIX com QR Code e Copia e Cola.',
+      icon: <QrCode className="w-4 h-4 text-primary" />,
+      isAvailable: paymentConfig.pix_enabled,
+      badge: 'Instantâneo',
+    },
+    {
+      id: 'card',
+      title: 'Cartão',
+      description: 'Pague com cartão de crédito ou débito.',
+      icon: <CreditCard className="w-4 h-4 text-primary" />,
+      isAvailable: paymentConfig.card_enabled,
+    },
+    {
+      id: 'apple_pay',
+      title: 'Apple Pay',
+      description: 'Pague rapidamente usando Apple Pay.',
+      icon: <ApplePayIcon className="w-4 h-4 text-primary" />,
+      isAvailable: paymentConfig.apple_pay_enabled,
+      badge: 'Carteira Digital',
+    },
+    {
+      id: 'google_pay',
+      title: 'Google Pay',
+      description: 'Pague rapidamente usando Google Pay.',
+      icon: <GooglePayIcon className="w-4 h-4 text-primary" />,
+      isAvailable: paymentConfig.google_pay_enabled,
+      badge: 'Carteira Digital',
+    },
+    {
+      id: 'boleto',
+      title: 'Boleto',
+      description: 'Gere seu boleto e realize o pagamento.',
+      icon: <FileText className="w-4 h-4 text-primary" />,
+      isAvailable: paymentConfig.boleto_enabled,
+    },
+    {
+      id: 'cash_on_delivery',
+      title: 'Dinheiro na entrega',
+      description: 'Pague em dinheiro no recebimento ou retirada.',
+      icon: <Banknote className="w-4 h-4 text-primary" />,
+      isAvailable: paymentConfig.cash_on_delivery_enabled,
+      badge: 'No Recebimento',
+    },
+  ];
+
+  const availablePaymentOptions = paymentOptions.filter((opt) => opt.isAvailable);
+
+  // ── MAIN CHECKOUT FORM ─────────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
       <Header showNav />
@@ -1184,7 +2977,10 @@ export function CheckoutPage() {
             <span>/</span>
             <span style={{ color: 'var(--foreground)' }}>Checkout</span>
           </nav>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" style={{ color: 'var(--foreground)' }}>
+          <h1
+            className="text-2xl sm:text-3xl font-bold tracking-tight"
+            style={{ color: 'var(--foreground)' }}
+          >
             Finalizar Compra
           </h1>
         </div>
@@ -1210,200 +3006,381 @@ export function CheckoutPage() {
                 </h2>
               </div>
 
-              {/* Delivery / Pickup radio buttons */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
-                <button
-                  type="button"
-                  onClick={() => setDeliveryType('delivery')}
-                  className={`p-4 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
-                    deliveryType === 'delivery'
-                      ? 'border-primary ring-2 ring-primary/20'
-                      : 'border-border hover:border-border/80'
-                  }`}
-                  style={{ backgroundColor: 'var(--card)' }}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 ${
-                      deliveryType === 'delivery'
-                        ? 'border-primary bg-primary text-white'
-                        : 'border-muted-foreground/40'
-                    }`}
-                  >
-                    {deliveryType === 'delivery' && <Check className="w-3 h-3 stroke-[3]" />}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5 font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
-                      <Truck className="w-4 h-4 text-primary" />
-                      <span>Entrega</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Receba no seu endereço cadastrado
-                    </p>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setDeliveryType('pickup')}
-                  className={`p-4 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
-                    deliveryType === 'pickup'
-                      ? 'border-primary ring-2 ring-primary/20'
-                      : 'border-border hover:border-border/80'
-                  }`}
-                  style={{ backgroundColor: 'var(--card)' }}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 ${
-                      deliveryType === 'pickup'
-                        ? 'border-primary bg-primary text-white'
-                        : 'border-muted-foreground/40'
-                    }`}
-                  >
-                    {deliveryType === 'pickup' && <Check className="w-3 h-3 stroke-[3]" />}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5 font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
-                      <Building2 className="w-4 h-4 text-primary" />
-                      <span>Retirada no Local</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Retire direto em nossa fábrica
-                    </p>
-                  </div>
-                </button>
-              </div>
-
-              {/* Conditional content based on deliveryType */}
-              {deliveryType === 'delivery' ? (
-                <div className="space-y-4 pt-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Selecione o endereço de entrega:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setIsAddressModalOpen(true)}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Novo endereço
-                    </button>
-                  </div>
-
-                  {loadingAddresses ? (
-                    <div className="p-6 text-center text-xs text-muted-foreground">
-                      <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-primary" />
-                      Carregando endereços...
-                    </div>
-                  ) : addresses.length === 0 ? (
-                    <div
-                      className="p-5 rounded-xl border border-dashed text-center space-y-3"
-                      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--muted)' }}
-                    >
-                      <MapPin className="w-8 h-8 mx-auto text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
-                          Nenhum endereço cadastrado
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Cadastre um endereço para receber seu pedido.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsAddressModalOpen(true)}
-                        className="inline-flex items-center justify-center py-2 px-4 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90 cursor-pointer"
-                        style={{ backgroundColor: 'var(--primary)' }}
-                      >
-                        <Plus className="w-3.5 h-3.5 mr-1" />
-                        Cadastrar Endereço
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-2.5">
-                      {addresses.map((addr) => (
-                        <label
-                          key={addr.id}
-                          className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition-all ${
-                            selectedAddressId === addr.id
-                              ? 'border-primary bg-primary/5'
-                              : 'border-border hover:border-border/80'
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="address_selection"
-                            checked={selectedAddressId === addr.id}
-                            onChange={() => setSelectedAddressId(addr.id)}
-                            className="mt-1 accent-primary"
-                          />
-                          <div className="flex-1 min-w-0 text-xs sm:text-sm">
-                            <div className="flex items-center gap-2">
-                              <p className="font-semibold" style={{ color: 'var(--foreground)' }}>
-                                {addr.street}, nº {addr.number}
-                              </p>
-                              {addr.is_default && (
-                                <span
-                                  className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                                  style={{
-                                    backgroundColor: 'var(--muted)',
-                                    color: 'var(--muted-foreground)',
-                                  }}
-                                >
-                                  Padrão
-                                </span>
-                              )}
-                            </div>
-                            {addr.complement && (
-                              <p className="text-muted-foreground text-xs mt-0.5">
-                                Complemento: {addr.complement}
-                              </p>
-                            )}
-                            <p className="text-muted-foreground text-xs mt-0.5">
-                              {addr.neighborhood} — {addr.city}/{addr.state} • CEP: {addr.zip_code}
-                            </p>
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-                  )}
+              {loadingSettings ? (
+                <div className="p-6 text-center text-xs text-muted-foreground">
+                  <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-primary" />
+                  Carregando opções de entrega...
                 </div>
-              ) : (
-                /* Pickup info box */
+              ) : !deliveryConfig.delivery_enabled && !deliveryConfig.pickup_enabled ? (
                 <div
-                  className="p-4 rounded-xl border space-y-3"
+                  className="p-4 rounded-xl border flex items-start gap-3"
                   style={{
-                    backgroundColor: 'var(--muted)',
-                    borderColor: 'var(--border)',
+                    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                    borderColor: 'rgba(239, 68, 68, 0.25)',
+                    color: '#dc2626',
                   }}
                 >
-                  <div className="flex items-start gap-3">
-                    <Building2 className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                    <div className="text-xs sm:text-sm space-y-1">
-                      <p className="font-bold" style={{ color: 'var(--foreground)' }}>
-                        Fábrica Saturno Embalagens
-                      </p>
-                      <p className="text-muted-foreground leading-relaxed">
-                        R. Urupema, nº 150 - São Cosme de Baixo
-                        <br />
-                        Santa Luzia - MG • CEP 33130-140
-                      </p>
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground pt-1">
-                        <Clock className="w-3.5 h-3.5 text-primary" />
-                        <span>Retirada: Segunda a Sexta, das 08h às 17h</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div
-                    className="text-[11px] p-2.5 rounded-lg font-medium"
-                    style={{
-                      backgroundColor: 'rgba(59, 130, 246, 0.08)',
-                      color: 'var(--primary)',
-                    }}
-                  >
-                    ℹ️ Você receberá uma notificação quando seu pedido estiver pronto para retirada.
+                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                  <div className="space-y-1 text-xs sm:text-sm">
+                    <p className="font-bold">Nenhuma opção de recebimento disponível</p>
+                    <p className="text-muted-foreground leading-relaxed">
+                      No momento, tanto a entrega quanto a retirada no local estão desativadas nas configurações da loja. Entre em contato com o atendimento para concluir sua compra.
+                    </p>
                   </div>
                 </div>
+              ) : (
+                <>
+                  {/* Delivery / Pickup radio buttons */}
+                  <div
+                    className={`grid gap-3 mb-6 ${
+                      deliveryConfig.delivery_enabled && deliveryConfig.pickup_enabled
+                        ? 'grid-cols-1 sm:grid-cols-2'
+                        : 'grid-cols-1'
+                    }`}
+                  >
+                    {deliveryConfig.delivery_enabled && (
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryType('delivery')}
+                        className={`p-4 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                          deliveryType === 'delivery'
+                            ? 'border-primary ring-2 ring-primary/20'
+                            : 'border-border hover:border-border/80'
+                        }`}
+                        style={{ backgroundColor: 'var(--card)' }}
+                      >
+                        <div
+                          className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 ${
+                            deliveryType === 'delivery'
+                              ? 'border-primary bg-primary text-white'
+                              : 'border-muted-foreground/40'
+                          }`}
+                        >
+                          {deliveryType === 'delivery' && <Check className="w-3 h-3 stroke-[3]" />}
+                        </div>
+                        <div>
+                          <div
+                            className="flex items-center gap-1.5 font-semibold text-sm"
+                            style={{ color: 'var(--foreground)' }}
+                          >
+                            <Truck className="w-4 h-4 text-primary" />
+                            <span>Entrega</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Receba no seu endereço cadastrado
+                          </p>
+                        </div>
+                      </button>
+                    )}
+
+                    {deliveryConfig.pickup_enabled && (
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryType('pickup')}
+                        className={`p-4 rounded-xl border text-left flex items-start gap-3 transition-all cursor-pointer ${
+                          deliveryType === 'pickup'
+                            ? 'border-primary ring-2 ring-primary/20'
+                            : 'border-border hover:border-border/80'
+                        }`}
+                        style={{ backgroundColor: 'var(--card)' }}
+                      >
+                        <div
+                          className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 ${
+                            deliveryType === 'pickup'
+                              ? 'border-primary bg-primary text-white'
+                              : 'border-muted-foreground/40'
+                          }`}
+                        >
+                          {deliveryType === 'pickup' && <Check className="w-3 h-3 stroke-[3]" />}
+                        </div>
+                        <div>
+                          <div
+                            className="flex items-center gap-1.5 font-semibold text-sm"
+                            style={{ color: 'var(--foreground)' }}
+                          >
+                            <Building2 className="w-4 h-4 text-primary" />
+                            <span>Retirada no Local</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Retire direto em nossa fábrica (Grátis)
+                          </p>
+                        </div>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Conditional content based on deliveryType */}
+                  {deliveryType === 'delivery' && deliveryConfig.delivery_enabled ? (
+                    <div className="space-y-4 pt-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          Selecione o endereço de entrega:
+                        </span>
+                        <div className="flex items-center gap-3">
+                          <Link
+                            to="/account"
+                            className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors no-underline hidden sm:inline"
+                          >
+                            Gerenciar em Minha Conta
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => setIsAddressModalOpen(true)}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            Novo endereço
+                          </button>
+                        </div>
+                      </div>
+
+                      {loadingAddresses ? (
+                        <div className="p-6 text-center text-xs text-muted-foreground">
+                          <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-primary" />
+                          Carregando endereços...
+                        </div>
+                      ) : addresses.length === 0 ? (
+                        <div
+                          className="p-5 rounded-xl border border-dashed text-center space-y-3"
+                          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--muted)' }}
+                        >
+                          <MapPin className="w-8 h-8 mx-auto text-muted-foreground" />
+                          <div>
+                            <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
+                              Nenhum endereço cadastrado
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Cadastre um endereço para receber seu pedido ou adicione em Minha Conta.
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setIsAddressModalOpen(true)}
+                              className="inline-flex items-center justify-center py-2 px-4 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-90 cursor-pointer"
+                              style={{ backgroundColor: 'var(--primary)' }}
+                            >
+                              <Plus className="w-3.5 h-3.5 mr-1" />
+                              Cadastrar Endereço
+                            </button>
+                            <Link
+                              to="/account"
+                              className="inline-flex items-center justify-center py-2 px-4 rounded-xl text-xs font-semibold border transition-all hover:opacity-90 no-underline"
+                              style={{
+                                backgroundColor: 'var(--card)',
+                                borderColor: 'var(--border)',
+                                color: 'var(--foreground)',
+                              }}
+                            >
+                              Ir para Minha Conta
+                            </Link>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2.5">
+                          {addresses.map((addr) => (
+                            <label
+                              key={addr.id}
+                              className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition-all ${
+                                selectedAddressId === addr.id
+                                  ? 'border-primary bg-primary/5'
+                                  : 'border-border hover:border-border/80'
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name="address_selection"
+                                checked={selectedAddressId === addr.id}
+                                onChange={() => setSelectedAddressId(addr.id)}
+                                className="mt-1 accent-primary"
+                              />
+                              <div className="flex-1 min-w-0 text-xs sm:text-sm">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                                    {addr.street}, nº {addr.number}
+                                  </p>
+                                  {addr.is_default && (
+                                    <span
+                                      className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                                      style={{
+                                        backgroundColor: 'var(--muted)',
+                                        color: 'var(--muted-foreground)',
+                                      }}
+                                    >
+                                      Padrão
+                                    </span>
+                                  )}
+                                </div>
+                                {addr.complement && (
+                                  <p className="text-muted-foreground text-xs mt-0.5">
+                                    Complemento: {addr.complement}
+                                  </p>
+                                )}
+                                <p className="text-muted-foreground text-xs mt-0.5">
+                                  {addr.neighborhood} — {addr.city}/{addr.state} • CEP: {addr.zip_code}
+                                </p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Dynamic Shipping Calculation Preview */}
+                      {selectedAddressId && (
+                        <div className="pt-2">
+                          {calculatedShipping.loading ? (
+                            <div
+                              className="p-4 rounded-xl border flex items-center gap-3 animate-pulse"
+                              style={{
+                                backgroundColor: 'var(--muted)',
+                                borderColor: 'var(--border)',
+                              }}
+                            >
+                              <Loader2 className="w-5 h-5 text-primary animate-spin flex-shrink-0" />
+                              <div className="text-xs sm:text-sm">
+                                <p className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                                  Calculando frete e prazo de entrega...
+                                </p>
+                                <p className="text-muted-foreground text-xs">
+                                  Consultando a faixa de CEP do endereço selecionado.
+                                </p>
+                              </div>
+                            </div>
+                          ) : calculatedShipping.error ? (
+                            <div className="p-4 rounded-xl border border-destructive/30 bg-destructive/5 space-y-2">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-start gap-2.5">
+                                  <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
+                                  <div>
+                                    <p className="text-xs sm:text-sm font-bold text-destructive">
+                                      Não foi possível calcular o frete
+                                    </p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                      {calculatedShipping.error}
+                                    </p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => fetchShippingForAddress(selectedAddressId)}
+                                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline px-2.5 py-1.5 rounded-lg border border-primary/20 bg-primary/5 cursor-pointer flex-shrink-0"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                  <span>Tentar novamente</span>
+                                </button>
+                              </div>
+                            </div>
+                          ) : calculatedShipping.available === false ? (
+                            <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 space-y-1.5">
+                              <div className="flex items-start gap-2.5">
+                                <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                                <div className="text-xs sm:text-sm">
+                                  <p className="font-bold text-amber-900 dark:text-amber-200">
+                                    Este endereço não possui entrega disponível.
+                                  </p>
+                                  <p className="text-muted-foreground text-xs mt-0.5">
+                                    O CEP deste endereço não é atendido por nenhuma zona de entrega ativa no momento. Escolha outro endereço ou selecione a opção de Retirada.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ) : calculatedShipping.available === true ? (
+                            <div
+                              className="p-4 rounded-xl border space-y-2.5"
+                              style={{
+                                backgroundColor: 'var(--muted)',
+                                borderColor: 'var(--border)',
+                              }}
+                            >
+                              <div className="flex items-center justify-between gap-3 flex-wrap">
+                                <div className="flex items-center gap-2">
+                                  <Truck className="w-5 h-5 text-primary flex-shrink-0" />
+                                  <span
+                                    className="font-bold text-xs sm:text-sm"
+                                    style={{ color: 'var(--foreground)' }}
+                                  >
+                                    Entrega
+                                  </span>
+                                  {(calculatedShipping.region_label || calculatedShipping.zone_name) && (
+                                    <span
+                                      className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+                                      style={{
+                                        backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                                        color: 'var(--primary)',
+                                      }}
+                                    >
+                                      Região: {calculatedShipping.region_label || calculatedShipping.zone_name}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-xs sm:text-sm font-black text-primary">
+                                    Frete:{' '}
+                                    {calculatedShipping.shipping_cost === 0 ? (
+                                      <span className="text-success">Grátis</span>
+                                    ) : (
+                                      formatBRL(calculatedShipping.shipping_cost ?? 0)
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground pt-1.5 border-t border-border/50">
+                                <Clock className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                                <span>
+                                  Prazo estimado:{' '}
+                                  <strong className="font-semibold text-foreground">
+                                    {calculatedShipping.estimated_days_min != null &&
+                                    calculatedShipping.estimated_days_max != null
+                                      ? calculatedShipping.estimated_days_min ===
+                                        calculatedShipping.estimated_days_max
+                                        ? `${calculatedShipping.estimated_days_min} dias úteis`
+                                        : `${calculatedShipping.estimated_days_min}–${calculatedShipping.estimated_days_max} dias úteis`
+                                      : '1–3 dias úteis'}
+                                  </strong>
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
+                  ) : deliveryType === 'pickup' && deliveryConfig.pickup_enabled ? (
+                    /* Pickup info box */
+                    <div
+                      className="p-4 rounded-xl border space-y-3"
+                      style={{
+                        backgroundColor: 'var(--muted)',
+                        borderColor: 'var(--border)',
+                      }}
+                    >
+                      <div className="flex items-start gap-3">
+                        <Building2 className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
+                        <div className="text-xs sm:text-sm space-y-1">
+                          <p className="font-bold" style={{ color: 'var(--foreground)' }}>
+                            Endereço para retirada
+                          </p>
+                          <p className="text-muted-foreground leading-relaxed whitespace-pre-line">
+                            {deliveryConfig.pickup_address || DEFAULT_PICKUP_ADDRESS}
+                          </p>
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground pt-1">
+                            <Clock className="w-3.5 h-3.5 text-primary" />
+                            <span>Retirada: Segunda a Sexta, das 08h às 17h</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className="text-[11px] p-2.5 rounded-lg font-medium"
+                        style={{
+                          backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                          color: 'var(--primary)',
+                        }}
+                      >
+                        ℹ️ Você receberá uma notificação quando seu pedido estiver pronto para retirada.
+                      </div>
+                    </div>
+                  ) : null}
+                </>
               )}
             </section>
 
@@ -1424,111 +3401,87 @@ export function CheckoutPage() {
                 </h2>
               </div>
 
-              <div className="space-y-3">
-                {/* PIX Option */}
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('pix')}
-                  className={`w-full p-4 rounded-xl border text-left flex items-start gap-3.5 transition-all cursor-pointer ${
-                    paymentMethod === 'pix'
-                      ? 'border-primary ring-2 ring-primary/20 bg-primary/5'
-                      : 'border-border hover:border-border/80 bg-card'
-                  }`}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 ${
-                      paymentMethod === 'pix'
-                        ? 'border-primary bg-primary text-white'
-                        : 'border-muted-foreground/40'
-                    }`}
-                  >
-                    {paymentMethod === 'pix' && <Check className="w-3 h-3 stroke-[3]" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
-                        <QrCode className="w-4 h-4 text-primary" />
-                        <span>PIX</span>
-                      </div>
-                      <span
-                        className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
-                        style={{
-                          backgroundColor: 'rgba(22, 163, 74, 0.12)',
-                          color: 'var(--success)',
-                        }}
-                      >
-                        Aprovação Imediata
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Pague com QR Code ou Copia e Cola antes da confirmação final do pedido.
-                    </p>
-                  </div>
-                </button>
-
-                {/* Dinheiro na entrega */}
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('cash_on_delivery')}
-                  className={`w-full p-4 rounded-xl border text-left flex items-start gap-3.5 transition-all cursor-pointer ${
-                    paymentMethod === 'cash_on_delivery'
-                      ? 'border-primary ring-2 ring-primary/20 bg-primary/5'
-                      : 'border-border hover:border-border/80 bg-card'
-                  }`}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 ${
-                      paymentMethod === 'cash_on_delivery'
-                        ? 'border-primary bg-primary text-white'
-                        : 'border-muted-foreground/40'
-                    }`}
-                  >
-                    {paymentMethod === 'cash_on_delivery' && <Check className="w-3 h-3 stroke-[3]" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
-                        <Banknote className="w-4 h-4 text-primary" />
-                        <span>Dinheiro na entrega</span>
-                      </div>
-                      <span
-                        className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
-                        style={{
-                          backgroundColor: 'rgba(59, 130, 246, 0.12)',
-                          color: 'var(--primary)',
-                        }}
-                      >
-                        No Recebimento
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Pague em dinheiro no momento do recebimento ou da retirada no local.
-                    </p>
-                  </div>
-                </button>
-
-                {/* Cartão de Crédito Disabled */}
+              {availablePaymentOptions.length === 0 ? (
                 <div
-                  className="p-4 rounded-xl border border-dashed flex items-start gap-3.5 opacity-60 cursor-not-allowed"
-                  style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}
+                  className="p-4 rounded-xl border flex items-center gap-3"
+                  style={{
+                    backgroundColor: 'rgba(220, 38, 38, 0.08)',
+                    borderColor: 'rgba(220, 38, 38, 0.25)',
+                    color: 'var(--destructive)',
+                  }}
                 >
-                  <div className="w-5 h-5 rounded-full border border-muted-foreground/30 flex items-center justify-center mt-0.5 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 font-medium text-sm text-muted-foreground">
-                        <CreditCard className="w-4 h-4" />
-                        <span>Cartão de Crédito</span>
-                      </div>
-                      <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-muted text-muted-foreground border">
-                        Em breve
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Pagamento parcelado no cartão de crédito estará disponível em breve.
-                    </p>
-                  </div>
+                  <AlertTriangle className="w-5 h-5 shrink-0" />
+                  <p className="text-sm font-medium">
+                    Nenhuma forma de pagamento está disponível no momento. Entre em contato com a loja.
+                  </p>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-3" role="radiogroup" aria-label="Forma de Pagamento">
+                  {availablePaymentOptions.map((opt) => {
+                    const isSelected = paymentMethod === opt.id;
+
+                    return (
+                      <label
+                        key={opt.id}
+                        htmlFor={`payment-option-${opt.id}`}
+                        className={`w-full p-4 rounded-xl border text-left flex items-start gap-3.5 transition-all select-none cursor-pointer ${
+                          isSelected
+                            ? 'border-primary ring-2 ring-primary/20 bg-primary/5'
+                            : 'border-border hover:border-border/80 bg-card'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          id={`payment-option-${opt.id}`}
+                          name="payment_method_option"
+                          value={opt.id}
+                          checked={isSelected}
+                          onChange={() => setPaymentMethod(opt.id)}
+                          className="sr-only"
+                        />
+
+                        {/* Custom Radio Indicator */}
+                        <div
+                          className={`w-5 h-5 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 transition-colors ${
+                            isSelected
+                              ? 'border-primary bg-primary text-white'
+                              : 'border-muted-foreground/40 bg-card'
+                          }`}
+                        >
+                          {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                        </div>
+
+                        {/* Info & Text */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div
+                              className="flex items-center gap-2 font-semibold text-sm"
+                              style={{ color: 'var(--foreground)' }}
+                            >
+                              {opt.icon}
+                              <span>{opt.title}</span>
+                            </div>
+
+                            {opt.badge && (
+                              <span
+                                className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+                                style={{
+                                  backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                                  color: 'var(--primary)',
+                                }}
+                              >
+                                {opt.badge}
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-xs text-muted-foreground mt-1">{opt.description}</p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </section>
 
             {/* 3. OBSERVAÇÕES DO PEDIDO */}
@@ -1579,7 +3532,10 @@ export function CheckoutPage() {
                 boxShadow: 'var(--shadow-sm)',
               }}
             >
-              <div className="flex items-center justify-between border-b pb-4" style={{ borderColor: 'var(--border)' }}>
+              <div
+                className="flex items-center justify-between border-b pb-4"
+                style={{ borderColor: 'var(--border)' }}
+              >
                 <h2 className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
                   Resumo da Compra
                 </h2>
@@ -1613,7 +3569,10 @@ export function CheckoutPage() {
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-xs sm:text-sm truncate" style={{ color: 'var(--foreground)' }}>
+                      <p
+                        className="font-semibold text-xs sm:text-sm truncate"
+                        style={{ color: 'var(--foreground)' }}
+                      >
                         {item.product?.name || 'Produto'}
                       </p>
                       <p className="text-xs text-muted-foreground">
@@ -1622,7 +3581,10 @@ export function CheckoutPage() {
                     </div>
 
                     {/* Subtotal */}
-                    <div className="text-right font-semibold text-xs sm:text-sm" style={{ color: 'var(--foreground)' }}>
+                    <div
+                      className="text-right font-semibold text-xs sm:text-sm"
+                      style={{ color: 'var(--foreground)' }}
+                    >
                       {formatBRL((item.product?.price || 0) * item.quantity)}
                     </div>
                   </div>
@@ -1630,15 +3592,37 @@ export function CheckoutPage() {
               </div>
 
               {/* Values Breakdown */}
-              <div className="space-y-2.5 pt-4 border-t text-sm" style={{ borderColor: 'var(--border)' }}>
+              <div
+                className="space-y-2.5 pt-4 border-t text-sm"
+                style={{ borderColor: 'var(--border)' }}
+              >
                 <div className="flex justify-between text-muted-foreground">
                   <span>Subtotal ({cart.items.reduce((s, i) => s + i.quantity, 0)} itens)</span>
                   <span>{formatBRL(subtotal)}</span>
                 </div>
 
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Frete</span>
-                  <span className="text-success font-semibold">Grátis</span>
+                <div className="flex justify-between text-muted-foreground items-center">
+                  <span>{deliveryType === 'pickup' ? 'Retirada' : 'Entrega'}</span>
+                  {deliveryType === 'pickup' ? (
+                    <span className="text-success font-semibold">Grátis</span>
+                  ) : !selectedAddressId ? (
+                    <span className="text-xs text-muted-foreground italic">Selecione o endereço</span>
+                  ) : calculatedShipping.loading ? (
+                    <span className="text-xs flex items-center gap-1 text-muted-foreground">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                      Calculando...
+                    </span>
+                  ) : calculatedShipping.error ? (
+                    <span className="text-xs text-destructive font-semibold">Erro ao calcular</span>
+                  ) : calculatedShipping.available === false ? (
+                    <span className="text-xs text-destructive font-semibold">Indisponível</span>
+                  ) : shippingCost === 0 ? (
+                    <span className="text-success font-semibold">Grátis</span>
+                  ) : (
+                    <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                      {formatBRL(shippingCost)}
+                    </span>
+                  )}
                 </div>
 
                 <div
@@ -1654,7 +3638,18 @@ export function CheckoutPage() {
               <button
                 type="button"
                 onClick={handleFinalizeOrder}
-                disabled={isSubmitting || (deliveryType === 'delivery' && !selectedAddressId)}
+                disabled={
+                  isSubmitting ||
+                  loadingSettings ||
+                  availablePaymentOptions.length === 0 ||
+                  (!deliveryConfig.delivery_enabled && !deliveryConfig.pickup_enabled) ||
+                  (deliveryType === 'delivery' && (
+                    !selectedAddressId ||
+                    calculatedShipping.loading ||
+                    calculatedShipping.error !== null ||
+                    calculatedShipping.available === false
+                  ))
+                }
                 className="w-full py-3.5 px-6 rounded-xl font-bold text-white text-sm transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
                 style={{ backgroundColor: 'var(--primary)' }}
               >
@@ -1663,10 +3658,21 @@ export function CheckoutPage() {
                     <Loader2 className="w-5 h-5 animate-spin" />
                     <span>Processando pedido...</span>
                   </>
-                ) : paymentMethod === 'pix' ? (
+                ) : availablePaymentOptions.length === 0 ? (
+                  <span>Pagamento Indisponível</span>
+                ) : !deliveryConfig.delivery_enabled && !deliveryConfig.pickup_enabled ? (
+                  <span>Recebimento Indisponível</span>
+                ) : deliveryType === 'delivery' && calculatedShipping.loading ? (
                   <>
-                    <QrCode className="w-5 h-5" />
-                    <span>Pagar com PIX ({formatBRL(total)})</span>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Calculando Frete...</span>
+                  </>
+                ) : deliveryType === 'delivery' && calculatedShipping.available === false && selectedAddressId ? (
+                  <span>Entrega Indisponível</span>
+                ) : paymentMethod !== 'cash_on_delivery' ? (
+                  <>
+                    <CreditCard className="w-5 h-5" />
+                    <span>Continuar para Pagamento ({formatBRL(total)})</span>
                   </>
                 ) : (
                   <>
@@ -1676,9 +3682,34 @@ export function CheckoutPage() {
                 )}
               </button>
 
-              {deliveryType === 'delivery' && !selectedAddressId && (
+              {availablePaymentOptions.length === 0 && (
+                <p className="text-xs text-destructive text-center font-medium">
+                  Nenhuma forma de pagamento está disponível no momento. Entre em contato com a loja.
+                </p>
+              )}
+
+              {deliveryConfig.delivery_enabled && deliveryType === 'delivery' && !selectedAddressId && (
                 <p className="text-xs text-destructive text-center">
                   Selecione ou cadastre um endereço de entrega para finalizar.
+                </p>
+              )}
+
+              {deliveryConfig.delivery_enabled && deliveryType === 'delivery' && selectedAddressId && calculatedShipping.loading && (
+                <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                  <span>Calculando o frete para o endereço selecionado...</span>
+                </p>
+              )}
+
+              {deliveryConfig.delivery_enabled && deliveryType === 'delivery' && selectedAddressId && !calculatedShipping.loading && calculatedShipping.available === false && (
+                <p className="text-xs text-destructive text-center font-medium">
+                  Este endereço não possui entrega disponível. Escolha outro endereço ou opte pela retirada.
+                </p>
+              )}
+
+              {deliveryConfig.delivery_enabled && deliveryType === 'delivery' && selectedAddressId && !calculatedShipping.loading && calculatedShipping.error && (
+                <p className="text-xs text-destructive text-center font-medium">
+                  Não foi possível calcular o frete. Tente novamente para continuar.
                 </p>
               )}
 
@@ -1706,7 +3737,10 @@ export function CheckoutPage() {
           <form onSubmit={handleSaveAddress} className="space-y-3.5 mt-2">
             {/* CEP */}
             <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+              <label
+                className="block text-xs font-semibold mb-1"
+                style={{ color: 'var(--foreground)' }}
+              >
                 CEP *
               </label>
               <div className="relative">
@@ -1740,7 +3774,10 @@ export function CheckoutPage() {
             {/* Logradouro e Número */}
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2">
-                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+                <label
+                  className="block text-xs font-semibold mb-1"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   Rua / Logradouro *
                 </label>
                 <input
@@ -1760,7 +3797,10 @@ export function CheckoutPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+                <label
+                  className="block text-xs font-semibold mb-1"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   Número *
                 </label>
                 <input
@@ -1784,7 +3824,10 @@ export function CheckoutPage() {
             {/* Complemento e Bairro */}
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+                <label
+                  className="block text-xs font-semibold mb-1"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   Complemento
                 </label>
                 <input
@@ -1803,7 +3846,10 @@ export function CheckoutPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+                <label
+                  className="block text-xs font-semibold mb-1"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   Bairro *
                 </label>
                 <input
@@ -1827,7 +3873,10 @@ export function CheckoutPage() {
             {/* Cidade e UF */}
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2">
-                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+                <label
+                  className="block text-xs font-semibold mb-1"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   Cidade *
                 </label>
                 <input
@@ -1847,7 +3896,10 @@ export function CheckoutPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+                <label
+                  className="block text-xs font-semibold mb-1"
+                  style={{ color: 'var(--foreground)' }}
+                >
                   UF *
                 </label>
                 <input
@@ -1857,7 +3909,10 @@ export function CheckoutPage() {
                   placeholder="MG"
                   value={addressForm.state}
                   onChange={(e) =>
-                    setAddressForm((prev) => ({ ...prev, state: e.target.value.toUpperCase() }))
+                    setAddressForm((prev) => ({
+                      ...prev,
+                      state: e.target.value.toUpperCase(),
+                    }))
                   }
                   className="w-full h-10 px-3 rounded-xl border text-sm uppercase focus:outline-none focus:ring-2"
                   style={{

@@ -30,6 +30,7 @@ export interface CartContextValue {
   cart: Cart | null;
   loading: boolean;
   error: string | null;
+  hasUnavailableItems: boolean;
   addToCart: (productId: string, quantity?: number) => Promise<{ success: boolean; error?: string }>;
   updateQuantity: (itemId: string, quantity: number) => Promise<{ success: boolean; error?: string }>;
   removeItem: (itemId: string) => Promise<{ success: boolean; error?: string }>;
@@ -86,7 +87,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         cartId = newCart.id;
       }
 
-      // Get cart items
+      // Get cart items with real-time product data
       const { data: items, error: itemsError } = await supabase
         .from('cart_items')
         .select(`
@@ -99,14 +100,36 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
       if (itemsError) throw new Error(itemsError.message);
 
-      const validItems: CartItemType[] = (items || [])
-        .filter((item) => item.product !== null)
-        .map((item) => ({
+      let adjustedAny = false;
+      const validItems: CartItemType[] = [];
+
+      for (const item of items || []) {
+        if (!item.product) continue;
+        const prod = item.product as CartProduct;
+
+        let itemQty = item.quantity;
+        // If product has stock > 0 but quantity exceeds current stock, adjust down to max available
+        if (prod.stock_quantity > 0 && itemQty > prod.stock_quantity) {
+          itemQty = prod.stock_quantity;
+          adjustedAny = true;
+          // Update in database
+          await supabase
+            .from('cart_items')
+            .update({ quantity: itemQty })
+            .eq('id', item.id);
+        }
+
+        validItems.push({
           id: item.id,
           product_id: item.product_id,
-          quantity: item.quantity,
-          product: item.product as CartProduct,
-        }));
+          quantity: itemQty,
+          product: prod,
+        });
+      }
+
+      if (adjustedAny) {
+        toast.info('Quantidade disponível atualizada de acordo com o estoque atual.');
+      }
 
       setCart({
         id: cartId,
@@ -114,8 +137,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
         items: validItems,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar carrinho');
-      console.error('Cart fetch error:', err);
+      console.error('[CART] Fetch error:', err);
+      setError('Não foi possível carregar o carrinho.');
     } finally {
       setLoading(false);
     }
@@ -140,8 +163,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
         .eq('is_active', true)
         .single();
 
-      if (productError || !product) {
-        toast.error('Produto não disponível');
+      if (productError || !product || product.stock_quantity <= 0) {
+        toast.error('Produto não disponível no momento');
         return { success: false, error: 'Product not available' };
       }
 
@@ -194,7 +217,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erro ao adicionar item';
-      toast.error(message);
+      toast.error('Não foi possível adicionar o produto ao carrinho');
       return { success: false, error: message };
     }
   };
@@ -225,9 +248,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       await fetchCart();
       return { success: true };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Erro ao atualizar quantidade';
-      toast.error(message);
-      return { success: false, error: message };
+      toast.error('Erro ao atualizar quantidade');
+      return { success: false, error: 'Erro ao atualizar quantidade' };
     }
   };
 
@@ -244,9 +266,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       toast.success('Item removido do carrinho');
       return { success: true };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Erro ao remover item';
-      toast.error(message);
-      return { success: false, error: message };
+      toast.error('Erro ao remover item do carrinho');
+      return { success: false, error: 'Erro ao remover item' };
     }
   };
 
@@ -264,9 +285,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       await fetchCart();
       return { success: true };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Erro ao limpar carrinho';
-      toast.error(message);
-      return { success: false, error: message };
+      toast.error('Erro ao limpar carrinho');
+      return { success: false, error: 'Erro ao limpar carrinho' };
     }
   };
 
@@ -278,10 +298,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const getSubtotal = () => {
     if (!cart) return 0;
     return cart.items.reduce((sum, item) => {
+      // Only count valid active items
+      if (!item.product.is_active || item.product.stock_quantity <= 0) return sum;
       const price = item.product?.price || 0;
       return sum + price * item.quantity;
     }, 0);
   };
+
+  const hasUnavailableItems = cart?.items.some(
+    (item) => !item.product.is_active || item.product.stock_quantity <= 0 || item.quantity > item.product.stock_quantity
+  ) || false;
 
   return (
     <CartContext.Provider
@@ -289,6 +315,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         cart,
         loading,
         error,
+        hasUnavailableItems,
         addToCart,
         updateQuantity,
         removeItem,
@@ -310,3 +337,4 @@ export function useCart(): CartContextValue {
   }
   return context;
 }
+

@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { toast } from 'sonner';
@@ -30,13 +30,20 @@ import {
   CreditCard,
   QrCode,
   DollarSign,
+  Search,
+  X,
+  User,
+  MapPin,
+  FileText,
+  Copy,
+  Printer,
 } from 'lucide-react';
 
 // ─── Domain types ────────────────────────────────────────────────────────────
 
 type OrderStatus = 'pending' | 'confirmed' | 'preparing' | 'shipped' | 'delivered' | 'cancelled';
 type PaymentStatus = 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded';
-type PaymentMethod = 'pix' | 'credit_card' | 'cash_on_delivery' | null;
+type PaymentMethod = 'pix' | 'abacate_pix' | 'credit_card' | 'cash_on_delivery' | null;
 type DeliveryType = 'delivery' | 'pickup';
 
 interface OrderItem {
@@ -80,6 +87,7 @@ interface Order {
   customer_note: string | null;
   created_at: string;
   updated_at: string;
+  abacate_pix_id?: string | null;
   // joined
   profile?: CustomerProfile | null;
   shipping_address?: Address | null;
@@ -98,11 +106,11 @@ interface StatusConfig {
 }
 
 const NORMAL_STATUS_FLOW: StatusConfig[] = [
-  { value: 'pending',   label: 'Pendente',   icon: Clock,        bg: 'rgba(251,191,36,0.12)', text: '#d97706', border: 'rgba(251,191,36,0.3)' },
-  { value: 'confirmed', label: 'Confirmado', icon: CheckCircle2, bg: 'rgba(59,130,246,0.12)', text: '#2563eb', border: 'rgba(59,130,246,0.3)' },
-  { value: 'preparing', label: 'Em preparo', icon: Package,      bg: 'rgba(139,92,246,0.12)', text: '#7c3aed', border: 'rgba(139,92,246,0.3)' },
-  { value: 'shipped',   label: 'Enviado',    icon: Truck,        bg: 'rgba(234,88,12,0.12)',  text: '#ea580c', border: 'rgba(234,88,12,0.3)'  },
-  { value: 'delivered', label: 'Entregue',   icon: Check,        bg: 'rgba(22,163,74,0.12)',  text: '#16a34a', border: 'rgba(22,163,74,0.3)'  },
+  { value: 'pending',   label: 'Pendente',       icon: Clock,        bg: 'rgba(251,191,36,0.12)', text: '#d97706', border: 'rgba(251,191,36,0.3)' },
+  { value: 'confirmed', label: 'Confirmado',     icon: CheckCircle2, bg: 'rgba(59,130,246,0.12)', text: '#2563eb', border: 'rgba(59,130,246,0.3)' },
+  { value: 'preparing', label: 'Em preparação',  icon: Package,      bg: 'rgba(139,92,246,0.12)', text: '#7c3aed', border: 'rgba(139,92,246,0.3)' },
+  { value: 'shipped',   label: 'Enviado',        icon: Truck,        bg: 'rgba(234,88,12,0.12)',  text: '#ea580c', border: 'rgba(234,88,12,0.3)'  },
+  { value: 'delivered', label: 'Entregue',       icon: Check,        bg: 'rgba(22,163,74,0.12)',  text: '#16a34a', border: 'rgba(22,163,74,0.3)'  },
 ];
 
 const CANCELLED_STATUS_CONFIG: StatusConfig = {
@@ -123,10 +131,26 @@ const ALL_STATUS_CONFIGS: Record<OrderStatus, StatusConfig> = {
   cancelled: CANCELLED_STATUS_CONFIG,
 };
 
+function getOrderStatusLabel(status: OrderStatus, deliveryType?: DeliveryType): string {
+  if (status === 'shipped' && deliveryType === 'pickup') {
+    return 'Pronto para retirada';
+  }
+  switch (status) {
+    case 'pending': return 'Pendente';
+    case 'confirmed': return 'Confirmado';
+    case 'preparing': return 'Em preparação';
+    case 'shipped': return 'Enviado';
+    case 'delivered': return 'Entregue';
+    case 'cancelled': return 'Cancelado';
+    default: return status;
+  }
+}
+
 // ─── Payment definitions ──────────────────────────────────────────────────────
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   pix: 'PIX',
+  abacate_pix: 'PIX (AbacatePay)',
   credit_card: 'Cartão de Crédito',
   cash_on_delivery: 'Pagamento na entrega',
 };
@@ -149,10 +173,14 @@ function formatCurrency(value: number): string {
 }
 
 function formatDate(iso: string): string {
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  }).format(new Date(iso));
+  try {
+    return new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    }).format(new Date(iso));
+  } catch {
+    return '—';
+  }
 }
 
 function shortId(id: string): string {
@@ -162,6 +190,7 @@ function shortId(id: string): string {
 function getPaymentIcon(method: PaymentMethod) {
   switch (method) {
     case 'pix':
+    case 'abacate_pix':
       return QrCode;
     case 'credit_card':
       return CreditCard;
@@ -169,6 +198,220 @@ function getPaymentIcon(method: PaymentMethod) {
     default:
       return Banknote;
   }
+}
+
+function getPrintPaymentMethodLabel(method: string | null): string {
+  if (!method) return 'Pagamento na entrega';
+  switch (method) {
+    case 'abacate_pix':
+    case 'pix':
+      return 'PIX';
+    case 'credit_card':
+    case 'card':
+    case 'apple_pay':
+    case 'google_pay':
+      return 'Cartão de Crédito';
+    case 'boleto':
+      return 'Boleto Bancário';
+    case 'cash_on_delivery':
+      return 'Dinheiro na entrega';
+    default:
+      return PAYMENT_METHOD_LABELS[method] || method;
+  }
+}
+
+function getPrintPaymentStatusLabel(status: PaymentStatus | string): string {
+  switch (status) {
+    case 'pending': return 'Pendente';
+    case 'paid': return 'Pago';
+    case 'failed': return 'Falhou';
+    case 'cancelled': return 'Cancelado';
+    case 'refunded': return 'Reembolsado';
+    default: return status;
+  }
+}
+
+interface OrderPrintSheetProps {
+  order: Order | null;
+}
+
+function OrderPrintSheet({ order }: OrderPrintSheetProps) {
+  if (!order) return null;
+
+  const orderItems = order.order_items || [];
+
+  return (
+    <div className="saturno-print-sheet">
+      <div className="p-8 max-w-4xl mx-auto text-black bg-white font-sans text-sm leading-normal">
+        {/* Header */}
+        <header className="border-b-2 border-black pb-4 mb-5 flex justify-between items-start">
+          <div>
+            <h1 className="text-2xl font-black tracking-tight uppercase">Saturno Embalagens</h1>
+            <p className="text-xs font-semibold uppercase tracking-wider text-neutral-600 mt-0.5">
+              Comprovante de Separação e Entrega
+            </p>
+          </div>
+          <div className="text-right text-xs space-y-0.5">
+            <p className="text-base font-black">Pedido: {shortId(order.id)}</p>
+            <p className="text-neutral-700">Data/Hora: {formatDate(order.created_at)}</p>
+            <p className="font-semibold text-neutral-800">
+              Status: <span className="uppercase">{getOrderStatusLabel(order.status, order.delivery_type)}</span>
+            </p>
+            <p className="font-semibold text-neutral-800">
+              Pagamento: <span className="uppercase">{getPrintPaymentStatusLabel(order.payment_status)}</span>
+            </p>
+          </div>
+        </header>
+
+        {/* Customer & Delivery */}
+        <div className="grid grid-cols-2 gap-4 mb-5">
+          {/* Cliente */}
+          <div className="border border-neutral-300 rounded p-3 bg-neutral-50/50 print-avoid-break">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-700 border-b border-neutral-300 pb-1 mb-2">
+              Dados do Cliente
+            </h2>
+            <div className="space-y-1 text-xs">
+              <p>
+                <strong className="text-neutral-900">Nome:</strong> {order.profile?.name || 'Cliente não identificado'}
+              </p>
+              <p>
+                <strong className="text-neutral-900">Telefone:</strong> {order.profile?.phone || 'Não informado'}
+              </p>
+            </div>
+          </div>
+
+          {/* Entrega / Retirada */}
+          <div className="border border-neutral-300 rounded p-3 bg-neutral-50/50 print-avoid-break">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-700 border-b border-neutral-300 pb-1 mb-2">
+              {order.delivery_type === 'delivery' ? 'Entrega' : 'Retirada'}
+            </h2>
+            <div className="space-y-1 text-xs">
+              <p>
+                <strong className="text-neutral-900">Tipo:</strong>{' '}
+                <span className="font-bold">{order.delivery_type === 'delivery' ? 'ENTREGA' : 'RETIRADA'}</span>
+              </p>
+              {order.delivery_type === 'delivery' && order.shipping_address ? (
+                <div className="text-neutral-800 leading-snug">
+                  <p>
+                    {order.shipping_address.street}, nº {order.shipping_address.number}
+                    {order.shipping_address.complement ? ` (${order.shipping_address.complement})` : ''}
+                  </p>
+                  <p>{order.shipping_address.neighborhood} — {order.shipping_address.city}/{order.shipping_address.state}</p>
+                  <p className="font-semibold">CEP: {order.shipping_address.zip_code}</p>
+                </div>
+              ) : (
+                <div className="text-neutral-800 leading-snug">
+                  <p className="font-medium">{order.pickup_address || 'Galpão Saturno Embalagens - Santa Luzia / MG'}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Items Table */}
+        <div className="mb-5 print-avoid-break">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-700 mb-2">
+            Itens do Pedido ({orderItems.length})
+          </h2>
+          <table className="w-full text-xs border border-neutral-300 border-collapse">
+            <thead>
+              <tr className="bg-neutral-100 border-b border-neutral-300">
+                <th className="py-2 px-3 text-center font-bold uppercase text-neutral-700 w-12">#</th>
+                <th className="py-2 px-3 text-left font-bold uppercase text-neutral-700">Produto / Descrição</th>
+                <th className="py-2 px-3 text-center font-bold uppercase text-neutral-700 w-20">Qtd</th>
+                <th className="py-2 px-3 text-right font-bold uppercase text-neutral-700 w-28">Unitário</th>
+                <th className="py-2 px-3 text-right font-bold uppercase text-neutral-700 w-28">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-300">
+              {orderItems.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-3 px-3 text-center text-neutral-500 italic">
+                    Nenhum item listado.
+                  </td>
+                </tr>
+              ) : (
+                orderItems.map((item, idx) => (
+                  <tr key={item.id || idx} className="print-avoid-break">
+                    <td className="py-2 px-3 text-center text-neutral-500 font-medium">{idx + 1}</td>
+                    <td className="py-2 px-3 font-semibold text-neutral-900 break-words">{item.product_name}</td>
+                    <td className="py-2 px-3 text-center font-bold text-neutral-900">{item.quantity}</td>
+                    <td className="py-2 px-3 text-right text-neutral-800">{formatCurrency(item.product_price)}</td>
+                    <td className="py-2 px-3 text-right font-bold text-neutral-900">{formatCurrency(item.total_price)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Payment and Financial Summary */}
+        <div className="grid grid-cols-2 gap-4 mb-5 print-avoid-break">
+          {/* Detalhes do Pagamento */}
+          <div className="border border-neutral-300 rounded p-3 bg-neutral-50/50">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-700 border-b border-neutral-300 pb-1 mb-2">
+              Pagamento
+            </h2>
+            <div className="space-y-1.5 text-xs">
+              <p>
+                <strong className="text-neutral-900">Método:</strong> {getPrintPaymentMethodLabel(order.payment_method)}
+              </p>
+              <p>
+                <strong className="text-neutral-900">Status:</strong> {getPrintPaymentStatusLabel(order.payment_status)}
+              </p>
+            </div>
+          </div>
+
+          {/* Totais */}
+          <div className="border border-neutral-300 rounded p-3 bg-neutral-50/50">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-700 border-b border-neutral-300 pb-1 mb-2">
+              Resumo Financeiro
+            </h2>
+            <div className="space-y-1 text-xs">
+              <div className="flex justify-between text-neutral-700">
+                <span>Subtotal:</span>
+                <span>{formatCurrency(order.subtotal)}</span>
+              </div>
+              <div className="flex justify-between text-neutral-700">
+                <span>Frete:</span>
+                <span>{order.shipping_cost > 0 ? formatCurrency(order.shipping_cost) : 'Grátis (R$ 0,00)'}</span>
+              </div>
+              <div className="flex justify-between pt-1.5 border-t border-neutral-400 font-bold text-sm text-neutral-950">
+                <span>TOTAL DO PEDIDO:</span>
+                <span>{formatCurrency(order.total)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Observações do Cliente (quando existirem) */}
+        {order.customer_note && (
+          <div className="border border-neutral-300 rounded p-3 mb-5 bg-neutral-50/50 print-avoid-break">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-700 border-b border-neutral-300 pb-1 mb-1.5">
+              Observações do Pedido
+            </h2>
+            <p className="text-xs text-neutral-800 whitespace-pre-line leading-relaxed">
+              {order.customer_note}
+            </p>
+          </div>
+        )}
+
+        {/* Assinatura e Data de Entrega */}
+        <div className="border-t-2 border-dashed border-neutral-400 pt-6 mt-6 print-avoid-break">
+          <div className="grid grid-cols-2 gap-8 text-xs">
+            <div>
+              <p className="text-neutral-700 mb-8 font-medium">Assinatura do Recebedor:</p>
+              <div className="border-b border-black w-full" />
+            </div>
+            <div>
+              <p className="text-neutral-700 mb-8 font-medium">Data de Entrega:</p>
+              <p className="font-mono text-sm tracking-widest text-neutral-800">____ / ____ / ________</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── Route ───────────────────────────────────────────────────────────────────
@@ -189,6 +432,7 @@ export const Route = createFileRoute('/admin/orders')({
 function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // filters
@@ -210,15 +454,13 @@ function AdminOrdersPage() {
   // status updates in flight
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [updatingPaymentOrderId, setUpdatingPaymentOrderId] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchOrders();
-  }, []);
+  const [simulatingPixId, setSimulatingPixId] = useState<string | null>(null);
 
   // ── Fetch all orders with joined profile + shipping_address ─────────────
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async (isSilent = false) => {
     try {
-      setLoading(true);
+      if (!isSilent) setLoading(true);
+      else setIsRefreshing(true);
       setError(null);
 
       const { data, error: fetchError } = await supabase
@@ -228,6 +470,7 @@ function AdminOrdersPage() {
           subtotal, shipping_cost, total,
           delivery_type, shipping_address_id, pickup_address,
           customer_note, created_at, updated_at,
+          abacate_pix_id,
           profile:profiles!orders_user_id_fkey ( id, name, phone ),
           shipping_address:addresses!orders_shipping_address_id_fkey (
             id, street, number, complement, neighborhood, city, state, zip_code
@@ -237,13 +480,19 @@ function AdminOrdersPage() {
 
       if (fetchError) throw fetchError;
       setOrders((data as unknown as Order[]) || []);
-    } catch (err) {
+    } catch (err: any) {
       console.error('[ADMIN-ORDERS] fetchOrders error:', err);
-      setError('Erro ao carregar pedidos. Verifique se a policy RLS de admin está ativa.');
+      const errMsg = err?.message || err?.details || err?.hint || 'Erro desconhecido ao carregar pedidos.';
+      setError(`Erro do Supabase: ${errMsg} (Code: ${err?.code})`);
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
 
   // ── Fetch order items for the detail modal ───────────────────────────────
   const openDetail = async (order: Order) => {
@@ -337,7 +586,7 @@ function AdminOrdersPage() {
     try {
       setUpdatingPaymentOrderId(orderId);
 
-      const { data, error: rpcError } = await supabase.rpc('admin_update_payment_status', {
+      const { error: rpcError } = await supabase.rpc('admin_update_payment_status', {
         p_order_id: orderId,
         p_new_payment_status: newPaymentStatus,
       });
@@ -371,6 +620,40 @@ function AdminOrdersPage() {
     }
   };
 
+  // ── Simulate PIX Payment (DevMode) ───────────────────────────────────────
+  const handleSimulatePix = async (orderId: string) => {
+    if (!window.confirm('Atenção (DEV): Deseja simular o pagamento PIX para este pedido?')) return;
+
+    try {
+      setSimulatingPixId(orderId);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Usuário não autenticado.');
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/simulate-abacate-payment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ order_id: orderId }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Erro desconhecido na simulação.');
+      }
+
+      toast.success(data.message || 'Simulação aceita. Aguarde a confirmação automática pelo webhook.');
+      fetchOrders(true);
+    } catch (err: any) {
+      console.error('[ADMIN-ORDERS] handleSimulatePix error:', err);
+      toast.error(err.message || 'Falha ao simular pagamento.');
+    } finally {
+      setSimulatingPixId(null);
+    }
+  };
+
   // ── Filtered list ────────────────────────────────────────────────────────
   const filteredOrders = useMemo(() => {
     const now = new Date();
@@ -390,15 +673,30 @@ function AdminOrdersPage() {
 
       // search
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+        const q = searchQuery.toLowerCase().trim();
         const matchesId = order.id.toLowerCase().includes(q);
+        const matchesShortId = shortId(order.id).toLowerCase().includes(q);
         const matchesName = order.profile?.name?.toLowerCase().includes(q) ?? false;
-        if (!matchesId && !matchesName) return false;
+        const matchesPhone = order.profile?.phone?.toLowerCase().includes(q) ?? false;
+        if (!matchesId && !matchesShortId && !matchesName && !matchesPhone) return false;
       }
 
       return true;
     });
   }, [orders, statusFilter, periodFilter, searchQuery]);
+
+  const hasActiveFilters = searchQuery.trim() !== '' || statusFilter !== 'all' || periodFilter !== 'all';
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('all');
+    setPeriodFilter('all');
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success(`${label} copiado!`);
+  };
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -408,52 +706,97 @@ function AdminOrdersPage() {
         {/* ── Page header ── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
-              Gestão de Pedidos
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--foreground)' }}>
+                Pedidos
+              </h1>
+              {!loading && (
+                <span
+                  className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border"
+                  style={{
+                    backgroundColor: 'var(--muted)',
+                    borderColor: 'var(--border)',
+                    color: 'var(--muted-foreground)',
+                  }}
+                >
+                  {orders.length} {orders.length === 1 ? 'pedido' : 'pedidos'}
+                </span>
+              )}
+            </div>
             <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>
               Acompanhe, atualize e gerencie os pedidos da loja com controle de estoque e pagamentos.
             </p>
           </div>
-          <button
-            onClick={fetchOrders}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all hover:opacity-80 cursor-pointer"
-            style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)', border: '1px solid var(--border)' }}
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Atualizar
-          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => fetchOrders(true)}
+              disabled={isRefreshing || loading}
+              aria-label="Atualizar lista de pedidos"
+              title="Atualizar lista de pedidos"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all hover:opacity-80 disabled:opacity-50 cursor-pointer"
+              style={{
+                backgroundColor: 'var(--card)',
+                borderColor: 'var(--border)',
+                color: 'var(--foreground)',
+              }}
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <span>Atualizar</span>
+            </button>
+          </div>
         </div>
 
-        {/* ── Filters ── */}
-        <div className="flex flex-col sm:flex-row gap-3">
+        {/* ── Filters & Search ── */}
+        <div
+          className="p-3.5 sm:p-4 rounded-xl border flex flex-col md:flex-row gap-3 md:items-center"
+          style={{
+            backgroundColor: 'var(--card)',
+            borderColor: 'var(--border)',
+          }}
+        >
           {/* Search */}
           <div className="relative flex-1">
-            <svg
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+            <Search
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
+              style={{ color: 'var(--muted-foreground)' }}
+            />
             <input
               type="text"
-              placeholder="Buscar por cliente ou ID do pedido..."
+              placeholder="Buscar por cliente, telefone ou ID do pedido..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2"
-              style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', color: 'var(--foreground)' }}
+              className="w-full pl-10 pr-10 py-2 rounded-lg border text-sm transition-all outline-none focus:ring-2 focus:ring-primary/20"
+              style={{
+                backgroundColor: 'var(--background)',
+                borderColor: 'var(--border)',
+                color: 'var(--foreground)',
+              }}
             />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                aria-label="Limpar busca"
+                title="Limpar busca"
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md transition-colors hover:opacity-80"
+                style={{ color: 'var(--muted-foreground)' }}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Status Filter */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-full sm:w-48 px-3 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2"
-            style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', color: 'var(--foreground)' }}
+            aria-label="Filtrar por status"
+            className="w-full md:w-48 px-3 py-2 rounded-lg border text-xs font-medium outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+            style={{
+              backgroundColor: 'var(--background)',
+              borderColor: 'var(--border)',
+              color: 'var(--foreground)',
+            }}
           >
             <option value="all">Todos os status</option>
             {NORMAL_STATUS_FLOW.map((s) => (
@@ -468,83 +811,208 @@ function AdminOrdersPage() {
           <select
             value={periodFilter}
             onChange={(e) => setPeriodFilter(e.target.value)}
-            className="w-full sm:w-44 px-3 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2"
-            style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', color: 'var(--foreground)' }}
+            aria-label="Filtrar por período"
+            className="w-full md:w-44 px-3 py-2 rounded-lg border text-xs font-medium outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+            style={{
+              backgroundColor: 'var(--background)',
+              borderColor: 'var(--border)',
+              color: 'var(--foreground)',
+            }}
           >
             <option value="all">Todo período</option>
             <option value="7d">Últimos 7 dias</option>
             <option value="30d">Últimos 30 dias</option>
             <option value="90d">Últimos 90 dias</option>
           </select>
+
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              aria-label="Limpar todos os filtros"
+              title="Limpar todos os filtros"
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors hover:opacity-80"
+              style={{
+                backgroundColor: 'var(--background)',
+                borderColor: 'var(--border)',
+                color: 'var(--muted-foreground)',
+              }}
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Limpar</span>
+            </button>
+          )}
         </div>
 
         {/* ── Content ── */}
         {loading ? (
+          /* Skeletons */
           <div className="space-y-3">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-16 rounded-xl animate-pulse" style={{ backgroundColor: 'var(--muted)' }} />
-            ))}
+            <div
+              className="hidden lg:block rounded-xl border overflow-hidden"
+              style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+            >
+              <div className="h-11 border-b" style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }} />
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between p-4 border-b last:border-0 animate-pulse"
+                  style={{ borderColor: 'var(--border)' }}
+                >
+                  <div className="h-4 w-20 rounded" style={{ backgroundColor: 'var(--muted)' }} />
+                  <div className="space-y-1.5 w-1/5">
+                    <div className="h-4 w-32 rounded" style={{ backgroundColor: 'var(--muted)' }} />
+                    <div className="h-3 w-20 rounded" style={{ backgroundColor: 'var(--muted)' }} />
+                  </div>
+                  <div className="h-3 w-24 rounded" style={{ backgroundColor: 'var(--muted)' }} />
+                  <div className="h-5 w-20 rounded-full" style={{ backgroundColor: 'var(--muted)' }} />
+                  <div className="h-5 w-24 rounded-full" style={{ backgroundColor: 'var(--muted)' }} />
+                  <div className="h-4 w-16 rounded" style={{ backgroundColor: 'var(--muted)' }} />
+                  <div className="h-8 w-32 rounded-lg" style={{ backgroundColor: 'var(--muted)' }} />
+                  <div className="h-8 w-20 rounded-lg" style={{ backgroundColor: 'var(--muted)' }} />
+                </div>
+              ))}
+            </div>
+
+            <div className="lg:hidden space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="rounded-2xl border p-4 space-y-3 animate-pulse"
+                  style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+                >
+                  <div className="flex justify-between">
+                    <div className="h-4 w-24 rounded" style={{ backgroundColor: 'var(--muted)' }} />
+                    <div className="h-4 w-20 rounded" style={{ backgroundColor: 'var(--muted)' }} />
+                  </div>
+                  <div className="h-4 w-40 rounded" style={{ backgroundColor: 'var(--muted)' }} />
+                  <div className="h-10 w-full rounded-xl" style={{ backgroundColor: 'var(--muted)' }} />
+                </div>
+              ))}
+            </div>
           </div>
         ) : error ? (
+          /* Error State */
           <div
-            className="p-6 rounded-xl text-center"
-            style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
+            className="p-8 sm:p-12 rounded-xl border text-center max-w-md mx-auto"
+            style={{
+              backgroundColor: 'var(--card)',
+              borderColor: 'var(--border)',
+            }}
           >
-            <AlertTriangle className="w-12 h-12 mx-auto mb-3 text-destructive" />
-            <p className="font-medium mb-2" style={{ color: 'var(--foreground)' }}>{error}</p>
-            <button
-              onClick={fetchOrders}
-              className="text-sm font-medium hover:underline cursor-pointer"
-              style={{ color: 'var(--primary)' }}
+            <div
+              className="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+              style={{
+                backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                color: 'var(--destructive)',
+              }}
             >
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+              Não foi possível carregar os pedidos.
+            </h3>
+            <p className="text-xs mb-6" style={{ color: 'var(--muted-foreground)' }}>
+              Verifique sua conexão e tente novamente.
+            </p>
+            <button
+              onClick={() => fetchOrders()}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-90"
+              style={{
+                backgroundColor: 'var(--primary)',
+                color: 'var(--primary-foreground)',
+              }}
+            >
+              <RefreshCw className="w-4 h-4" />
               Tentar novamente
             </button>
           </div>
         ) : filteredOrders.length === 0 ? (
+          /* Empty States */
           <div
-            className="p-12 rounded-xl text-center"
-            style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
+            className="p-8 sm:p-12 rounded-xl border text-center"
+            style={{
+              backgroundColor: 'var(--card)',
+              borderColor: 'var(--border)',
+            }}
           >
             <div
-              className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
-              style={{ backgroundColor: 'var(--muted)' }}
+              className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center border"
+              style={{
+                backgroundColor: 'var(--background)',
+                borderColor: 'var(--border)',
+                color: 'var(--muted-foreground)',
+              }}
             >
-              <ShoppingBag className="w-8 h-8 text-muted-foreground" />
+              <ShoppingBag className="w-7 h-7" />
             </div>
-            <h3 className="text-lg font-semibold mb-2" style={{ color: 'var(--foreground)' }}>
-              {orders.length === 0 ? 'Nenhum pedido encontrado' : 'Nenhum pedido corresponde aos filtros'}
+            <h3 className="text-base font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+              {orders.length === 0 ? 'Você ainda não possui pedidos registrados.' : 'Nenhum pedido corresponde aos filtros atuais.'}
             </h3>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm max-w-md mx-auto mb-6" style={{ color: 'var(--muted-foreground)' }}>
               {orders.length === 0
-                ? 'Quando seus clientes realizarem pedidos eles aparecerão aqui.'
-                : 'Tente ajustar os filtros ou os termos de busca.'}
+                ? 'Quando seus clientes realizarem compras na loja, os pedidos aparecerão aqui.'
+                : 'Tente ajustar os termos de pesquisa, o status ou o período selecionado.'}
             </p>
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all hover:opacity-80"
+                style={{
+                  backgroundColor: 'var(--background)',
+                  borderColor: 'var(--border)',
+                  color: 'var(--foreground)',
+                }}
+              >
+                <X className="w-4 h-4" />
+                Limpar filtros
+              </button>
+            )}
           </div>
         ) : (
           <>
             {/* ── Totals summary bar ── */}
-            <div className="text-xs text-muted-foreground">
-              {filteredOrders.length} {filteredOrders.length === 1 ? 'pedido' : 'pedidos'} encontrado{filteredOrders.length !== 1 ? 's' : ''}{' '}
-              · Total: <strong style={{ color: 'var(--foreground)' }}>{formatCurrency(filteredOrders.reduce((s, o) => s + o.total, 0))}</strong>
+            <div
+              className="flex items-center justify-between text-xs px-1"
+              style={{ color: 'var(--muted-foreground)' }}
+            >
+              <span>
+                {filteredOrders.length} {filteredOrders.length === 1 ? 'pedido exibido' : 'pedidos exibidos'}
+              </span>
+              <span>
+                Total: <strong style={{ color: 'var(--foreground)' }}>{formatCurrency(filteredOrders.reduce((s, o) => s + o.total, 0))}</strong>
+              </span>
             </div>
 
             {/* ── Desktop table ── */}
-            <div className="hidden lg:block overflow-hidden rounded-xl border" style={{ borderColor: 'var(--border)' }}>
-              <table className="w-full">
+            <div
+              className="hidden lg:block overflow-hidden rounded-xl border shadow-xs"
+              style={{
+                backgroundColor: 'var(--card)',
+                borderColor: 'var(--border)',
+              }}
+            >
+              <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr style={{ backgroundColor: 'var(--muted)' }}>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left text-muted-foreground">Pedido</th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left text-muted-foreground">Cliente</th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left text-muted-foreground">Data</th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left text-muted-foreground">Entrega</th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left text-muted-foreground">Pagamento</th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left text-muted-foreground">Total</th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left text-muted-foreground min-w-[200px]">Status do Pedido</th>
-                    <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-right text-muted-foreground">Ações</th>
+                  <tr
+                    className="border-b text-xs font-semibold uppercase tracking-wider"
+                    style={{
+                      backgroundColor: 'var(--muted)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--muted-foreground)',
+                    }}
+                  >
+                    <th className="px-4 py-3">Pedido</th>
+                    <th className="px-4 py-3">Cliente</th>
+                    <th className="px-4 py-3">Data</th>
+                    <th className="px-4 py-3">Modalidade</th>
+                    <th className="px-4 py-3">Pagamento</th>
+                    <th className="px-4 py-3">Total</th>
+                    <th className="px-4 py-3 min-w-[190px]">Status do Pedido</th>
+                    <th className="px-4 py-3 text-right">Ações</th>
                   </tr>
                 </thead>
-                <tbody style={{ backgroundColor: 'var(--card)' }}>
-                  {filteredOrders.map((order, idx) => {
+                <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
+                  {filteredOrders.map((order) => {
                     const isUpdating = updatingOrderId === order.id;
                     const isCancelled = order.status === 'cancelled';
                     const currentCfg = ALL_STATUS_CONFIGS[order.status] || ALL_STATUS_CONFIGS.pending;
@@ -552,42 +1020,57 @@ function AdminOrdersPage() {
 
                     const PaymentIcon = getPaymentIcon(order.payment_method);
                     const paymentStatusCfg = PAYMENT_STATUS_CONFIGS[order.payment_status] || PAYMENT_STATUS_CONFIGS.pending;
+                    const statusLabel = getOrderStatusLabel(order.status, order.delivery_type);
 
                     return (
                       <tr
                         key={order.id}
-                        className="hover:bg-muted/20 transition-colors"
-                        style={{ borderTop: idx > 0 ? '1px solid var(--border)' : 'none' }}
+                        className="hover:bg-muted/40 transition-colors"
+                        style={{ color: 'var(--foreground)' }}
                       >
                         {/* ID */}
-                        <td className="px-4 py-3">
-                          <span className="font-mono text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
-                            {shortId(order.id)}
-                          </span>
+                        <td className="px-4 py-3.5">
+                          <button
+                            onClick={() => copyToClipboard(order.id, 'ID do pedido')}
+                            aria-label={`Copiar ID ${order.id}`}
+                            title="Clique para copiar o ID completo"
+                            className="inline-flex items-center gap-1 font-mono text-xs font-semibold px-2 py-1 rounded border transition-colors hover:opacity-80"
+                            style={{
+                              backgroundColor: 'var(--background)',
+                              borderColor: 'var(--border)',
+                              color: 'var(--foreground)',
+                            }}
+                          >
+                            <span>{shortId(order.id)}</span>
+                            <Copy className="w-3 h-3 text-muted-foreground" />
+                          </button>
                         </td>
 
                         {/* Cliente */}
-                        <td className="px-4 py-3">
-                          <div>
-                            <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
-                              {order.profile?.name ?? '—'}
+                        <td className="px-4 py-3.5">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold truncate">
+                              {order.profile?.name ?? 'Cliente sem nome'}
                             </p>
                             {order.profile?.phone && (
-                              <p className="text-xs text-muted-foreground">{order.profile.phone}</p>
+                              <p className="text-xs text-muted-foreground truncate mt-0.5">
+                                {order.profile.phone}
+                              </p>
                             )}
                           </div>
                         </td>
 
                         {/* Data */}
-                        <td className="px-4 py-3">
-                          <span className="text-xs text-muted-foreground">
-                            {formatDate(order.created_at)}
-                          </span>
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>{formatDate(order.created_at)}</span>
+                          </div>
                         </td>
 
-                        {/* Tipo de entrega */}
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        {/* Modalidade */}
+                        <td className="px-4 py-3.5">
+                          <div className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                             {order.delivery_type === 'delivery' ? (
                               <Truck className="w-3.5 h-3.5 text-primary" />
                             ) : (
@@ -598,20 +1081,20 @@ function AdminOrdersPage() {
                         </td>
 
                         {/* Pagamento (Método + Status) */}
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3.5">
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--foreground)' }}>
+                            <div className="flex items-center gap-1.5 text-xs font-medium">
                               <PaymentIcon className="w-3.5 h-3.5 text-primary flex-shrink-0" />
                               <span className="truncate max-w-[140px]">
-                                {order.payment_method ? PAYMENT_METHOD_LABELS[order.payment_method] : 'Pagamento na entrega'}
+                                {order.payment_method ? PAYMENT_METHOD_LABELS[order.payment_method] : 'Na entrega'}
                               </span>
                             </div>
                             <span
-                              className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                              className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border"
                               style={{
                                 backgroundColor: paymentStatusCfg.bg,
                                 color: paymentStatusCfg.text,
-                                border: `1px solid ${paymentStatusCfg.border}`,
+                                borderColor: paymentStatusCfg.border,
                               }}
                             >
                               {paymentStatusCfg.label}
@@ -620,100 +1103,122 @@ function AdminOrdersPage() {
                         </td>
 
                         {/* Total */}
-                        <td className="px-4 py-3">
-                          <span className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>
+                        <td className="px-4 py-3.5">
+                          <span className="text-sm font-bold">
                             {formatCurrency(order.total)}
                           </span>
                         </td>
 
                         {/* Status visual control */}
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3.5">
                           {isCancelled ? (
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5">
                               <span
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border"
                                 style={{
                                   backgroundColor: CANCELLED_STATUS_CONFIG.bg,
                                   color: CANCELLED_STATUS_CONFIG.text,
-                                  border: `1px solid ${CANCELLED_STATUS_CONFIG.border}`,
+                                  borderColor: CANCELLED_STATUS_CONFIG.border,
                                 }}
                               >
                                 <Ban className="w-3.5 h-3.5" />
                                 Cancelado
                               </span>
-                              <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                                Devolvido
+                              <span
+                                className="text-[10px] font-medium px-2 py-0.5 rounded-full border text-muted-foreground"
+                                style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
+                                title="Estoque foi automaticamente devolvido"
+                              >
+                                Estoque devolvido
                               </span>
                             </div>
                           ) : (
-                            <div className="flex items-center gap-2">
-                              <div className="relative">
-                                <select
-                                  disabled={isUpdating}
-                                  value={order.status}
-                                  onChange={(e) => {
-                                    const nextStatus = e.target.value as OrderStatus;
-                                    if (nextStatus === 'cancelled') {
-                                      openCancelModal(order);
-                                    } else {
-                                      handleStatusUpdate(order.id, nextStatus);
-                                    }
-                                  }}
-                                  className="appearance-none pl-8 pr-7 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2"
-                                  style={{
-                                    backgroundColor: currentCfg.bg,
-                                    color: currentCfg.text,
-                                    borderColor: currentCfg.border,
-                                  }}
-                                >
-                                  {NORMAL_STATUS_FLOW.map((s) => (
-                                    <option key={s.value} value={s.value} style={{ backgroundColor: 'var(--card)', color: 'var(--foreground)' }}>
-                                      {s.label}
-                                    </option>
-                                  ))}
-                                  <option value="cancelled" style={{ backgroundColor: 'var(--card)', color: 'var(--destructive)' }}>
-                                    ⚠️ Cancelar pedido
+                            <div className="relative">
+                              <select
+                                disabled={isUpdating}
+                                value={order.status}
+                                onChange={(e) => {
+                                  const nextStatus = e.target.value as OrderStatus;
+                                  if (nextStatus === 'cancelled') {
+                                    openCancelModal(order);
+                                  } else {
+                                    handleStatusUpdate(order.id, nextStatus);
+                                  }
+                                }}
+                                aria-label={`Alterar status do pedido ${shortId(order.id)}`}
+                                className="w-full appearance-none pl-8 pr-7 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed outline-none focus:ring-2 focus:ring-primary/20"
+                                style={{
+                                  backgroundColor: currentCfg.bg,
+                                  color: currentCfg.text,
+                                  borderColor: currentCfg.border,
+                                }}
+                              >
+                                {NORMAL_STATUS_FLOW.map((s) => (
+                                  <option
+                                    key={s.value}
+                                    value={s.value}
+                                    style={{ backgroundColor: 'var(--card)', color: 'var(--foreground)' }}
+                                  >
+                                    {s.value === 'shipped' && order.delivery_type === 'pickup'
+                                      ? 'Pronto para retirada'
+                                      : s.label}
                                   </option>
-                                </select>
-                                <StatusIcon
-                                  className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                                ))}
+                                <option
+                                  value="cancelled"
+                                  style={{ backgroundColor: 'var(--card)', color: 'var(--destructive)' }}
+                                >
+                                  ⚠️ Cancelar pedido
+                                </option>
+                              </select>
+                              <StatusIcon
+                                className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                                style={{ color: currentCfg.text }}
+                              />
+                              {isUpdating ? (
+                                <Loader2
+                                  className="w-3.5 h-3.5 animate-spin absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
                                   style={{ color: currentCfg.text }}
                                 />
-                                {isUpdating ? (
-                                  <Loader2
-                                    className="w-3.5 h-3.5 animate-spin absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
-                                    style={{ color: currentCfg.text }}
-                                  />
-                                ) : (
-                                  <ChevronDown
-                                    className="w-3.5 h-3.5 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-60"
-                                    style={{ color: currentCfg.text }}
-                                  />
-                                )}
-                              </div>
+                              ) : (
+                                <ChevronDown
+                                  className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60"
+                                  style={{ color: currentCfg.text }}
+                                />
+                              )}
                             </div>
                           )}
                         </td>
 
                         {/* Actions */}
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
+                        <td className="px-4 py-3.5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
                             <button
                               onClick={() => openDetail(order)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80 cursor-pointer"
-                              style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
+                              aria-label={`Ver detalhes do pedido ${shortId(order.id)}`}
                               title="Ver detalhes do pedido"
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors hover:opacity-80 cursor-pointer"
+                              style={{
+                                backgroundColor: 'var(--background)',
+                                borderColor: 'var(--border)',
+                                color: 'var(--foreground)',
+                              }}
                             >
                               <Eye className="w-3.5 h-3.5" />
-                              Detalhes
+                              <span>Detalhes</span>
                             </button>
 
                             {!isCancelled && (
                               <button
                                 onClick={() => openCancelModal(order)}
                                 disabled={isUpdating}
-                                className="p-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-destructive/10 text-destructive cursor-pointer disabled:opacity-50"
+                                aria-label={`Cancelar pedido ${shortId(order.id)}`}
                                 title="Cancelar pedido e devolver estoque"
+                                className="p-1.5 rounded-lg border text-xs font-medium transition-colors hover:bg-destructive/10 text-destructive cursor-pointer disabled:opacity-50"
+                                style={{
+                                  backgroundColor: 'var(--background)',
+                                  borderColor: 'var(--border)',
+                                }}
                               >
                                 <Ban className="w-4 h-4" />
                               </button>
@@ -741,64 +1246,81 @@ function AdminOrdersPage() {
                 return (
                   <div
                     key={order.id}
-                    className="rounded-2xl p-4 border space-y-3"
-                    style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+                    className="rounded-2xl p-4 border space-y-3 shadow-xs"
+                    style={{
+                      backgroundColor: 'var(--card)',
+                      borderColor: 'var(--border)',
+                    }}
                   >
-                    {/* Header */}
+                    {/* Top Row: ID, Client, Total */}
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <span className="font-mono text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
+                      <div className="min-w-0">
+                        <span className="font-mono text-xs font-bold" style={{ color: 'var(--foreground)' }}>
                           {shortId(order.id)}
                         </span>
-                        <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--foreground)' }}>
-                          {order.profile?.name ?? '—'}
+                        <p className="text-sm font-semibold truncate mt-0.5" style={{ color: 'var(--foreground)' }}>
+                          {order.profile?.name ?? 'Cliente sem nome'}
                         </p>
-                        <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
                           <Calendar className="w-3 h-3" />
-                          {formatDate(order.created_at)}
-                        </p>
+                          <span>{formatDate(order.created_at)}</span>
+                        </div>
                       </div>
 
-                      <div className="text-right">
+                      <div className="text-right shrink-0">
                         <span className="text-sm font-bold text-primary block">
                           {formatCurrency(order.total)}
                         </span>
-                        <span className="text-xs text-muted-foreground">
+                        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground mt-0.5">
+                          {order.delivery_type === 'delivery' ? (
+                            <Truck className="w-3 h-3 text-primary" />
+                          ) : (
+                            <Package className="w-3 h-3 text-primary" />
+                          )}
                           {DELIVERY_TYPE_LABELS[order.delivery_type]}
                         </span>
                       </div>
                     </div>
 
-                    {/* Payment Info in Card */}
-                    <div className="p-2.5 rounded-xl border flex items-center justify-between text-xs" style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}>
+                    {/* Payment Info */}
+                    <div
+                      className="p-2.5 rounded-xl border flex items-center justify-between text-xs"
+                      style={{
+                        backgroundColor: 'var(--background)',
+                        borderColor: 'var(--border)',
+                      }}
+                    >
                       <div className="flex items-center gap-1.5">
                         <PaymentIcon className="w-3.5 h-3.5 text-primary flex-shrink-0" />
                         <span className="font-medium" style={{ color: 'var(--foreground)' }}>
-                          {order.payment_method ? PAYMENT_METHOD_LABELS[order.payment_method] : 'Pagamento na entrega'}
+                          {order.payment_method ? PAYMENT_METHOD_LABELS[order.payment_method] : 'Na entrega'}
                         </span>
                       </div>
                       <span
-                        className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                        className="px-2 py-0.5 rounded-full text-[10px] font-semibold border"
                         style={{
                           backgroundColor: paymentStatusCfg.bg,
                           color: paymentStatusCfg.text,
-                          border: `1px solid ${paymentStatusCfg.border}`,
+                          borderColor: paymentStatusCfg.border,
                         }}
                       >
                         {paymentStatusCfg.label}
                       </span>
                     </div>
 
-                    {/* Status Changer Bar */}
-                    <div className="pt-2 border-t flex flex-col sm:flex-row sm:items-center justify-between gap-2" style={{ borderColor: 'var(--border)' }}>
+                    {/* Status Changer Bar & Actions */}
+                    <div
+                      className="pt-2.5 border-t flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                      style={{ borderColor: 'var(--border)' }}
+                    >
                       {isCancelled ? (
                         <div className="flex items-center gap-2">
                           <span
-                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold"
+                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold border"
                             style={{
                               backgroundColor: CANCELLED_STATUS_CONFIG.bg,
                               color: CANCELLED_STATUS_CONFIG.text,
-                              border: `1px solid ${CANCELLED_STATUS_CONFIG.border}`,
+                              borderColor: CANCELLED_STATUS_CONFIG.border,
                             }}
                           >
                             <Ban className="w-3.5 h-3.5" />
@@ -821,7 +1343,7 @@ function AdminOrdersPage() {
                                 handleStatusUpdate(order.id, nextStatus);
                               }
                             }}
-                            className="w-full appearance-none pl-8 pr-7 py-2 rounded-lg text-xs font-semibold border cursor-pointer transition-all disabled:opacity-50"
+                            className="w-full appearance-none pl-8 pr-7 py-2 rounded-lg text-xs font-semibold border cursor-pointer transition-all disabled:opacity-50 outline-none"
                             style={{
                               backgroundColor: currentCfg.bg,
                               color: currentCfg.text,
@@ -830,7 +1352,9 @@ function AdminOrdersPage() {
                           >
                             {NORMAL_STATUS_FLOW.map((s) => (
                               <option key={s.value} value={s.value} style={{ backgroundColor: 'var(--card)', color: 'var(--foreground)' }}>
-                                Status: {s.label}
+                                Status: {s.value === 'shipped' && order.delivery_type === 'pickup'
+                                  ? 'Pronto para retirada'
+                                  : s.label}
                               </option>
                             ))}
                             <option value="cancelled" style={{ backgroundColor: 'var(--card)', color: 'var(--destructive)' }}>
@@ -858,15 +1382,23 @@ function AdminOrdersPage() {
                       <div className="flex items-center gap-2 justify-end">
                         <button
                           onClick={() => openDetail(order)}
-                          className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80 cursor-pointer"
-                          style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
+                          className="px-3 py-2 rounded-lg text-xs font-medium border transition-colors hover:opacity-80 cursor-pointer"
+                          style={{
+                            backgroundColor: 'var(--background)',
+                            borderColor: 'var(--border)',
+                            color: 'var(--foreground)',
+                          }}
                         >
                           Detalhes
                         </button>
                         {!isCancelled && (
                           <button
                             onClick={() => openCancelModal(order)}
-                            className="p-1.5 rounded-lg text-xs font-medium transition-colors text-destructive hover:bg-destructive/10"
+                            className="p-2 rounded-lg border text-xs font-medium transition-colors text-destructive hover:bg-destructive/10 cursor-pointer"
+                            style={{
+                              backgroundColor: 'var(--background)',
+                              borderColor: 'var(--border)',
+                            }}
                             title="Cancelar pedido"
                           >
                             <Ban className="w-4 h-4" />
@@ -886,7 +1418,11 @@ function AdminOrdersPage() {
       <Dialog open={isCancelModalOpen} onOpenChange={setIsCancelModalOpen}>
         <DialogContent
           className="sm:max-w-md"
-          style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
+          style={{
+            backgroundColor: 'var(--card)',
+            borderColor: 'var(--border)',
+            color: 'var(--foreground)',
+          }}
         >
           <DialogHeader>
             <div className="flex items-center gap-3">
@@ -929,7 +1465,13 @@ function AdminOrdersPage() {
 
             {/* Order info summary */}
             {orderToCancel && (
-              <div className="p-3.5 rounded-xl bg-muted/60 border text-xs space-y-2" style={{ borderColor: 'var(--border)' }}>
+              <div
+                className="p-3.5 rounded-xl border text-xs space-y-2"
+                style={{
+                  backgroundColor: 'var(--background)',
+                  borderColor: 'var(--border)',
+                }}
+              >
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Cliente:</span>
                   <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
@@ -980,7 +1522,11 @@ function AdminOrdersPage() {
                 setOrderToCancel(null);
               }}
               className="px-4 py-2.5 rounded-xl text-xs font-semibold border transition-colors hover:bg-muted cursor-pointer"
-              style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
+              style={{
+                backgroundColor: 'var(--background)',
+                borderColor: 'var(--border)',
+                color: 'var(--foreground)',
+              }}
             >
               Voltar
             </button>
@@ -1015,18 +1561,39 @@ function AdminOrdersPage() {
       <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
         <DialogContent
           className="sm:max-w-2xl max-h-[92vh] overflow-y-auto"
-          style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
+          style={{
+            backgroundColor: 'var(--card)',
+            borderColor: 'var(--border)',
+            color: 'var(--foreground)',
+          }}
         >
           <DialogHeader>
-            <div className="flex items-center justify-between gap-2 pr-6">
+            <div className="flex items-center justify-between gap-3 pr-6 flex-wrap">
               <DialogTitle className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
                 Detalhes do Pedido {selectedOrder ? shortId(selectedOrder.id) : ''}
               </DialogTitle>
+              {selectedOrder && !loadingDetail && (
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all hover:bg-muted cursor-pointer shadow-sm no-print"
+                  style={{
+                    backgroundColor: 'var(--background)',
+                    borderColor: 'var(--border)',
+                    color: 'var(--foreground)',
+                  }}
+                  title="Imprimir comprovante do pedido"
+                  aria-label="Imprimir Pedido"
+                >
+                  <Printer className="w-3.5 h-3.5 text-primary" />
+                  <span>Imprimir Pedido</span>
+                </button>
+              )}
             </div>
           </DialogHeader>
 
           {!selectedOrder ? null : loadingDetail ? (
-            <div className="space-y-3 py-6 text-center">
+            <div className="space-y-3 py-8 text-center">
               <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary mb-2" />
               <p className="text-xs text-muted-foreground">Carregando detalhes do pedido...</p>
             </div>
@@ -1035,7 +1602,10 @@ function AdminOrdersPage() {
               {/* Status Progression Workflow */}
               <div
                 className="p-4 rounded-2xl border space-y-3"
-                style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}
+                style={{
+                  backgroundColor: 'var(--background)',
+                  borderColor: 'var(--border)',
+                }}
               >
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -1043,8 +1613,12 @@ function AdminOrdersPage() {
                   </p>
                   {selectedOrder.status === 'cancelled' && (
                     <span
-                      className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full"
-                      style={{ backgroundColor: CANCELLED_STATUS_CONFIG.bg, color: CANCELLED_STATUS_CONFIG.text }}
+                      className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full border"
+                      style={{
+                        backgroundColor: CANCELLED_STATUS_CONFIG.bg,
+                        color: CANCELLED_STATUS_CONFIG.text,
+                        borderColor: CANCELLED_STATUS_CONFIG.border,
+                      }}
                     >
                       <Ban className="w-3 h-3" />
                       Cancelado (Estoque Devolvido)
@@ -1058,6 +1632,9 @@ function AdminOrdersPage() {
                     const isActive = selectedOrder.status === s.value;
                     const Icon = s.icon;
                     const isUpdating = updatingOrderId === selectedOrder.id;
+                    const stepLabel = s.value === 'shipped' && selectedOrder.delivery_type === 'pickup'
+                      ? 'Pronto p/ retirada'
+                      : s.label;
 
                     return (
                       <button
@@ -1077,7 +1654,7 @@ function AdminOrdersPage() {
                         }}
                       >
                         <Icon className="w-4 h-4" />
-                        <span className="text-[11px] whitespace-nowrap">{s.label}</span>
+                        <span className="text-[11px] whitespace-nowrap">{stepLabel}</span>
                         {isActive && <span className="text-[10px] font-bold">✓ Atual</span>}
                       </button>
                     );
@@ -1098,8 +1675,12 @@ function AdminOrdersPage() {
                   </div>
                 ) : (
                   <div
-                    className="p-2.5 rounded-xl text-xs flex items-center gap-2"
-                    style={{ backgroundColor: 'rgba(220, 38, 38, 0.08)', color: 'var(--destructive)' }}
+                    className="p-2.5 rounded-xl text-xs flex items-center gap-2 border"
+                    style={{
+                      backgroundColor: 'rgba(220, 38, 38, 0.08)',
+                      borderColor: 'rgba(220, 38, 38, 0.2)',
+                      color: 'var(--destructive)',
+                    }}
                   >
                     <RotateCcw className="w-4 h-4 flex-shrink-0" />
                     <span>Este pedido foi cancelado e os itens retornaram ao estoque.</span>
@@ -1115,7 +1696,10 @@ function AdminOrdersPage() {
                 </h3>
                 <div
                   className="p-4 rounded-2xl border space-y-3"
-                  style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+                  style={{
+                    backgroundColor: 'var(--background)',
+                    borderColor: 'var(--border)',
+                  }}
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {/* Método de Pagamento */}
@@ -1144,9 +1728,10 @@ function AdminOrdersPage() {
                           onChange={(e) =>
                             handlePaymentStatusUpdate(selectedOrder.id, e.target.value as PaymentStatus)
                           }
-                          className="px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition-all disabled:opacity-50 focus:outline-none focus:ring-2"
+                          aria-label="Atualizar status do pagamento"
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition-all disabled:opacity-50 outline-none focus:ring-2 focus:ring-primary/20"
                           style={{
-                            backgroundColor: PAYMENT_STATUS_CONFIGS[selectedOrder.payment_status]?.bg || 'var(--muted)',
+                            backgroundColor: PAYMENT_STATUS_CONFIGS[selectedOrder.payment_status]?.bg || 'var(--card)',
                             color: PAYMENT_STATUS_CONFIGS[selectedOrder.payment_status]?.text || 'var(--foreground)',
                             borderColor: PAYMENT_STATUS_CONFIGS[selectedOrder.payment_status]?.border || 'var(--border)',
                           }}
@@ -1163,24 +1748,55 @@ function AdminOrdersPage() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Dev Mode Simulation Button */}
+                  {selectedOrder.payment_method === 'abacate_pix' && selectedOrder.abacate_pix_id && selectedOrder.payment_status !== 'paid' && (
+                    <div className="pt-3 border-t mt-3 flex justify-end" style={{ borderColor: 'var(--border)' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleSimulatePix(selectedOrder.id)}
+                        disabled={simulatingPixId === selectedOrder.id}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-primary bg-primary/10 hover:bg-primary/20 transition-colors cursor-pointer border border-primary/20"
+                      >
+                        {simulatingPixId === selectedOrder.id ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Simulando pagamento...</span>
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>SIMULAR PAGAMENTO PIX (DEV)</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </section>
 
               {/* Customer info */}
               <section className="space-y-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Informações do Cliente
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-primary" />
+                  <span>Informações do Cliente</span>
                 </h3>
-                <div className="p-3.5 rounded-xl border grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
+                <div
+                  className="p-3.5 rounded-xl border grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs"
+                  style={{
+                    backgroundColor: 'var(--background)',
+                    borderColor: 'var(--border)',
+                  }}
+                >
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Nome:</span>
-                    <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                    <span className="font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
                       {selectedOrder.profile?.name ?? '—'}
                     </span>
                   </div>
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Telefone:</span>
-                    <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                    <span className="font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
                       {selectedOrder.profile?.phone ?? '—'}
                     </span>
                   </div>
@@ -1195,10 +1811,17 @@ function AdminOrdersPage() {
 
               {/* Delivery info */}
               <section className="space-y-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Entrega / Recebimento
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-primary" />
+                  <span>Entrega / Recebimento</span>
                 </h3>
-                <div className="p-3.5 rounded-xl border text-xs space-y-1.5" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
+                <div
+                  className="p-3.5 rounded-xl border text-xs space-y-1.5"
+                  style={{
+                    backgroundColor: 'var(--background)',
+                    borderColor: 'var(--border)',
+                  }}
+                >
                   <div className="flex items-center gap-2">
                     {selectedOrder.delivery_type === 'delivery' ? (
                       <Truck className="w-4 h-4 text-primary" />
@@ -1229,11 +1852,18 @@ function AdminOrdersPage() {
 
               {/* Order items */}
               <section className="space-y-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Itens do Pedido ({selectedOrder.order_items?.length || 0})
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Package className="w-3.5 h-3.5 text-primary" />
+                  <span>Itens do Pedido ({selectedOrder.order_items?.length || 0})</span>
                 </h3>
                 {selectedOrder.order_items && selectedOrder.order_items.length > 0 ? (
-                  <div className="overflow-hidden rounded-xl border" style={{ borderColor: 'var(--border)' }}>
+                  <div
+                    className="overflow-hidden rounded-xl border"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                    }}
+                  >
                     <table className="w-full text-xs">
                       <thead>
                         <tr style={{ backgroundColor: 'var(--muted)' }}>
@@ -1243,10 +1873,10 @@ function AdminOrdersPage() {
                           <th className="px-3 py-2 text-right font-semibold uppercase text-muted-foreground">Subtotal</th>
                         </tr>
                       </thead>
-                      <tbody style={{ backgroundColor: 'var(--card)' }}>
-                        {selectedOrder.order_items.map((item, idx) => (
-                          <tr key={item.id} style={{ borderTop: idx > 0 ? '1px solid var(--border)' : 'none' }}>
-                            <td className="px-3 py-2.5 font-medium" style={{ color: 'var(--foreground)' }}>
+                      <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
+                        {selectedOrder.order_items.map((item) => (
+                          <tr key={item.id} style={{ color: 'var(--foreground)' }}>
+                            <td className="px-3 py-2.5 font-medium">
                               {item.product_name}
                             </td>
                             <td className="px-3 py-2.5 text-center text-muted-foreground font-semibold">
@@ -1269,7 +1899,13 @@ function AdminOrdersPage() {
               </section>
 
               {/* Totals Breakdown */}
-              <section className="p-3.5 rounded-xl border space-y-1.5 text-xs" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
+              <section
+                className="p-3.5 rounded-xl border space-y-1.5 text-xs"
+                style={{
+                  backgroundColor: 'var(--background)',
+                  borderColor: 'var(--border)',
+                }}
+              >
                 <div className="flex justify-between text-muted-foreground">
                   <span>Subtotal:</span>
                   <span>{formatCurrency(selectedOrder.subtotal)}</span>
@@ -1280,7 +1916,10 @@ function AdminOrdersPage() {
                     {selectedOrder.shipping_cost > 0 ? formatCurrency(selectedOrder.shipping_cost) : 'Grátis'}
                   </span>
                 </div>
-                <div className="flex justify-between pt-2 border-t font-bold text-sm" style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}>
+                <div
+                  className="flex justify-between pt-2 border-t font-bold text-sm"
+                  style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
+                >
                   <span>Total:</span>
                   <span className="text-primary text-base font-black">{formatCurrency(selectedOrder.total)}</span>
                 </div>
@@ -1289,8 +1928,18 @@ function AdminOrdersPage() {
               {/* Customer note */}
               {selectedOrder.customer_note && (
                 <section className="space-y-1">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Observações do Cliente</h3>
-                  <p className="text-xs p-3 rounded-xl border bg-muted/40 text-muted-foreground" style={{ borderColor: 'var(--border)' }}>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-primary" />
+                    <span>Observações do Cliente</span>
+                  </h3>
+                  <p
+                    className="text-xs p-3 rounded-xl border leading-relaxed"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--muted-foreground)',
+                    }}
+                  >
                     {selectedOrder.customer_note}
                   </p>
                 </section>
@@ -1299,6 +1948,57 @@ function AdminOrdersPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ── PRINT COMPONENT & STYLES (A4 & thermal ready) ── */}
+      <OrderPrintSheet order={selectedOrder} />
+
+      <style>{`
+        @media screen {
+          .saturno-print-sheet {
+            display: none !important;
+          }
+        }
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 12mm 15mm;
+          }
+          body {
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          .saturno-print-sheet,
+          .saturno-print-sheet * {
+            visibility: visible !important;
+          }
+          .saturno-print-sheet {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            display: block !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+            z-index: 999999 !important;
+          }
+          .print-avoid-break {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+        }
+      `}</style>
     </AdminLayout>
   );
 }

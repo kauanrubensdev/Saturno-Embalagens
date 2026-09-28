@@ -100,7 +100,15 @@ serve(async (req: Request) => {
 
       case 'payment_intent.canceled': {
         const paymentIntent = event.data.object as Stripe.PaymentIntent;
-        const orderId = paymentIntent.metadata?.order_id;
+        const orderId =
+          paymentIntent.metadata?.order_id ||
+          (
+            await supabaseClient
+              .from('orders')
+              .select('id')
+              .eq('stripe_payment_intent_id', paymentIntent.id)
+              .single()
+          ).data?.id;
 
         if (orderId) {
           await supabaseClient
@@ -110,7 +118,19 @@ serve(async (req: Request) => {
               updated_at: new Date().toISOString(),
             })
             .eq('id', orderId);
+          console.log(`[STRIPE-WEBHOOK] Pedido ${orderId} marcado como cancelled.`);
         }
+        break;
+      }
+
+      case 'payment_intent.processing': {
+        // Payment is being processed (e.g. Boleto awaiting payment).
+        // Do NOT mark the order as paid yet — only webhook payment_intent.succeeded does that.
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        const orderId = paymentIntent.metadata?.order_id;
+        console.log(
+          `[STRIPE-WEBHOOK] PaymentIntent ${paymentIntent.id} em processamento. Pedido ${orderId || 'desconhecido'} permanece pending até confirmação.`
+        );
         break;
       }
 

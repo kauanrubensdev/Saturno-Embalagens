@@ -4,6 +4,24 @@
 
 @import "tailwindcss";
 
+/* ===== CUSTOM BRAND FONTS ===== */
+@font-face {
+  font-family: "Power Grotesk";
+  src: url("/fonts/PowerGrotesk-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Harabara";
+  src: url("/fonts/Harabara-Mais-Demo.otf") format("opentype"),
+       url("/fonts/Harabara%20Mais%20Demo.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* Tailwind v4: expose the semantic system without duplicating color sources. */
 @theme inline {
   --color-background: var(--background);
@@ -49,15 +67,15 @@
   /* Semantic Colors */
   --background: #F5F5DC;
   --foreground: #001621;
-  --primary: #FE5516;
+  --primary: #FF4103;
   --primary-foreground: #ffffff;
   --secondary: #001621;
   --secondary-foreground: #F5F5DC;
   --muted: #E8D9BB;
-  --muted-foreground: #666666;
+  --muted-foreground: #475569;
   --accent: #E8D9BB;
   --accent-foreground: #001621;
-  --border: #d1d5db;
+  --border: rgba(0, 22, 33, 0.15);
   --card: #E8D9BB;
   --card-foreground: #001621;
   --destructive: #dc2626;
@@ -66,7 +84,7 @@
   --success-foreground: #ffffff;
   --warning: #f59e0b;
   --warning-foreground: #001621;
-  --ring: #FE5516;
+  --ring: #FF4103;
 
   /* Main responsive spacing */
   --space-page-x: 1rem;

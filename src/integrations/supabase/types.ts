@@ -421,33 +421,48 @@ export type Database = {
       shipping_zones: {
         Row: {
           created_at: string
+          estimated_days_max: number | null
+          estimated_days_min: number | null
           id: string
           is_active: boolean
           max_distance_km: number | null
           min_distance_km: number
           name: string
           price: number
+          region_label: string | null
           updated_at: string
+          zip_end: string | null
+          zip_start: string | null
         }
         Insert: {
           created_at?: string
+          estimated_days_max?: number | null
+          estimated_days_min?: number | null
           id?: string
           is_active?: boolean
           max_distance_km?: number | null
           min_distance_km?: number
           name: string
           price?: number
+          region_label?: string | null
           updated_at?: string
+          zip_end?: string | null
+          zip_start?: string | null
         }
         Update: {
           created_at?: string
+          estimated_days_max?: number | null
+          estimated_days_min?: number | null
           id?: string
           is_active?: boolean
           max_distance_km?: number | null
           min_distance_km?: number
           name?: string
           price?: number
+          region_label?: string | null
           updated_at?: string
+          zip_end?: string | null
+          zip_start?: string | null
         }
         Relationships: []
       }
@@ -512,8 +527,20 @@ export type Database = {
         Args: { p_new_payment_status: string; p_order_id: string }
         Returns: Json
       }
+      calculate_order_shipping: {
+        Args: { p_address_id: string }
+        Returns: Json
+      }
       confirm_stripe_payment: {
         Args: { p_event_id: string; p_order_id: string; p_payment_intent_id: string }
+        Returns: Json
+      }
+      customer_change_pending_payment_method: {
+        Args: { p_order_id: string; p_payment_method: string }
+        Returns: Json
+      }
+      decrement_checkout_stock: {
+        Args: { p_order_id?: string; p_product_id: string; p_quantity: number }
         Returns: Json
       }
       get_cart_user: { Args: { cart_uuid: string }; Returns: string }
