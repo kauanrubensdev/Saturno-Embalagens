@@ -2,7 +2,7 @@ import { createFileRoute, redirect, Link } from '@tanstack/react-router';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { OrderReceiptPrint, printReceipt80mm, ReceiptData } from '@/components/admin/OrderReceiptPrint';
+import { OrderReceiptPrint, printReceipt, ReceiptData } from '@/components/admin/OrderReceiptPrint';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -460,7 +460,9 @@ function AdminPosPage() {
   };
 
   const handlePrintReceipt = () => {
-    window.print();
+    if (completedOrder) {
+      printReceipt(completedOrder);
+    }
   };
 
   const handleStartNewSale = () => {
@@ -1164,61 +1166,6 @@ function AdminPosPage() {
           )}
         </DialogContent>
       </Dialog>
-
-      {/* ── COMPONENTE E ESTILOS DE IMPRESSÃO 80MM (CUPOM TÉRMICO) ── */}
-      <OrderReceiptPrint order={completedOrder} isPrintOnly={true} />
-
-      <style>{`
-        @media screen {
-          .saturno-receipt-sheet-80mm.print-only {
-            display: none !important;
-          }
-        }
-        @media print {
-          @page {
-            size: 80mm auto;
-            margin: 0;
-          }
-          body {
-            background-color: #ffffff !important;
-            color: #000000 !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-          body * {
-            visibility: hidden !important;
-          }
-          .saturno-receipt-sheet-80mm,
-          .saturno-receipt-sheet-80mm * {
-            visibility: visible !important;
-          }
-          .saturno-receipt-sheet-80mm {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 80mm !important;
-            max-width: 80mm !important;
-            margin: 0 auto !important;
-            padding: 4mm !important;
-            box-sizing: border-box !important;
-            display: block !important;
-            background: #ffffff !important;
-            color: #000000 !important;
-            box-shadow: none !important;
-            border: none !important;
-            z-index: 999999 !important;
-          }
-          .print-avoid-break {
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-        }
-      `}</style>
     </AdminLayout>
   );
 }
