@@ -1,67 +1,12 @@
 -- ============================================================
--- MIGRATION: Estrutura de Vendas Presenciais (PDV / Caixa) e RPC Atômica
--- 1. Adiciona coluna origin ('ecommerce', 'pos') com DEFAULT 'ecommerce'
--- 2. Torna orders.user_id NULLABLE para permitir vendas balcão sem cadastro
--- 3. Adiciona customer_name e customer_phone em public.orders
--- 4. Atualiza constraint de payment_method para suportar métodos do PDV
--- 5. Cria a RPC atômica e segura public.admin_create_pos_order(...)
+-- MIGRATION: FASE PDV 2.1 — Correção de Segurança da RPC do PDV
+-- Consolidação de itens por product_id antes de:
+-- 1. Validar estoque (com FOR UPDATE)
+-- 2. Calcular subtotal
+-- 3. Criar orders e order_items (1 item por product_id consolidado)
+-- 4. Baixar estoque e criar stock_movements (1 movimentação por product_id consolidado)
 -- ============================================================
 
--- 1. Adicionar origin em public.orders com default 'ecommerce'
-ALTER TABLE public.orders 
-  ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'ecommerce';
-
-ALTER TABLE public.orders 
-  DROP CONSTRAINT IF EXISTS orders_origin_check;
-
-ALTER TABLE public.orders 
-  ADD CONSTRAINT orders_origin_check 
-  CHECK (origin IN ('ecommerce', 'pos'));
-
-CREATE INDEX IF NOT EXISTS orders_origin_idx ON public.orders(origin);
-
--- 2. Tornar orders.user_id NULLABLE e adicionar customer_name / customer_phone
-ALTER TABLE public.orders 
-  ALTER COLUMN user_id DROP NOT NULL;
-
-ALTER TABLE public.orders 
-  ADD COLUMN IF NOT EXISTS customer_name TEXT NULL;
-
-ALTER TABLE public.orders 
-  ADD COLUMN IF NOT EXISTS customer_phone TEXT NULL;
-
--- 3. Atualizar constraint de payment_method para suportar e-commerce e PDV
--- Métodos e-commerce: pix, abacate_pix, credit_card, cash_on_delivery
--- Métodos PDV: cash, pix_pos, debit_card, credit_card
-ALTER TABLE public.orders 
-  DROP CONSTRAINT IF EXISTS orders_payment_method_check;
-
-ALTER TABLE public.orders 
-  ADD CONSTRAINT orders_payment_method_check 
-  CHECK (
-    payment_method IS NULL OR 
-    payment_method IN (
-      'pix',
-      'abacate_pix',
-      'credit_card',
-      'cash_on_delivery',
-      'cash',
-      'pix_pos',
-      'debit_card'
-    )
-  );
-
--- 4. Ajustar policy de inserção para garantir que clientes comuns criem apenas pedidos 'ecommerce'
-DROP POLICY IF EXISTS "Clientes criam pedidos" ON public.orders;
-
-CREATE POLICY "Clientes criam pedidos"
-  ON public.orders FOR INSERT
-  WITH CHECK (
-    public.is_owner(user_id) AND 
-    (origin = 'ecommerce' OR origin IS NULL)
-  );
-
--- 5. Criar a RPC segura e atômica public.admin_create_pos_order
 CREATE OR REPLACE FUNCTION public.admin_create_pos_order(
   p_items JSONB,
   p_payment_method TEXT,
@@ -276,9 +221,8 @@ BEGIN
 END;
 $$;
 
--- 6. Configurar permissões da RPC
+-- Permissões
 REVOKE ALL ON FUNCTION public.admin_create_pos_order(JSONB, TEXT, TEXT, TEXT, UUID, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.admin_create_pos_order(JSONB, TEXT, TEXT, TEXT, UUID, TEXT) TO authenticated;
 
--- 7. Notificar PostgREST para recarregar o schema cache
 NOTIFY pgrst, 'reload schema';
