@@ -189,22 +189,14 @@ body {
   width: 100%;
 }
 
-/* Transição curta e discreta ao alternar o tema */
-html,
+/* Transição curta e discreta ao alternar o tema em elementos de layout */
 body,
 header,
 nav,
 main,
 footer,
 section,
-a,
-button,
-input,
-select,
-textarea,
-svg,
-div,
-span {
+.card {
   transition:
     background-color 0.2s ease,
     color 0.2s ease,
@@ -249,11 +241,9 @@ span {
 @keyframes pageEnter {
   from {
     opacity: 0.85;
-    transform: translateY(2px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -302,17 +292,8 @@ button:active:not(:disabled),
   transform: scale(0.98);
 }
 
-/* Accessibility: Reduced Motion */
+/* Accessibility: Reduced Motion (scoped to UI micro-interactions only) */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-
   .animate-badge-bounce,
   .animate-fade-in,
   .animate-fade-in-up,

@@ -143,37 +143,37 @@ export function HeroOrbitVisual() {
 
             .scene-group {
               transform-origin: 350px 350px;
-              animation: sceneFloat 8s ease-in-out infinite;
+              animation: sceneFloat 8s ease-in-out infinite !important;
             }
 
             .planet-system {
               transform-origin: 350px 350px;
-              animation: planetSubtleBreathing 14s ease-in-out infinite;
+              animation: planetSubtleBreathing 14s ease-in-out infinite !important;
             }
 
             .burger-box {
               transform-origin: 475px 230px;
-              animation: orbitBurgerSlow 9s ease-in-out infinite;
+              animation: orbitBurgerSlow 9s ease-in-out infinite !important;
             }
 
             .pizza-box {
               transform-origin: 215px 440px;
-              animation: orbitPizzaSlow 8.5s ease-in-out infinite;
+              animation: orbitPizzaSlow 8.5s ease-in-out infinite !important;
             }
 
             .snack-box {
               transform-origin: 505px 455px;
-              animation: orbitSnackSlow 9.5s ease-in-out infinite;
+              animation: orbitSnackSlow 9.5s ease-in-out infinite !important;
             }
 
             .particle-a {
               transform-origin: 350px 350px;
-              animation: orbitParticleA 26s linear infinite;
+              animation: orbitParticleA 26s linear infinite !important;
             }
 
             .particle-b {
               transform-origin: 350px 350px;
-              animation: orbitParticleB 32s linear infinite;
+              animation: orbitParticleB 32s linear infinite !important;
             }
           `}</style>
         </defs>
