@@ -276,7 +276,7 @@ export function Header({ showNav = false }: HeaderProps) {
         <div
           id="mobile-navigation-menu"
           ref={menuRef}
-          className="md:hidden border-t w-full transition-all duration-200"
+          className="md:hidden border-t w-full transition-all duration-200 animate-slide-down"
           style={{
             backgroundColor: 'var(--card)',
             borderColor: 'var(--border)',

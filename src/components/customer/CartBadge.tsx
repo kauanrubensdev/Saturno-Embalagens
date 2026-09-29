@@ -1,15 +1,27 @@
+import { useState, useEffect, useRef } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useCart } from '@/hooks/useCart';
 
 export function CartBadge() {
   const { getTotalItems, loading } = useCart();
   const totalItems = getTotalItems();
+  const [isBouncing, setIsBouncing] = useState(false);
+  const prevItemsRef = useRef(totalItems);
+
+  useEffect(() => {
+    if (totalItems !== prevItemsRef.current) {
+      setIsBouncing(true);
+      const timer = setTimeout(() => setIsBouncing(false), 260);
+      prevItemsRef.current = totalItems;
+      return () => clearTimeout(timer);
+    }
+  }, [totalItems]);
 
   if (loading) {
     return (
       <Link
         to="/cart"
-        className="relative p-2 rounded-lg transition-colors hover:bg-gray-100"
+        className="relative p-2 rounded-lg transition-colors hover:bg-muted"
       >
         <svg
           className="w-5 h-5"
@@ -32,7 +44,7 @@ export function CartBadge() {
   return (
     <Link
       to="/cart"
-      className="relative p-2 rounded-lg transition-colors hover:bg-gray-100"
+      className="relative p-2 rounded-lg transition-colors hover:bg-muted active:scale-95"
     >
       <svg
         className="w-5 h-5"
@@ -50,7 +62,9 @@ export function CartBadge() {
       </svg>
       {totalItems > 0 && (
         <span
-          className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+          className={`absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold text-white transition-transform origin-center ${
+            isBouncing ? 'animate-badge-bounce' : ''
+          }`}
           style={{ backgroundColor: 'var(--primary)' }}
         >
           {totalItems > 99 ? '99+' : totalItems}

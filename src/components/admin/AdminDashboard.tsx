@@ -441,14 +441,15 @@ export function AdminDashboard() {
 
       {/* ── 4 Stat Cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-        {metricCards.map((card) => (
+        {metricCards.map((card, index) => (
           <Link
             key={card.title}
             to={card.link}
-            className="group block p-5 sm:p-6 rounded-2xl border transition-all duration-200 hover:shadow-md hover:border-primary/50 no-underline relative"
+            className="group block p-5 sm:p-6 rounded-2xl border transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md hover:border-primary/50 no-underline relative animate-fade-in-up"
             style={{
               backgroundColor: 'var(--card)',
               borderColor: 'var(--border)',
+              animationDelay: `${index * 50}ms`,
             }}
           >
             <div className="flex items-start justify-between gap-3 mb-3">

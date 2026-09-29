@@ -24,7 +24,7 @@ export function ProductCard({ product }: ProductCardProps) {
     <Link
       to="/product/$productSlug"
       params={{ productSlug: product.slug }}
-      className="group block no-underline rounded-xl overflow-hidden transition-all duration-200 hover:-translate-y-1"
+      className="group block no-underline rounded-xl overflow-hidden transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.99]"
       style={{ 
         backgroundColor: 'var(--card)', 
         border: '1px solid var(--border)',

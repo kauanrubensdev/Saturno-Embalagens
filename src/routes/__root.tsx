@@ -52,7 +52,9 @@ function RootLayout() {
         <HeadContent />
       </head>
       <body>
-        <Outlet />
+        <div className="min-h-screen flex flex-col animate-page-enter">
+          <Outlet />
+        </div>
         <Toaster />
         <Scripts />
       </body>
