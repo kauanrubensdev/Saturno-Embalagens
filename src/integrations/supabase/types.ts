@@ -236,9 +236,12 @@ export type Database = {
       orders: {
         Row: {
           created_at: string
+          customer_name: string | null
           customer_note: string | null
+          customer_phone: string | null
           delivery_type: string
           id: string
+          origin: string
           payment_method: string | null
           payment_status: string
           pickup_address: string | null
@@ -252,13 +255,16 @@ export type Database = {
           subtotal: number
           total: number
           updated_at: string
-          user_id: string
+          user_id: string | null
         }
         Insert: {
           created_at?: string
+          customer_name?: string | null
           customer_note?: string | null
+          customer_phone?: string | null
           delivery_type?: string
           id?: string
+          origin?: string
           payment_method?: string | null
           payment_status?: string
           pickup_address?: string | null
@@ -272,13 +278,16 @@ export type Database = {
           subtotal: number
           total: number
           updated_at?: string
-          user_id: string
+          user_id?: string | null
         }
         Update: {
           created_at?: string
+          customer_name?: string | null
           customer_note?: string | null
+          customer_phone?: string | null
           delivery_type?: string
           id?: string
+          origin?: string
           payment_method?: string | null
           payment_status?: string
           pickup_address?: string | null
@@ -292,7 +301,7 @@ export type Database = {
           subtotal?: number
           total?: number
           updated_at?: string
-          user_id?: string
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -519,6 +528,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_create_pos_order: {
+        Args: {
+          p_customer_id?: string | null
+          p_customer_name?: string | null
+          p_customer_note?: string | null
+          p_customer_phone?: string | null
+          p_items: Json
+          p_payment_method: string
+        }
+        Returns: Json
+      }
       admin_update_order_status: {
         Args: { p_new_status: string; p_order_id: string }
         Returns: Json

@@ -189,31 +189,117 @@ body {
   width: 100%;
 }
 
-/* Transição curta e discreta ao alternar o tema */
-html,
+/* Transição curta e discreta ao alternar o tema em elementos de layout */
 body,
 header,
 nav,
 main,
 footer,
 section,
-a,
-button,
-input,
-select,
-textarea,
-svg,
-div,
-span {
+.card {
   transition:
     background-color 0.2s ease,
     color 0.2s ease,
     border-color 0.2s ease;
 }
 
+/* ===== MOTION DESIGN SYSTEM ===== */
+@keyframes badgeBounce {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.18); }
+  70% { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pageEnter {
+  from {
+    opacity: 0.85;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-badge-bounce {
+  animation: badgeBounce 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transform-origin: center;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.18s ease-out forwards;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.22s ease-out forwards;
+}
+
+.animate-slide-down {
+  animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-page-enter {
+  animation: pageEnter 0.18s ease-out forwards;
+}
+
+/* Micro-interactions for interactive buttons */
+button:not(:disabled),
+.btn-primary:not(:disabled),
+.btn-secondary:not(:disabled),
+.btn-outline:not(:disabled),
+.btn-ghost:not(:disabled),
+.btn-danger:not(:disabled) {
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+button:active:not(:disabled),
+.btn-primary:active:not(:disabled),
+.btn-secondary:active:not(:disabled),
+.btn-outline:active:not(:disabled),
+.btn-ghost:active:not(:disabled),
+.btn-danger:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Accessibility: Reduced Motion (scoped to UI micro-interactions only) */
 @media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none !important;
+  .animate-badge-bounce,
+  .animate-fade-in,
+  .animate-fade-in-up,
+  .animate-slide-down,
+  .animate-page-enter {
+    animation: none !important;
   }
 }
 

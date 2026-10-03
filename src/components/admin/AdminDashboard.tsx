@@ -20,6 +20,8 @@ import {
   AlertCircle,
   Loader2,
   ArrowUpRight,
+  ShoppingCart,
+  ArrowRight,
 } from 'lucide-react';
 
 // ── Status styling configs ───────────────────────────────────────────────────
@@ -143,12 +145,21 @@ export function AdminDashboard() {
     return (
       <div className="space-y-8 animate-pulse">
         {/* Header Skeleton */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-2">
-            <div className="h-8 w-64 rounded-xl bg-muted" />
-            <div className="h-4 w-96 rounded bg-muted/60" />
-          </div>
-          <div className="h-10 w-36 rounded-xl bg-muted/50" />
+        <div className="space-y-2">
+          <div className="h-8 w-64 rounded-xl bg-muted" />
+          <div className="h-4 w-96 max-w-full rounded bg-muted/60" />
+        </div>
+
+        {/* POS CTA Skeleton */}
+        <div
+          className="h-20 sm:h-22 rounded-2xl border bg-muted/30"
+          style={{ borderColor: 'var(--border)' }}
+        />
+
+        {/* Controls Row Skeleton */}
+        <div className="flex items-center justify-between">
+          <div className="h-5 w-40 rounded bg-muted/70" />
+          <div className="h-9 w-32 rounded-xl bg-muted/50" />
         </div>
 
         {/* 4 Stat Cards Skeleton */}
@@ -326,33 +337,96 @@ export function AdminDashboard() {
 
   return (
     <div className="space-y-8">
-      {/* ── Page Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b" style={{ borderColor: 'var(--border)' }}>
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" style={{ color: 'var(--foreground)' }}>
-              Dashboard Administrativo
-            </h1>
-            <span
-              className="text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider"
-              style={{
-                backgroundColor: 'rgba(255,65,3,0.12)',
-                color: 'var(--primary)',
-              }}
-            >
-              Painel Geral
-            </span>
-          </div>
-          <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
-            Visão geral em tempo real da sua operação, pedidos e inventário.
-          </p>
+      {/* ── Page Header (Title & Description) ── */}
+      <div className="pb-1 border-b" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex items-center gap-2.5">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight" style={{ color: 'var(--foreground)' }}>
+            Dashboard Administrativo
+          </h1>
+          <span
+            className="text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider"
+            style={{
+              backgroundColor: 'rgba(255,65,3,0.12)',
+              color: 'var(--primary)',
+            }}
+          >
+            Painel Geral
+          </span>
         </div>
+        <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
+          Visão geral em tempo real da sua operação, pedidos e inventário.
+        </p>
+      </div>
+
+      {/* ── Quick Action: Venda no Caixa (PDV) ── */}
+      <Link
+        to="/admin/pos"
+        className="group relative flex items-center justify-between p-4 sm:p-5 rounded-2xl border transition-all duration-200 hover:shadow-md hover:border-primary/50 no-underline cursor-pointer overflow-hidden"
+        style={{
+          backgroundColor: 'var(--card)',
+          borderColor: 'var(--border)',
+        }}
+      >
+        {/* Left highlight strip on hover */}
+        <div
+          className="absolute left-0 top-0 bottom-0 w-1.5 transition-all duration-200 group-hover:w-2"
+          style={{ backgroundColor: 'var(--primary)' }}
+        />
+
+        <div className="flex items-center gap-3.5 sm:gap-4 pl-1.5 sm:pl-2">
+          <div
+            className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform duration-200 group-hover:scale-105"
+            style={{
+              backgroundColor: 'rgba(255, 65, 3, 0.12)',
+              color: 'var(--primary)',
+            }}
+          >
+            <ShoppingCart className="w-5 h-5 sm:w-6 sm:h-6" />
+          </div>
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-base sm:text-lg tracking-tight" style={{ color: 'var(--foreground)' }}>
+                Venda no Caixa
+              </span>
+              <span
+                className="text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider hidden sm:inline-block"
+                style={{
+                  backgroundColor: 'var(--primary)',
+                  color: 'var(--primary-foreground)',
+                }}
+              >
+                PDV Rápido
+              </span>
+            </div>
+            <p className="text-xs sm:text-sm text-muted-foreground line-clamp-1">
+              Registrar uma venda presencial rapidamente
+            </p>
+          </div>
+        </div>
+
+        <div
+          className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl transition-all duration-200 group-hover:translate-x-1 flex-shrink-0 ml-2"
+          style={{
+            backgroundColor: 'var(--accent)',
+            color: 'var(--primary)',
+            border: '1px solid var(--border)',
+          }}
+        >
+          <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5" />
+        </div>
+      </Link>
+
+      {/* ── Section Header & Refresh Button ── */}
+      <div className="flex items-center justify-between gap-4 pt-1">
+        <h2 className="text-sm sm:text-base font-semibold" style={{ color: 'var(--foreground)' }}>
+          Métricas e Indicadores
+        </h2>
 
         <button
           type="button"
           onClick={() => fetchDashboardData(true)}
           disabled={isRefreshing}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold border transition-all hover:bg-muted cursor-pointer disabled:opacity-50 shadow-xs self-start sm:self-auto"
+          className="inline-flex items-center justify-center gap-2 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-semibold border transition-all hover:bg-muted cursor-pointer disabled:opacity-50 shadow-xs"
           style={{
             borderColor: 'var(--border)',
             backgroundColor: 'var(--card)',
@@ -367,14 +441,15 @@ export function AdminDashboard() {
 
       {/* ── 4 Stat Cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-        {metricCards.map((card) => (
+        {metricCards.map((card, index) => (
           <Link
             key={card.title}
             to={card.link}
-            className="group block p-5 sm:p-6 rounded-2xl border transition-all duration-200 hover:shadow-md hover:border-primary/50 no-underline relative"
+            className="group block p-5 sm:p-6 rounded-2xl border transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md hover:border-primary/50 no-underline relative animate-fade-in-up"
             style={{
               backgroundColor: 'var(--card)',
               borderColor: 'var(--border)',
+              animationDelay: `${index * 50}ms`,
             }}
           >
             <div className="flex items-start justify-between gap-3 mb-3">

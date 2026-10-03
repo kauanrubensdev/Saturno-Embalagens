@@ -37,7 +37,9 @@ import {
   FileText,
   Copy,
   Printer,
+  Receipt,
 } from 'lucide-react';
+import { printReceipt, printOrderA4 } from '@/lib/printReceipt';
 
 // ─── Domain types ────────────────────────────────────────────────────────────
 
@@ -74,7 +76,10 @@ interface CustomerProfile {
 
 interface Order {
   id: string;
-  user_id: string;
+  user_id: string | null;
+  origin?: string | null;
+  customer_name?: string | null;
+  customer_phone?: string | null;
   status: OrderStatus;
   payment_status: PaymentStatus;
   payment_method: PaymentMethod;
@@ -200,220 +205,6 @@ function getPaymentIcon(method: PaymentMethod) {
   }
 }
 
-function getPrintPaymentMethodLabel(method: string | null): string {
-  if (!method) return 'Pagamento na entrega';
-  switch (method) {
-    case 'abacate_pix':
-    case 'pix':
-      return 'PIX';
-    case 'credit_card':
-    case 'card':
-    case 'apple_pay':
-    case 'google_pay':
-      return 'Cartão de Crédito';
-    case 'boleto':
-      return 'Boleto Bancário';
-    case 'cash_on_delivery':
-      return 'Dinheiro na entrega';
-    default:
-      return PAYMENT_METHOD_LABELS[method] || method;
-  }
-}
-
-function getPrintPaymentStatusLabel(status: PaymentStatus | string): string {
-  switch (status) {
-    case 'pending': return 'Pendente';
-    case 'paid': return 'Pago';
-    case 'failed': return 'Falhou';
-    case 'cancelled': return 'Cancelado';
-    case 'refunded': return 'Reembolsado';
-    default: return status;
-  }
-}
-
-interface OrderPrintSheetProps {
-  order: Order | null;
-}
-
-function OrderPrintSheet({ order }: OrderPrintSheetProps) {
-  if (!order) return null;
-
-  const orderItems = order.order_items || [];
-
-  return (
-    <div className="saturno-print-sheet">
-      <div className="p-8 max-w-4xl mx-auto text-black bg-white font-sans text-sm leading-normal">
-        {/* Header */}
-        <header className="border-b-2 border-black pb-4 mb-5 flex justify-between items-start">
-          <div>
-            <h1 className="text-2xl font-black tracking-tight uppercase">Saturno Embalagens</h1>
-            <p className="text-xs font-semibold uppercase tracking-wider text-neutral-600 mt-0.5">
-              Comprovante de Separação e Entrega
-            </p>
-          </div>
-          <div className="text-right text-xs space-y-0.5">
-            <p className="text-base font-black">Pedido: {shortId(order.id)}</p>
-            <p className="text-neutral-700">Data/Hora: {formatDate(order.created_at)}</p>
-            <p className="font-semibold text-neutral-800">
-              Status: <span className="uppercase">{getOrderStatusLabel(order.status, order.delivery_type)}</span>
-            </p>
-            <p className="font-semibold text-neutral-800">
-              Pagamento: <span className="uppercase">{getPrintPaymentStatusLabel(order.payment_status)}</span>
-            </p>
-          </div>
-        </header>
-
-        {/* Customer & Delivery */}
-        <div className="grid grid-cols-2 gap-4 mb-5">
-          {/* Cliente */}
-          <div className="border border-neutral-300 rounded p-3 bg-neutral-50/50 print-avoid-break">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-700 border-b border-neutral-300 pb-1 mb-2">
-              Dados do Cliente
-            </h2>
-            <div className="space-y-1 text-xs">
-              <p>
-                <strong className="text-neutral-900">Nome:</strong> {order.profile?.name || 'Cliente não identificado'}
-              </p>
-              <p>
-                <strong className="text-neutral-900">Telefone:</strong> {order.profile?.phone || 'Não informado'}
-              </p>
-            </div>
-          </div>
-
-          {/* Entrega / Retirada */}
-          <div className="border border-neutral-300 rounded p-3 bg-neutral-50/50 print-avoid-break">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-700 border-b border-neutral-300 pb-1 mb-2">
-              {order.delivery_type === 'delivery' ? 'Entrega' : 'Retirada'}
-            </h2>
-            <div className="space-y-1 text-xs">
-              <p>
-                <strong className="text-neutral-900">Tipo:</strong>{' '}
-                <span className="font-bold">{order.delivery_type === 'delivery' ? 'ENTREGA' : 'RETIRADA'}</span>
-              </p>
-              {order.delivery_type === 'delivery' && order.shipping_address ? (
-                <div className="text-neutral-800 leading-snug">
-                  <p>
-                    {order.shipping_address.street}, nº {order.shipping_address.number}
-                    {order.shipping_address.complement ? ` (${order.shipping_address.complement})` : ''}
-                  </p>
-                  <p>{order.shipping_address.neighborhood} — {order.shipping_address.city}/{order.shipping_address.state}</p>
-                  <p className="font-semibold">CEP: {order.shipping_address.zip_code}</p>
-                </div>
-              ) : (
-                <div className="text-neutral-800 leading-snug">
-                  <p className="font-medium">{order.pickup_address || 'Galpão Saturno Embalagens - Santa Luzia / MG'}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Items Table */}
-        <div className="mb-5 print-avoid-break">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-700 mb-2">
-            Itens do Pedido ({orderItems.length})
-          </h2>
-          <table className="w-full text-xs border border-neutral-300 border-collapse">
-            <thead>
-              <tr className="bg-neutral-100 border-b border-neutral-300">
-                <th className="py-2 px-3 text-center font-bold uppercase text-neutral-700 w-12">#</th>
-                <th className="py-2 px-3 text-left font-bold uppercase text-neutral-700">Produto / Descrição</th>
-                <th className="py-2 px-3 text-center font-bold uppercase text-neutral-700 w-20">Qtd</th>
-                <th className="py-2 px-3 text-right font-bold uppercase text-neutral-700 w-28">Unitário</th>
-                <th className="py-2 px-3 text-right font-bold uppercase text-neutral-700 w-28">Total</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-300">
-              {orderItems.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-3 px-3 text-center text-neutral-500 italic">
-                    Nenhum item listado.
-                  </td>
-                </tr>
-              ) : (
-                orderItems.map((item, idx) => (
-                  <tr key={item.id || idx} className="print-avoid-break">
-                    <td className="py-2 px-3 text-center text-neutral-500 font-medium">{idx + 1}</td>
-                    <td className="py-2 px-3 font-semibold text-neutral-900 break-words">{item.product_name}</td>
-                    <td className="py-2 px-3 text-center font-bold text-neutral-900">{item.quantity}</td>
-                    <td className="py-2 px-3 text-right text-neutral-800">{formatCurrency(item.product_price)}</td>
-                    <td className="py-2 px-3 text-right font-bold text-neutral-900">{formatCurrency(item.total_price)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Payment and Financial Summary */}
-        <div className="grid grid-cols-2 gap-4 mb-5 print-avoid-break">
-          {/* Detalhes do Pagamento */}
-          <div className="border border-neutral-300 rounded p-3 bg-neutral-50/50">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-700 border-b border-neutral-300 pb-1 mb-2">
-              Pagamento
-            </h2>
-            <div className="space-y-1.5 text-xs">
-              <p>
-                <strong className="text-neutral-900">Método:</strong> {getPrintPaymentMethodLabel(order.payment_method)}
-              </p>
-              <p>
-                <strong className="text-neutral-900">Status:</strong> {getPrintPaymentStatusLabel(order.payment_status)}
-              </p>
-            </div>
-          </div>
-
-          {/* Totais */}
-          <div className="border border-neutral-300 rounded p-3 bg-neutral-50/50">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-700 border-b border-neutral-300 pb-1 mb-2">
-              Resumo Financeiro
-            </h2>
-            <div className="space-y-1 text-xs">
-              <div className="flex justify-between text-neutral-700">
-                <span>Subtotal:</span>
-                <span>{formatCurrency(order.subtotal)}</span>
-              </div>
-              <div className="flex justify-between text-neutral-700">
-                <span>Frete:</span>
-                <span>{order.shipping_cost > 0 ? formatCurrency(order.shipping_cost) : 'Grátis (R$ 0,00)'}</span>
-              </div>
-              <div className="flex justify-between pt-1.5 border-t border-neutral-400 font-bold text-sm text-neutral-950">
-                <span>TOTAL DO PEDIDO:</span>
-                <span>{formatCurrency(order.total)}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Observações do Cliente (quando existirem) */}
-        {order.customer_note && (
-          <div className="border border-neutral-300 rounded p-3 mb-5 bg-neutral-50/50 print-avoid-break">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-700 border-b border-neutral-300 pb-1 mb-1.5">
-              Observações do Pedido
-            </h2>
-            <p className="text-xs text-neutral-800 whitespace-pre-line leading-relaxed">
-              {order.customer_note}
-            </p>
-          </div>
-        )}
-
-        {/* Assinatura e Data de Entrega */}
-        <div className="border-t-2 border-dashed border-neutral-400 pt-6 mt-6 print-avoid-break">
-          <div className="grid grid-cols-2 gap-8 text-xs">
-            <div>
-              <p className="text-neutral-700 mb-8 font-medium">Assinatura do Recebedor:</p>
-              <div className="border-b border-black w-full" />
-            </div>
-            <div>
-              <p className="text-neutral-700 mb-8 font-medium">Data de Entrega:</p>
-              <p className="font-mono text-sm tracking-widest text-neutral-800">____ / ____ / ________</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Route ───────────────────────────────────────────────────────────────────
 
 export const Route = createFileRoute('/admin/orders')({
@@ -451,10 +242,59 @@ function AdminOrdersPage() {
   const [cancelItems, setCancelItems] = useState<OrderItem[]>([]);
   const [loadingCancelItems, setLoadingCancelItems] = useState(false);
 
+  // receipt printing (80mm)
+  const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
+  const [printingReceiptId, setPrintingReceiptId] = useState<string | null>(null);
+
   // status updates in flight
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [updatingPaymentOrderId, setUpdatingPaymentOrderId] = useState<string | null>(null);
   const [simulatingPixId, setSimulatingPixId] = useState<string | null>(null);
+
+  // ── Print handlers ────────────────────────────────────────────────────────
+  const handlePrintReceipt = async (order: Order) => {
+    setPrintingReceiptId(order.id);
+    try {
+      let orderToPrint = order;
+      if (!order.order_items || order.order_items.length === 0) {
+        const { data: items, error: itemsError } = await supabase
+          .from('order_items')
+          .select('id, product_id, product_name, product_price, quantity, total_price')
+          .eq('order_id', order.id)
+          .order('product_name', { ascending: true });
+
+        if (itemsError) throw itemsError;
+        orderToPrint = { ...order, order_items: (items as OrderItem[]) || [] };
+      }
+      printReceipt(orderToPrint);
+    } catch (err) {
+      console.error('[ADMIN-ORDERS] handlePrintReceipt error:', err);
+      toast.error('Erro ao carregar itens para impressão do comprovante.');
+    } finally {
+      setPrintingReceiptId(null);
+    }
+  };
+
+  const handlePrintOrderA4 = async () => {
+    if (!selectedOrder) return;
+    try {
+      let orderToPrint = selectedOrder;
+      if (!selectedOrder.order_items || selectedOrder.order_items.length === 0) {
+        const { data: items, error: itemsError } = await supabase
+          .from('order_items')
+          .select('id, product_id, product_name, product_price, quantity, total_price')
+          .eq('order_id', selectedOrder.id)
+          .order('product_name', { ascending: true });
+
+        if (itemsError) throw itemsError;
+        orderToPrint = { ...selectedOrder, order_items: (items as OrderItem[]) || [] };
+      }
+      printOrderA4(orderToPrint);
+    } catch (err) {
+      console.error('[ADMIN-ORDERS] handlePrintOrderA4 error:', err);
+      toast.error('Erro ao carregar itens para impressão do pedido.');
+    }
+  };
 
   // ── Fetch all orders with joined profile + shipping_address ─────────────
   const fetchOrders = useCallback(async (isSilent = false) => {
@@ -470,6 +310,7 @@ function AdminOrdersPage() {
           subtotal, shipping_cost, total,
           delivery_type, shipping_address_id, pickup_address,
           customer_note, created_at, updated_at,
+          origin, customer_name, customer_phone,
           abacate_pix_id,
           profile:profiles!orders_user_id_fkey ( id, name, phone ),
           shipping_address:addresses!orders_shipping_address_id_fkey (
@@ -1194,6 +1035,26 @@ function AdminOrdersPage() {
                         <td className="px-4 py-3.5 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
+                              onClick={() => handlePrintReceipt(order)}
+                              disabled={printingReceiptId === order.id}
+                              aria-label={`Imprimir comprovante ${shortId(order.id)}`}
+                              title="Imprimir Comprovante (Cupom 80mm)"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors hover:opacity-80 cursor-pointer disabled:opacity-50"
+                              style={{
+                                backgroundColor: 'var(--background)',
+                                borderColor: 'var(--border)',
+                                color: 'var(--foreground)',
+                              }}
+                            >
+                              {printingReceiptId === order.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                              ) : (
+                                <Receipt className="w-3.5 h-3.5 text-primary" />
+                              )}
+                              <span className="hidden xl:inline">Comprovante</span>
+                            </button>
+
+                            <button
                               onClick={() => openDetail(order)}
                               aria-label={`Ver detalhes do pedido ${shortId(order.id)}`}
                               title="Ver detalhes do pedido"
@@ -1379,7 +1240,26 @@ function AdminOrdersPage() {
                         </div>
                       )}
 
-                      <div className="flex items-center gap-2 justify-end">
+                      <div className="flex items-center gap-2 justify-end flex-wrap">
+                        <button
+                          onClick={() => handlePrintReceipt(order)}
+                          disabled={printingReceiptId === order.id}
+                          className="px-2.5 py-2 rounded-lg text-xs font-medium border transition-colors hover:opacity-80 cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                          style={{
+                            backgroundColor: 'var(--background)',
+                            borderColor: 'var(--border)',
+                            color: 'var(--foreground)',
+                          }}
+                          title="Imprimir Comprovante (Cupom 80mm)"
+                        >
+                          {printingReceiptId === order.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                          ) : (
+                            <Receipt className="w-3.5 h-3.5 text-primary" />
+                          )}
+                          <span>Comprovante</span>
+                        </button>
+
                         <button
                           onClick={() => openDetail(order)}
                           className="px-3 py-2 rounded-lg text-xs font-medium border transition-colors hover:opacity-80 cursor-pointer"
@@ -1573,21 +1453,44 @@ function AdminOrdersPage() {
                 Detalhes do Pedido {selectedOrder ? shortId(selectedOrder.id) : ''}
               </DialogTitle>
               {selectedOrder && !loadingDetail && (
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all hover:bg-muted cursor-pointer shadow-sm no-print"
-                  style={{
-                    backgroundColor: 'var(--background)',
-                    borderColor: 'var(--border)',
-                    color: 'var(--foreground)',
-                  }}
-                  title="Imprimir comprovante do pedido"
-                  aria-label="Imprimir Pedido"
-                >
-                  <Printer className="w-3.5 h-3.5 text-primary" />
-                  <span>Imprimir Pedido</span>
-                </button>
+                <div className="flex items-center gap-2 flex-wrap no-print">
+                  <button
+                    type="button"
+                    onClick={() => handlePrintReceipt(selectedOrder)}
+                    disabled={printingReceiptId === selectedOrder.id}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all hover:bg-muted cursor-pointer shadow-sm disabled:opacity-50"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--foreground)',
+                    }}
+                    title="Imprimir comprovante compacto (80mm)"
+                    aria-label="Imprimir Comprovante"
+                  >
+                    {printingReceiptId === selectedOrder.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                    ) : (
+                      <Receipt className="w-3.5 h-3.5 text-primary" />
+                    )}
+                    <span>Imprimir Comprovante</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handlePrintOrderA4}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all hover:bg-muted cursor-pointer shadow-sm"
+                    style={{
+                      backgroundColor: 'var(--background)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--foreground)',
+                    }}
+                    title="Imprimir folha detalhada A4 do pedido"
+                    aria-label="Imprimir Pedido A4"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-primary" />
+                    <span>Imprimir Pedido (A4)</span>
+                  </button>
+                </div>
               )}
             </div>
           </DialogHeader>
@@ -1948,57 +1851,6 @@ function AdminOrdersPage() {
           )}
         </DialogContent>
       </Dialog>
-
-      {/* ── PRINT COMPONENT & STYLES (A4 & thermal ready) ── */}
-      <OrderPrintSheet order={selectedOrder} />
-
-      <style>{`
-        @media screen {
-          .saturno-print-sheet {
-            display: none !important;
-          }
-        }
-        @media print {
-          @page {
-            size: A4 portrait;
-            margin: 12mm 15mm;
-          }
-          body {
-            background-color: #ffffff !important;
-            color: #000000 !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          body * {
-            visibility: hidden !important;
-          }
-          .saturno-print-sheet,
-          .saturno-print-sheet * {
-            visibility: visible !important;
-          }
-          .saturno-print-sheet {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            display: block !important;
-            background: #ffffff !important;
-            color: #000000 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            box-shadow: none !important;
-            border: none !important;
-            z-index: 999999 !important;
-          }
-          .print-avoid-break {
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-        }
-      `}</style>
     </AdminLayout>
   );
 }
