@@ -1,5 +1,5 @@
 import { createFileRoute, redirect, Link } from '@tanstack/react-router';
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { toast } from 'sonner';
@@ -25,6 +25,10 @@ import {
   AlertCircle,
   Tag,
   SlidersHorizontal,
+  UploadCloud,
+  Link as LinkIcon,
+  Image as ImageIcon,
+  Star,
 } from 'lucide-react';
 
 interface Category {
@@ -44,6 +48,7 @@ interface Product {
   image_url: string | null;
   images: string[] | null;
   is_active: boolean;
+  is_featured?: boolean;
   category_id: string;
   created_at: string;
   category?: { id: string; name: string; slug: string } | null;
@@ -59,6 +64,7 @@ interface ProductFormData {
   image_url: string;
   category_id: string;
   is_active: boolean;
+  is_featured: boolean;
 }
 
 function generateSlug(name: string): string {
@@ -77,6 +83,95 @@ function formatCurrency(value: number): string {
     style: 'currency',
     currency: 'BRL',
   }).format(value);
+}
+
+async function processImageFile(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Por favor, selecione um arquivo de imagem válido (PNG, JPG, WEBP, etc.).');
+  }
+
+  if (file.size > 10 * 1024 * 1024) {
+    throw new Error('A imagem é muito grande. O tamanho máximo permitido é de 10MB.');
+  }
+
+  // Tenta salvar via Supabase Storage caso o bucket 'products' esteja configurado
+  try {
+    const fileExt = file.name.split('.').pop() || 'png';
+    const randomId = Math.random().toString(36).substring(2, 9);
+    const cleanFileName = file.name
+      .replace(/[^a-zA-Z0-9.-]/g, '_')
+      .toLowerCase();
+    const filePath = `products/${Date.now()}_${randomId}_${cleanFileName}`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('products')
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: true,
+      });
+
+    if (!uploadError && uploadData) {
+      const { data: urlData } = supabase.storage
+        .from('products')
+        .getPublicUrl(filePath);
+
+      if (urlData?.publicUrl) {
+        return urlData.publicUrl;
+      }
+    }
+  } catch (storageErr) {
+    console.warn('Tentativa de upload no Supabase Storage não disponível, convertendo localmente:', storageErr);
+  }
+
+  // Fallback 100% garantido: Redimensiona e comprime via HTML5 Canvas em WebP/JPEG otimizado
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new window.Image();
+      img.onload = () => {
+        const MAX_DIMENSION = 1200;
+        let { width, height } = img;
+
+        if (width > height) {
+          if (width > MAX_DIMENSION) {
+            height = Math.round((height * MAX_DIMENSION) / width);
+            width = MAX_DIMENSION;
+          }
+        } else {
+          if (height > MAX_DIMENSION) {
+            width = Math.round((width * MAX_DIMENSION) / height);
+            height = MAX_DIMENSION;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(e.target?.result as string);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        try {
+          const dataUrl = canvas.toDataURL('image/webp', 0.85);
+          resolve(dataUrl);
+        } catch {
+          const fallbackDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          resolve(fallbackDataUrl);
+        }
+      };
+      img.onerror = () => {
+        reject(new Error('Não foi possível processar as dimensões da imagem selecionada.'));
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => {
+      reject(new Error('Falha ao ler o arquivo do seu computador.'));
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 export const Route = createFileRoute('/admin/products')({
@@ -113,6 +208,12 @@ function AdminProductsPage() {
   const [deleting, setDeleting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
+  // Controle de Upload de Imagem
+  const [imageTab, setImageTab] = useState<'upload' | 'url'>('upload');
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const [formData, setFormData] = useState<ProductFormData>({
     name: '',
     slug: '',
@@ -123,6 +224,7 @@ function AdminProductsPage() {
     image_url: '',
     category_id: '',
     is_active: true,
+    is_featured: false,
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
@@ -138,7 +240,7 @@ function AdminProductsPage() {
       const [productsRes, categoriesRes] = await Promise.all([
         supabase
           .from('products')
-          .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, category_id, created_at, category:categories(id, name, slug)')
+          .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, is_featured, category_id, created_at, category:categories(id, name, slug)')
           .order('created_at', { ascending: false }),
         supabase
           .from('categories')
@@ -244,6 +346,7 @@ function AdminProductsPage() {
 
   const handleOpenCreate = () => {
     setEditingProduct(null);
+    setImageTab('upload');
     setFormData({
       name: '',
       slug: '',
@@ -254,6 +357,7 @@ function AdminProductsPage() {
       image_url: '',
       category_id: categories[0]?.id || '',
       is_active: true,
+      is_featured: false,
     });
     setFormErrors({});
     setIsDialogOpen(true);
@@ -261,6 +365,8 @@ function AdminProductsPage() {
 
   const handleOpenEdit = (product: Product) => {
     setEditingProduct(product);
+    // Se a imagem for uma URL web comum (começa com http), podemos iniciar na aba url ou upload
+    setImageTab('upload');
     setFormData({
       name: product.name,
       slug: product.slug,
@@ -271,9 +377,60 @@ function AdminProductsPage() {
       image_url: product.image_url || '',
       category_id: product.category_id,
       is_active: product.is_active,
+      is_featured: !!product.is_featured,
     });
     setFormErrors({});
     setIsDialogOpen(true);
+  };
+
+  const handleFileProcess = async (file: File) => {
+    try {
+      setIsUploadingImage(true);
+      const imageUrl = await processImageFile(file);
+      setFormData((prev) => ({ ...prev, image_url: imageUrl }));
+      toast.success('Imagem carregada com sucesso!');
+    } catch (err: any) {
+      console.error('Erro ao carregar imagem:', err);
+      toast.error(err.message || 'Erro ao carregar imagem.');
+    } finally {
+      setIsUploadingImage(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFileProcess(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      handleFileProcess(file);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setFormData((prev) => ({ ...prev, image_url: '' }));
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const handleOpenDelete = (product: Product) => {
@@ -299,6 +456,7 @@ function AdminProductsPage() {
         image_url: formData.image_url.trim() || null,
         category_id: formData.category_id,
         is_active: formData.is_active,
+        is_featured: formData.is_featured,
       };
 
       if (editingProduct) {
@@ -1161,38 +1319,193 @@ function AdminProductsPage() {
             </div>
 
             {/* Imagem do Produto */}
-            <div className="space-y-1.5">
-              <Label htmlFor="image_url" className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
-                URL da Imagem do Produto
-              </Label>
-              <Input
-                id="image_url"
-                type="url"
-                value={formData.image_url}
-                disabled={saving}
-                onChange={(e) => setFormData((prev) => ({ ...prev, image_url: e.target.value }))}
-                placeholder="https://exemplo.com/imagem-do-produto.jpg"
-                className="h-10 rounded-xl text-sm"
-                style={{
-                  backgroundColor: 'var(--background)',
-                  borderColor: 'var(--border)',
-                  color: 'var(--foreground)',
-                }}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
+                  Imagem do Produto
+                </Label>
+                <div
+                  className="flex items-center p-0.5 rounded-lg border text-[11px]"
+                  style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setImageTab('upload')}
+                    className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      imageTab === 'upload'
+                        ? 'bg-primary text-primary-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <UploadCloud className="w-3.5 h-3.5" />
+                    <span>Do computador</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImageTab('url')}
+                    className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      imageTab === 'url'
+                        ? 'bg-primary text-primary-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <LinkIcon className="w-3.5 h-3.5" />
+                    <span>Por URL / Link</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Input de arquivo invisível acionado via botão/dropzone */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                className="hidden"
+                onChange={handleFileInputChange}
+                disabled={saving || isUploadingImage}
               />
-              {formData.image_url && (
-                <div className="mt-2 flex items-center gap-3 p-2.5 rounded-xl border bg-muted/40" style={{ borderColor: 'var(--border)' }}>
-                  <img
-                    src={formData.image_url}
-                    alt="Preview"
-                    className="w-12 h-12 object-cover rounded-lg border border-border"
-                    onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
-                    }}
-                  />
-                  <div className="text-xs text-muted-foreground">
-                    <p className="font-semibold text-foreground">Prévia da imagem</p>
-                    <p className="text-[11px]">Verifique se a imagem carrega corretamente.</p>
+
+              {imageTab === 'upload' ? (
+                <div>
+                  {formData.image_url ? (
+                    <div
+                      className="flex items-center gap-3.5 p-3 rounded-2xl border transition-all"
+                      style={{ backgroundColor: 'var(--muted)', borderColor: 'var(--border)' }}
+                    >
+                      <div
+                        className="relative w-16 h-16 rounded-xl border overflow-hidden flex-shrink-0 flex items-center justify-center bg-background"
+                        style={{ borderColor: 'var(--border)' }}
+                      >
+                        <img
+                          src={formData.image_url}
+                          alt="Prévia do produto"
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          <span>Imagem carregada</span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          {formData.image_url.startsWith('data:')
+                            ? 'Arquivo carregado diretamente do computador'
+                            : formData.image_url}
+                        </p>
+                        <div className="flex items-center gap-2 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={saving || isUploadingImage}
+                            className="text-[11px] font-semibold text-primary hover:underline cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                          >
+                            <UploadCloud className="w-3 h-3" />
+                            <span>Trocar imagem</span>
+                          </button>
+                          <span className="text-muted-foreground text-[10px]">•</span>
+                          <button
+                            type="button"
+                            onClick={handleRemoveImage}
+                            disabled={saving || isUploadingImage}
+                            className="text-[11px] font-semibold text-destructive hover:underline cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Remover</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                      onClick={() => !isUploadingImage && fileInputRef.current?.click()}
+                      className={`flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-2xl transition-all cursor-pointer text-center ${
+                        isDragging
+                          ? 'border-primary bg-primary/10 scale-[0.99]'
+                          : 'border-border/80 hover:border-primary/60 hover:bg-muted/40 bg-muted/10'
+                      }`}
+                    >
+                      {isUploadingImage ? (
+                        <div className="flex flex-col items-center gap-2 py-2">
+                          <Loader2 className="w-7 h-7 animate-spin text-primary" />
+                          <p className="text-xs font-semibold text-foreground">
+                            Carregando e processando imagem...
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          <div
+                            className="w-11 h-11 rounded-2xl flex items-center justify-center mb-2 shadow-xs"
+                            style={{ backgroundColor: 'var(--muted)', color: 'var(--primary)' }}
+                          >
+                            <UploadCloud className="w-5 h-5" />
+                          </div>
+                          <p className="text-xs font-semibold text-foreground">
+                            Clique para escolher uma imagem do computador
+                          </p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            ou arraste e solte o arquivo aqui (PNG, JPG, WEBP até 10MB)
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="image_url"
+                      type="url"
+                      value={formData.image_url.startsWith('data:') ? '' : formData.image_url}
+                      disabled={saving}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, image_url: e.target.value }))}
+                      placeholder="https://exemplo.com/imagem-do-produto.jpg"
+                      className="h-10 rounded-xl text-xs sm:text-sm flex-1"
+                      style={{
+                        backgroundColor: 'var(--background)',
+                        borderColor: 'var(--border)',
+                        color: 'var(--foreground)',
+                      }}
+                    />
+                    {formData.image_url && !formData.image_url.startsWith('data:') && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveImage}
+                        className="p-2.5 rounded-xl border hover:bg-muted text-muted-foreground hover:text-destructive cursor-pointer transition-colors"
+                        style={{ borderColor: 'var(--border)' }}
+                        title="Limpar URL"
+                        aria-label="Limpar URL da imagem"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
+
+                  {formData.image_url && (
+                    <div
+                      className="flex items-center gap-3 p-2.5 rounded-xl border bg-muted/40"
+                      style={{ borderColor: 'var(--border)' }}
+                    >
+                      <img
+                        src={formData.image_url}
+                        alt="Preview"
+                        className="w-12 h-12 object-cover rounded-lg border border-border"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                      <div className="text-xs text-muted-foreground min-w-0">
+                        <p className="font-semibold text-foreground">Prévia da imagem</p>
+                        <p className="text-[11px] truncate">Verifique se a imagem carrega corretamente.</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1218,31 +1531,63 @@ function AdminProductsPage() {
               />
             </div>
 
-            {/* Toggle Ativo */}
-            <div className="flex items-center gap-3 pt-2 p-3 rounded-xl border bg-muted/20" style={{ borderColor: 'var(--border)' }}>
-              <button
-                type="button"
-                onClick={() => setFormData((prev) => ({ ...prev, is_active: !prev.is_active }))}
-                disabled={saving}
-                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer disabled:opacity-50"
-                style={{ backgroundColor: formData.is_active ? 'var(--success)' : 'var(--muted)' }}
-                aria-label="Alternar visibilidade do produto"
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${
-                    formData.is_active ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-              <div className="text-xs sm:text-sm">
-                <span className="font-semibold" style={{ color: 'var(--foreground)' }}>
-                  {formData.is_active ? 'Produto Ativo' : 'Produto Inativo'}
-                </span>
-                <p className="text-[11px] text-muted-foreground">
-                  {formData.is_active
-                    ? 'Visível para os clientes no catálogo e busca.'
-                    : 'Oculto na loja pública (não pode ser comprado).'}
-                </p>
+            {/* Toggles: Ativo e Destaque */}
+            <div className="space-y-2.5 pt-1">
+              {/* Toggle Ativo */}
+              <div className="flex items-center gap-3 p-3 rounded-xl border bg-muted/20" style={{ borderColor: 'var(--border)' }}>
+                <button
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, is_active: !prev.is_active }))}
+                  disabled={saving}
+                  className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer disabled:opacity-50 flex-shrink-0"
+                  style={{ backgroundColor: formData.is_active ? 'var(--success)' : 'var(--muted)' }}
+                  aria-label="Alternar visibilidade do produto"
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${
+                      formData.is_active ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+                <div className="text-xs sm:text-sm">
+                  <span className="font-semibold block" style={{ color: 'var(--foreground)' }}>
+                    {formData.is_active ? 'Produto Ativo' : 'Produto Inativo'}
+                  </span>
+                  <p className="text-[11px] text-muted-foreground">
+                    {formData.is_active
+                      ? 'Visível para os clientes no catálogo e busca.'
+                      : 'Oculto na loja pública (não pode ser comprado).'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Toggle Destaque */}
+              <div className="flex items-center gap-3 p-3 rounded-xl border bg-muted/20" style={{ borderColor: 'var(--border)' }}>
+                <button
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, is_featured: !prev.is_featured }))}
+                  disabled={saving}
+                  className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer disabled:opacity-50 flex-shrink-0"
+                  style={{ backgroundColor: formData.is_featured ? 'var(--primary)' : 'var(--muted)' }}
+                  aria-label="Alternar produto em destaque"
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${
+                      formData.is_featured ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+                <div className="text-xs sm:text-sm">
+                  <span className="font-semibold flex items-center gap-1.5" style={{ color: 'var(--foreground)' }}>
+                    <Star className={`w-3.5 h-3.5 ${formData.is_featured ? 'text-primary fill-primary' : 'text-muted-foreground'}`} />
+                    Produto em destaque
+                  </span>
+                  <p className="text-[11px] text-muted-foreground">
+                    {formData.is_featured
+                      ? 'Produtos em destaque aparecem na página inicial.'
+                      : 'Não listado na seção de destaques da página inicial.'}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
