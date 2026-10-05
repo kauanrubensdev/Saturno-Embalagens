@@ -80,9 +80,10 @@ function ProductDetailPage() {
     setErrorType(null);
 
     try {
+      // 1. Fetch core product
       const { data, error: fetchError } = await supabase
         .from('products')
-        .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, category:categories(id, name, slug), product_images:product_images(id, image_url, storage_path, sort_order, is_primary), product_variants:product_variants(id, name, sku, price, stock_quantity, is_active, sort_order)')
+        .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, category:categories(id, name, slug)')
         .eq('slug', productSlug)
         .eq('is_active', true)
         .single();
@@ -92,7 +93,15 @@ function ProductDetailPage() {
           // Record not found
           setErrorType('not_found');
         } else {
-          console.error('[PRODUCT-DETAIL] Fetch error:', fetchError);
+          console.error('[PRODUCT-DETAIL] Core fetch error:', {
+            table: 'products',
+            slug: productSlug,
+            error: fetchError,
+            code: fetchError.code,
+            message: fetchError.message,
+            details: fetchError.details,
+            hint: fetchError.hint,
+          });
           setErrorType('error');
         }
         setProduct(null);
@@ -106,6 +115,38 @@ function ProductDetailPage() {
       }
 
       const productData = data as unknown as ProductDetail;
+
+      // 2. Safely fetch optional product_images
+      try {
+        const { data: imagesData, error: imagesError } = await supabase
+          .from('product_images')
+          .select('id, image_url, storage_path, sort_order, is_primary')
+          .eq('product_id', productData.id)
+          .order('sort_order', { ascending: true });
+
+        if (!imagesError && imagesData && imagesData.length > 0) {
+          productData.product_images = imagesData as ProductImageRecord[];
+        }
+      } catch (imgErr) {
+        console.info('[PRODUCT-DETAIL] Optional product_images fetch note:', imgErr);
+      }
+
+      // 3. Safely fetch optional product_variants
+      try {
+        const { data: variantsData, error: variantsError } = await supabase
+          .from('product_variants')
+          .select('id, name, sku, price, stock_quantity, is_active, sort_order')
+          .eq('product_id', productData.id)
+          .eq('is_active', true)
+          .order('sort_order', { ascending: true });
+
+        if (!variantsError && variantsData && variantsData.length > 0) {
+          productData.product_variants = variantsData as ProductVariantRecord[];
+        }
+      } catch (varErr) {
+        console.info('[PRODUCT-DETAIL] Optional product_variants fetch note:', varErr);
+      }
+
       setProduct(productData);
       setQuantity(1);
 

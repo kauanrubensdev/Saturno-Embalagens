@@ -149,24 +149,140 @@ function AdminProductsPage() {
       }
       setError(null);
 
-      const [productsRes, categoriesRes] = await Promise.all([
-        supabase
-          .from('products')
-          .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, is_featured, category_id, created_at, category:categories(id, name, slug), product_images:product_images(id, image_url, storage_path, sort_order, is_primary), product_variants:product_variants(id, name, sku, price, stock_quantity, is_active, sort_order)')
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('categories')
-          .select('id, name, slug')
-          .order('name', { ascending: true }),
-      ]);
+      // 1. Fetch categories
+      const categoriesRes = await supabase
+        .from('categories')
+        .select('id, name, slug')
+        .order('name', { ascending: true });
 
-      if (productsRes.error) throw productsRes.error;
-      if (categoriesRes.error) throw categoriesRes.error;
+      if (categoriesRes.error) {
+        console.warn('[AdminProducts] Categories query diagnostics:', {
+          table: 'categories',
+          columns: 'id, name, slug',
+          error: categoriesRes.error,
+          code: categoriesRes.error.code,
+          message: categoriesRes.error.message,
+          details: categoriesRes.error.details,
+          hint: categoriesRes.error.hint,
+        });
+      } else {
+        setCategories((categoriesRes.data as Category[]) || []);
+      }
 
-      setProducts((productsRes.data as unknown as Product[]) || []);
-      setCategories((categoriesRes.data as Category[]) || []);
+      // 2. Fetch base products (Core table + category)
+      const baseProductsRes = await supabase
+        .from('products')
+        .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, is_featured, category_id, created_at, category:categories(id, name, slug)')
+        .order('created_at', { ascending: false });
+
+      if (baseProductsRes.error) {
+        console.error('[AdminProducts] Core products query failed:', {
+          table: 'products',
+          columns: 'id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, is_featured, category_id, created_at',
+          relations: 'category:categories(id, name, slug)',
+          error: baseProductsRes.error,
+          code: baseProductsRes.error.code,
+          message: baseProductsRes.error.message,
+          details: baseProductsRes.error.details,
+          hint: baseProductsRes.error.hint,
+        });
+        throw baseProductsRes.error;
+      }
+
+      const rawProducts = (baseProductsRes.data as unknown as Product[]) || [];
+
+      // 3. Safely fetch product_images (if table exists)
+      const productImagesMap: Record<string, ProductImageItem[]> = {};
+      try {
+        const imagesRes = await supabase
+          .from('product_images')
+          .select('id, product_id, image_url, storage_path, sort_order, is_primary')
+          .order('sort_order', { ascending: true });
+
+        if (imagesRes.error) {
+          console.info('[AdminProducts] product_images query diagnostics (table might not exist yet):', {
+            table: 'product_images',
+            columns: 'id, product_id, image_url, storage_path, sort_order, is_primary',
+            error: imagesRes.error,
+            code: imagesRes.error.code,
+            message: imagesRes.error.message,
+            details: imagesRes.error.details,
+            hint: imagesRes.error.hint,
+          });
+        } else if (imagesRes.data) {
+          imagesRes.data.forEach((img: any) => {
+            if (img.product_id) {
+              if (!productImagesMap[img.product_id]) {
+                productImagesMap[img.product_id] = [];
+              }
+              productImagesMap[img.product_id].push({
+                id: img.id,
+                image_url: img.image_url,
+                storage_path: img.storage_path,
+                sort_order: img.sort_order,
+                is_primary: img.is_primary,
+              });
+            }
+          });
+        }
+      } catch (imgErr) {
+        console.info('[AdminProducts] Optional product_images fetch error:', imgErr);
+      }
+
+      // 4. Safely fetch product_variants (if table exists)
+      const productVariantsMap: Record<string, ProductVariantItem[]> = {};
+      try {
+        const variantsRes = await supabase
+          .from('product_variants')
+          .select('id, product_id, name, sku, price, stock_quantity, is_active, sort_order')
+          .order('sort_order', { ascending: true });
+
+        if (variantsRes.error) {
+          console.info('[AdminProducts] product_variants query diagnostics (table might not exist yet):', {
+            table: 'product_variants',
+            columns: 'id, product_id, name, sku, price, stock_quantity, is_active, sort_order',
+            error: variantsRes.error,
+            code: variantsRes.error.code,
+            message: variantsRes.error.message,
+            details: variantsRes.error.details,
+            hint: variantsRes.error.hint,
+          });
+        } else if (variantsRes.data) {
+          variantsRes.data.forEach((v: any) => {
+            if (v.product_id) {
+              if (!productVariantsMap[v.product_id]) {
+                productVariantsMap[v.product_id] = [];
+              }
+              productVariantsMap[v.product_id].push({
+                id: v.id,
+                name: v.name,
+                sku: v.sku,
+                price: Number(v.price),
+                stock_quantity: Number(v.stock_quantity),
+                is_active: v.is_active,
+                sort_order: v.sort_order,
+              });
+            }
+          });
+        }
+      } catch (varErr) {
+        console.info('[AdminProducts] Optional product_variants fetch error:', varErr);
+      }
+
+      // 5. Consolidate products with gallery and variants
+      const consolidatedProducts: Product[] = rawProducts.map((p) => {
+        const gallery = productImagesMap[p.id] || (p.image_url ? [{ image_url: p.image_url, sort_order: 0, is_primary: true }] : []);
+        const variants = productVariantsMap[p.id] || null;
+        return {
+          ...p,
+          product_images: gallery,
+          product_variants: variants,
+        };
+      });
+
+      setProducts(consolidatedProducts);
     } catch (err) {
-      console.error('Error fetching products/categories:', err);
+      console.error('[AdminProducts] Error loading products list:', err);
       setError('Não foi possível carregar os produtos. Verifique sua conexão e tente novamente.');
     } finally {
       setLoading(false);
