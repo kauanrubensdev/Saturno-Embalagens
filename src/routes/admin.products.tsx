@@ -380,16 +380,12 @@ function AdminProductsPage() {
       name: '',
       slug: '',
       description: '',
-      price: '20.00',
-      stock_quantity: '18',
+      price: '',
+      stock_quantity: '0',
       sku: '',
       image_url: '',
       gallery: [],
-      variants: [
-        { name: '20 cm', sku: 'CX-20', price: 20, stock_quantity: 18, is_active: true, sort_order: 0 },
-        { name: '25 cm', sku: 'CX-25', price: 25, stock_quantity: 15, is_active: true, sort_order: 1 },
-        { name: '30 cm', sku: 'CX-30', price: 30, stock_quantity: 10, is_active: true, sort_order: 2 },
-      ],
+      variants: [],
       category_id: categories[0]?.id || '',
       is_active: true,
       is_featured: false,
@@ -417,18 +413,10 @@ function AdminProductsPage() {
 
     const primaryImg = initialGallery.find((img) => img.is_primary) || initialGallery[0];
 
-    let initialVariants: ProductVariantItem[] = [];
-    if (product.product_variants && product.product_variants.length > 0) {
-      initialVariants = [...product.product_variants].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-    } else {
-      // If no variants exist in database yet, generate default 20cm, 25cm, 30cm based on product base price/sku
-      const baseP = Number(product.price) || 20;
-      initialVariants = [
-        { name: '20 cm', sku: product.sku ? `${product.sku}-20` : 'CX-20', price: baseP, stock_quantity: product.stock_quantity || 18, is_active: true, sort_order: 0 },
-        { name: '25 cm', sku: product.sku ? `${product.sku}-25` : 'CX-25', price: baseP === 20 ? 25 : baseP + 5, stock_quantity: 15, is_active: true, sort_order: 1 },
-        { name: '30 cm', sku: product.sku ? `${product.sku}-30` : 'CX-30', price: baseP === 20 ? 30 : baseP + 10, stock_quantity: 10, is_active: true, sort_order: 2 },
-      ];
-    }
+    const initialVariants: ProductVariantItem[] =
+      product.product_variants && product.product_variants.length > 0
+        ? [...product.product_variants].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+        : [];
 
     setFormData({
       name: product.name,
@@ -502,7 +490,8 @@ function AdminProductsPage() {
               sort_order: index,
               is_primary: img.is_primary ?? (index === 0),
             }));
-            await supabase.from('product_images').insert(galleryPayload);
+            const { error: galErr } = await supabase.from('product_images').insert(galleryPayload);
+            if (galErr) console.warn('[handleSave] Error inserting product_images:', galErr);
           }
         } catch (syncErr) {
           console.warn('[handleSave] Error syncing product_images:', syncErr);
@@ -510,9 +499,21 @@ function AdminProductsPage() {
 
         // Synchronize product_variants table
         try {
-          await supabase.from('product_variants').delete().eq('product_id', editingProduct.id);
           if (formData.variants.length > 0) {
+            const variantIds = formData.variants.filter((v) => v.id).map((v) => v.id as string);
+            if (variantIds.length > 0) {
+              const { error: delRemovedErr } = await supabase
+                .from('product_variants')
+                .delete()
+                .eq('product_id', editingProduct.id)
+                .not('id', 'in', `(${variantIds.join(',')})`);
+              if (delRemovedErr) console.warn('[handleSave] Error cleaning removed variants:', delRemovedErr);
+            } else {
+              await supabase.from('product_variants').delete().eq('product_id', editingProduct.id);
+            }
+
             const variantsPayload = formData.variants.map((v, index) => ({
+              ...(v.id ? { id: v.id } : {}),
               product_id: editingProduct.id,
               name: v.name.trim(),
               sku: v.sku?.trim() || null,
@@ -520,10 +521,21 @@ function AdminProductsPage() {
               stock_quantity: Number(v.stock_quantity),
               is_active: v.is_active ?? true,
               sort_order: v.sort_order ?? index,
+              updated_at: new Date().toISOString(),
             }));
-            await supabase.from('product_variants').insert(variantsPayload);
+
+            const { error: syncVarErr } = await supabase
+              .from('product_variants')
+              .upsert(variantsPayload, { onConflict: 'id' });
+
+            if (syncVarErr) {
+              console.error('[handleSave] Erro ao sincronizar variações:', syncVarErr);
+              toast.error('Erro ao salvar variações no banco: ' + syncVarErr.message);
+            }
+          } else {
+            await supabase.from('product_variants').delete().eq('product_id', editingProduct.id);
           }
-        } catch (syncVarErr) {
+        } catch (syncVarErr: any) {
           console.warn('[handleSave] Error syncing product_variants:', syncVarErr);
         }
 
@@ -571,8 +583,12 @@ function AdminProductsPage() {
               is_active: v.is_active ?? true,
               sort_order: v.sort_order ?? index,
             }));
-            await supabase.from('product_variants').insert(variantsPayload);
-          } catch (syncVarErr) {
+            const { error: insVarErr } = await supabase.from('product_variants').insert(variantsPayload);
+            if (insVarErr) {
+              console.error('[handleSave] Erro ao cadastrar variações do produto novo:', insVarErr);
+              toast.error('Produto criado, mas houve erro nas variações: ' + insVarErr.message);
+            }
+          } catch (syncVarErr: any) {
             console.warn('[handleSave] Error inserting product_variants on create:', syncVarErr);
           }
         }
@@ -582,9 +598,9 @@ function AdminProductsPage() {
 
       setIsDialogOpen(false);
       await fetchData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving product:', err);
-      toast.error('Erro ao salvar produto. Tente novamente.');
+      toast.error(err?.message || 'Erro ao salvar produto. Tente novamente.');
     } finally {
       setSaving(false);
     }
@@ -1489,9 +1505,12 @@ function AdminProductsPage() {
 
             {/* Variações de Tamanho e Preço do Produto */}
             <ProductVariantManager
+              productId={editingProduct?.id}
               variants={formData.variants}
               onChange={(variants) => setFormData((prev) => ({ ...prev, variants }))}
+              onRefresh={fetchData}
               basePrice={parseFloat(formData.price.replace(',', '.')) || 20}
+              disabled={saving}
             />
 
             {/* Galeria de Múltiplas Imagens do Produto */}
