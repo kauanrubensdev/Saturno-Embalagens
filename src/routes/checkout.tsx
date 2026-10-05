@@ -2,7 +2,7 @@ import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-ro
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Header } from '@/components/customer/Header';
 import { useAuth } from '@/hooks/useAuth';
-import { useCart } from '@/hooks/useCart';
+import { useCart, type CartItemType } from '@/hooks/useCart';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import {
@@ -1059,8 +1059,24 @@ function AbacatePixPaymentScreen({
 
 export function CheckoutPage() {
   const { authReady, user, profile } = useAuth();
-  const { cart, loading: cartLoading, clearCart, getSubtotal } = useCart();
+  const { cart, loading: cartLoading, clearCart, getSubtotal, buyNowItem, clearBuyNow } = useCart();
   const navigate = useNavigate();
+
+  const isDirectPurchase = Boolean(buyNowItem?.productId && buyNowItem?.product);
+
+  const checkoutItems: CartItemType[] = useMemo(() => {
+    if (isDirectPurchase && buyNowItem) {
+      return [
+        {
+          id: `buy-now-${buyNowItem.productId}`,
+          product_id: buyNowItem.productId,
+          quantity: buyNowItem.quantity,
+          product: buyNowItem.product,
+        },
+      ];
+    }
+    return cart?.items || [];
+  }, [isDirectPurchase, buyNowItem, cart?.items]);
 
   // Form states
   const [deliveryType, setDeliveryType] = useState<'delivery' | 'pickup'>('delivery');
@@ -1503,7 +1519,12 @@ export function CheckoutPage() {
     return 0;
   }, [deliveryType, calculatedShipping.available, calculatedShipping.shipping_cost]);
 
-  const subtotal = getSubtotal();
+  const subtotal = useMemo(() => {
+    return checkoutItems.reduce((sum, item) => {
+      if (!item.product.is_active || item.product.stock_quantity <= 0) return sum;
+      return sum + (item.product.price || 0) * item.quantity;
+    }, 0);
+  }, [checkoutItems]);
   const total = subtotal + shippingCost;
 
   const selectedAddress = useMemo(() => {
@@ -1515,23 +1536,31 @@ export function CheckoutPage() {
 
   // ── Payment confirmed callback ─────────────────────────────────────────────
   const handlePaymentConfirmed = useCallback(() => {
-    void clearCart();
+    if (isDirectPurchase) {
+      clearBuyNow();
+    } else {
+      void clearCart();
+    }
     setPendingOrderId(null);
     setPendingOrderData(null);
     setStripePaymentState((prev) => (prev ? { ...prev, isPaid: true } : null));
-  }, [clearCart]);
+  }, [isDirectPurchase, clearBuyNow, clearCart]);
 
   // ── Boleto issued callback ─────────────────────────────────────────────────
   const handleBoletoIssued = useCallback(
     (pdfUrl: string | null, hostedUrl: string | null) => {
-      void clearCart();
+      if (isDirectPurchase) {
+        clearBuyNow();
+      } else {
+        void clearCart();
+      }
       setPendingOrderId(null);
       setPendingOrderData(null);
       setStripePaymentState((prev) =>
         prev ? { ...prev, boletoPdfUrl: pdfUrl, boletoHostedUrl: hostedUrl } : null
       );
     },
-    [clearCart]
+    [isDirectPurchase, clearBuyNow, clearCart]
   );
 
   // ── Handle Change Method from Stripe screen ───────────────────────────────
@@ -1616,8 +1645,8 @@ export function CheckoutPage() {
       return;
     }
 
-    if (!cart || cart.items.length === 0) {
-      toast.error('Seu carrinho está vazio');
+    if (checkoutItems.length === 0) {
+      toast.error('Nenhum item selecionado para compra');
       return;
     }
 
@@ -1690,7 +1719,7 @@ export function CheckoutPage() {
       // If an order has not been created yet for this checkout session:
       if (!targetOrderId || !completedOrderData) {
         // 2. REVALIDATE STOCK & STATUS DIRECTLY FROM DATABASE
-        const productIds = cart.items.map((i) => i.product_id);
+        const productIds = checkoutItems.map((i) => i.product_id);
         const { data: dbProducts, error: prodErr } = await supabase
           .from('products')
           .select('id, name, price, stock_quantity, is_active')
@@ -1700,7 +1729,7 @@ export function CheckoutPage() {
           throw new Error('Não foi possível verificar a disponibilidade dos produtos.');
         }
 
-        for (const item of cart.items) {
+        for (const item of checkoutItems) {
           const liveProd = dbProducts.find((p) => p.id === item.product_id);
           if (!liveProd || !liveProd.is_active) {
             throw new Error(`O produto "${item.product?.name || 'Item'}" não está mais disponível.`);
@@ -1786,7 +1815,7 @@ export function CheckoutPage() {
           verifiedShipping = freshShipping.shipping_cost;
         }
 
-        const verifiedSubtotal = cart.items.reduce((sum, item) => {
+        const verifiedSubtotal = checkoutItems.reduce((sum, item) => {
           const liveProd = dbProducts.find((p) => p.id === item.product_id);
           const unitPrice = liveProd ? liveProd.price : item.product.price;
           return sum + unitPrice * item.quantity;
@@ -1822,7 +1851,7 @@ export function CheckoutPage() {
         targetOrderId = createdOrder.id;
 
         // 4. CREATE ORDER ITEMS (SNAPSHOT)
-        const orderItemsPayload = cart.items.map((item) => {
+        const orderItemsPayload = checkoutItems.map((item) => {
           const liveProd = dbProducts.find((p) => p.id === item.product_id)!;
           return {
             order_id: createdOrder.id,
@@ -1840,7 +1869,7 @@ export function CheckoutPage() {
         }
 
         // 5. UPDATE STOCK & REGISTER MOVEMENTS VIA SECURE ATOMIC RPC
-        for (const item of cart.items) {
+        for (const item of checkoutItems) {
           const { error: stockRpcErr } = await supabase.rpc('decrement_checkout_stock', {
             p_product_id: item.product_id,
             p_quantity: item.quantity,
@@ -1971,8 +2000,12 @@ export function CheckoutPage() {
 
         toast.success('Ambiente de pagamento carregado.');
       } else {
-        // Cash on delivery — clear cart and confirm order immediately
-        await clearCart();
+        // Cash on delivery — clear cart or buyNow and confirm order immediately
+        if (isDirectPurchase) {
+          clearBuyNow();
+        } else {
+          await clearCart();
+        }
         setCompletedOrder(completedOrderData);
         setPendingOrderId(null);
         setPendingOrderData(null);
@@ -2846,8 +2879,8 @@ export function CheckoutPage() {
     );
   }
 
-  // ── EMPTY CART STATE ───────────────────────────────────────────────────────
-  if (!cart || cart.items.length === 0) {
+  // ── EMPTY CART / ITEMS STATE ─────────────────────────────────────────────
+  if (checkoutItems.length === 0) {
     return (
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
         <Header showNav />
@@ -3536,20 +3569,48 @@ export function CheckoutPage() {
                 className="flex items-center justify-between border-b pb-4"
                 style={{ borderColor: 'var(--border)' }}
               >
-                <h2 className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
-                  Resumo da Compra
-                </h2>
-                <Link
-                  to="/cart"
-                  className="text-xs font-semibold text-primary hover:underline no-underline"
-                >
-                  Editar carrinho
-                </Link>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
+                    Resumo da Compra
+                  </h2>
+                  {isDirectPurchase && (
+                    <span
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider"
+                      style={{
+                        backgroundColor: 'rgba(234, 88, 12, 0.15)',
+                        color: 'var(--primary)',
+                      }}
+                    >
+                      ⚡ Compra Direta
+                    </span>
+                  )}
+                </div>
+                {isDirectPurchase ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearBuyNow();
+                      if (!cart || cart.items.length === 0) {
+                        navigate({ to: '/catalog' });
+                      }
+                    }}
+                    className="text-xs font-semibold text-muted-foreground hover:text-destructive transition-colors cursor-pointer bg-transparent border-0 p-0"
+                  >
+                    Cancelar compra direta
+                  </button>
+                ) : (
+                  <Link
+                    to="/cart"
+                    className="text-xs font-semibold text-primary hover:underline no-underline"
+                  >
+                    Editar carrinho
+                  </Link>
+                )}
               </div>
 
               {/* Items List */}
               <div className="space-y-3.5 max-h-64 overflow-y-auto pr-1">
-                {cart.items.map((item) => (
+                {checkoutItems.map((item) => (
                   <div key={item.id} className="flex gap-3 text-sm">
                     {/* Thumbnail */}
                     <div
@@ -3597,7 +3658,7 @@ export function CheckoutPage() {
                 style={{ borderColor: 'var(--border)' }}
               >
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Subtotal ({cart.items.reduce((s, i) => s + i.quantity, 0)} itens)</span>
+                  <span>Subtotal ({checkoutItems.reduce((s, i) => s + i.quantity, 0)} {checkoutItems.reduce((s, i) => s + i.quantity, 0) === 1 ? 'item' : 'itens'})</span>
                   <span>{formatBRL(subtotal)}</span>
                 </div>
 

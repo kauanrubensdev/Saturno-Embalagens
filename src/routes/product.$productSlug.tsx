@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useCart } from '@/hooks/useCart';
@@ -37,15 +37,17 @@ export const Route = createFileRoute('/product/$productSlug')({
 function ProductDetailPage() {
   const params = Route.useParams();
   const productSlug = params.productSlug;
+  const navigate = useNavigate();
 
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorType, setErrorType] = useState<'not_found' | 'error' | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [addingToCart, setAddingToCart] = useState(false);
+  const [buyingNow, setBuyingNow] = useState(false);
 
   const { user } = useAuth();
-  const { addToCart } = useCart();
+  const { addToCart, startBuyNow } = useCart();
 
   const fetchProduct = useCallback(async () => {
     setLoading(true);
@@ -99,13 +101,13 @@ function ProductDetailPage() {
       return;
     }
 
-    if (!product || product.stock_quantity <= 0) {
-      toast.error('Produto indisponível no momento');
+    if (!product || !product.is_active || product.stock_quantity <= 0) {
+      toast.error('Este produto não está disponível no momento.');
       return;
     }
 
     if (quantity > product.stock_quantity) {
-      toast.error(`Quantidade máxima disponível: ${product.stock_quantity}`);
+      toast.error('Quantidade indisponível em estoque.');
       return;
     }
 
@@ -115,6 +117,39 @@ function ProductDetailPage() {
 
     if (result.success) {
       setQuantity(1);
+    }
+  };
+
+  const handleBuyNow = async () => {
+    if (!product || !product.is_active || product.stock_quantity <= 0) {
+      toast.error('Este produto não está disponível no momento.');
+      return;
+    }
+
+    if (quantity > product.stock_quantity) {
+      toast.error('Quantidade indisponível em estoque.');
+      return;
+    }
+
+    setBuyingNow(true);
+    try {
+      const result = await startBuyNow(product.id, quantity, product);
+      if (!result.success) {
+        return;
+      }
+
+      if (!user) {
+        toast.info('Faça login para continuar sua compra.');
+        navigate({ to: '/login' });
+        return;
+      }
+
+      navigate({ to: '/checkout' });
+    } catch (err) {
+      console.error('[PRODUCT-BUY-NOW] Erro ao preparar compra:', err);
+      toast.error('Não foi possível preparar a compra. Tente novamente.');
+    } finally {
+      setBuyingNow(false);
     }
   };
 
@@ -478,36 +513,72 @@ function ProductDetailPage() {
                 </div>
               ) : null}
 
-              {/* Add to Cart Button */}
-              <button
-                type="button"
-                disabled={!isAvailable || addingToCart}
-                onClick={handleAddToCart}
-                className="w-full rounded-xl py-3.5 px-6 text-sm sm:text-base font-semibold transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-[0.98] shadow-sm flex items-center justify-center gap-2"
-                style={{ 
-                  backgroundColor: 'var(--primary)',
-                  color: 'var(--primary-foreground)'
-                }}
-              >
-                {addingToCart ? (
-                  <>
-                    <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                    </svg>
-                    Adicionando ao carrinho...
-                  </>
-                ) : isAvailable ? (
-                  <>
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                    </svg>
-                    Adicionar ao carrinho
-                  </>
-                ) : (
-                  'Produto esgotado'
-                )}
-              </button>
+              {/* Actions: Add to Cart and Comprar Agora */}
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                {/* Add to Cart Button */}
+                <button
+                  type="button"
+                  disabled={!isAvailable || addingToCart || buyingNow}
+                  onClick={handleAddToCart}
+                  className="flex-1 rounded-xl py-3.5 px-4 text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-[0.98] border flex items-center justify-center gap-2"
+                  style={{ 
+                    backgroundColor: 'var(--card)',
+                    borderColor: 'var(--primary)',
+                    color: 'var(--primary)',
+                  }}
+                >
+                  {addingToCart ? (
+                    <>
+                      <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                      </svg>
+                      Adicionando...
+                    </>
+                  ) : isAvailable ? (
+                    <>
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                      </svg>
+                      Adicionar ao Carrinho
+                    </>
+                  ) : (
+                    'Produto esgotado'
+                  )}
+                </button>
+
+                {/* Comprar Agora Button with High Visual Prominence */}
+                <button
+                  type="button"
+                  disabled={!isAvailable || addingToCart || buyingNow}
+                  onClick={handleBuyNow}
+                  className="flex-1 rounded-xl py-3.5 px-6 text-sm sm:text-base font-bold transition-all hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-[0.98] shadow-md flex items-center justify-center gap-2"
+                  style={{ 
+                    backgroundColor: 'var(--primary)',
+                    color: 'var(--primary-foreground)',
+                    boxShadow: isAvailable ? '0 4px 14px 0 rgba(234, 88, 12, 0.35)' : 'none',
+                  }}
+                >
+                  {buyingNow ? (
+                    <>
+                      <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                      </svg>
+                      Preparando compra...
+                    </>
+                  ) : isAvailable ? (
+                    <>
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      Comprar Agora
+                    </>
+                  ) : (
+                    'Indisponível'
+                  )}
+                </button>
+              </div>
 
               {/* Pickup Notice */}
               <div className="mt-5 p-4 rounded-xl border" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>

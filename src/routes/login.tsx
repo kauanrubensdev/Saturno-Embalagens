@@ -35,12 +35,13 @@ function LoginPage() {
         return;
       }
 
-      // Aguarda o próximo render para que authReady + user + profile
-      // estejam atualizados no estado React antes de navegar.
-      // O destino é decidido pelo role do profile, não /account por padrão.
-      // O AuthProvider já sincroniza user/profile via onAuthStateChange.
-      // Aguardamos o estado central ficar consistente antes de navegar.
-      await navigate({ to: '/', replace: true });
+      // Se houver uma compra direta pendente ("Comprar Agora"), redireciona ao checkout
+      const pendingBuyNow = typeof window !== 'undefined' ? sessionStorage.getItem('saturno_buy_now') : null;
+      if (pendingBuyNow) {
+        await navigate({ to: '/checkout', replace: true });
+      } else {
+        await navigate({ to: '/', replace: true });
+      }
     } finally {
       setLoading(false);
     }

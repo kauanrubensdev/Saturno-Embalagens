@@ -26,6 +26,12 @@ export interface Cart {
   items: CartItemType[];
 }
 
+export interface BuyNowItem {
+  productId: string;
+  quantity: number;
+  product: CartProduct;
+}
+
 export interface CartContextValue {
   cart: Cart | null;
   loading: boolean;
@@ -38,6 +44,10 @@ export interface CartContextValue {
   getTotalItems: () => number;
   getSubtotal: () => number;
   refetch: () => Promise<void>;
+  buyNowItem: BuyNowItem | null;
+  setBuyNow: (item: BuyNowItem | null) => void;
+  clearBuyNow: () => void;
+  startBuyNow: (productId: string, quantity: number, productFallback?: Partial<CartProduct>) => Promise<{ success: boolean; error?: string }>;
 }
 
 const CartContext = createContext<CartContextValue | null>(null);
@@ -47,6 +57,91 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<Cart | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [buyNowItem, setBuyNowItem] = useState<BuyNowItem | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const stored = sessionStorage.getItem('saturno_buy_now');
+      if (stored) {
+        return JSON.parse(stored) as BuyNowItem;
+      }
+    } catch (e) {
+      console.warn('[CART] Error reading saturno_buy_now from sessionStorage', e);
+    }
+    return null;
+  });
+
+  const setBuyNow = useCallback((item: BuyNowItem | null) => {
+    setBuyNowItem(item);
+    try {
+      if (item) {
+        sessionStorage.setItem('saturno_buy_now', JSON.stringify(item));
+      } else {
+        sessionStorage.removeItem('saturno_buy_now');
+      }
+    } catch (e) {
+      console.warn('[CART] Could not persist saturno_buy_now', e);
+    }
+  }, []);
+
+  const clearBuyNow = useCallback(() => {
+    setBuyNowItem(null);
+    try {
+      sessionStorage.removeItem('saturno_buy_now');
+    } catch (e) {
+      console.warn('[CART] Could not remove saturno_buy_now', e);
+    }
+  }, []);
+
+  const startBuyNow = useCallback(
+    async (
+      productId: string,
+      quantity: number = 1,
+      productFallback?: Partial<CartProduct>
+    ): Promise<{ success: boolean; error?: string }> => {
+      try {
+        // Validate product from database
+        const { data: product, error: fetchErr } = await supabase
+          .from('products')
+          .select('id, name, slug, price, image_url, stock_quantity, is_active')
+          .eq('id', productId)
+          .single();
+
+        if (fetchErr || !product || !product.is_active || product.stock_quantity <= 0) {
+          toast.error('Este produto não está disponível no momento.');
+          return { success: false, error: 'Este produto não está disponível no momento.' };
+        }
+
+        if (quantity > product.stock_quantity) {
+          toast.error('Quantidade indisponível em estoque.');
+          return { success: false, error: 'Quantidade indisponível em estoque.' };
+        }
+
+        const item: BuyNowItem = {
+          productId: product.id,
+          quantity,
+          product: {
+            id: product.id,
+            name: product.name,
+            slug: product.slug,
+            price: Number(product.price),
+            image_url: product.image_url,
+            stock_quantity: product.stock_quantity,
+            is_active: product.is_active,
+          },
+        };
+
+        setBuyNow(item);
+        return { success: true };
+      } catch (err: any) {
+        console.error('[CART] startBuyNow error:', err);
+        const msg = err?.message || 'Erro ao preparar compra direta.';
+        toast.error('Não foi possível preparar a compra. Tente novamente.');
+        return { success: false, error: msg };
+      }
+    },
+    [setBuyNow]
+  );
 
   const fetchCart = useCallback(async () => {
     if (!authReady) {
@@ -323,6 +418,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
         getTotalItems,
         getSubtotal,
         refetch: fetchCart,
+        buyNowItem,
+        setBuyNow,
+        clearBuyNow,
+        startBuyNow,
       }}
     >
       {children}
