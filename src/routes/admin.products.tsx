@@ -2,6 +2,7 @@ import { createFileRoute, redirect, Link } from '@tanstack/react-router';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminLayout } from '@/components/admin/AdminLayout';
+import { ProductImageUpload } from '@/components/admin/ProductImageUpload';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -113,6 +114,7 @@ function AdminProductsPage() {
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
 
   const [saving, setSaving] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [togglingFeaturedId, setTogglingFeaturedId] = useState<string | null>(null);
@@ -250,6 +252,7 @@ function AdminProductsPage() {
 
   const handleOpenCreate = () => {
     setEditingProduct(null);
+    setIsUploadingImage(false);
     setFormData({
       name: '',
       slug: '',
@@ -268,6 +271,7 @@ function AdminProductsPage() {
 
   const handleOpenEdit = (product: Product) => {
     setEditingProduct(product);
+    setIsUploadingImage(false);
     setFormData({
       name: product.name,
       slug: product.slug,
@@ -1248,42 +1252,14 @@ function AdminProductsPage() {
               </div>
             </div>
 
-            {/* Imagem do Produto */}
-            <div className="space-y-1.5">
-              <Label htmlFor="image_url" className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>
-                URL da Imagem do Produto
-              </Label>
-              <Input
-                id="image_url"
-                type="url"
-                value={formData.image_url}
-                disabled={saving}
-                onChange={(e) => setFormData((prev) => ({ ...prev, image_url: e.target.value }))}
-                placeholder="https://exemplo.com/imagem-do-produto.jpg"
-                className="h-10 rounded-xl text-sm"
-                style={{
-                  backgroundColor: 'var(--background)',
-                  borderColor: 'var(--border)',
-                  color: 'var(--foreground)',
-                }}
-              />
-              {formData.image_url && (
-                <div className="mt-2 flex items-center gap-3 p-2.5 rounded-xl border bg-muted/40" style={{ borderColor: 'var(--border)' }}>
-                  <img
-                    src={formData.image_url}
-                    alt="Preview"
-                    className="w-12 h-12 object-cover rounded-lg border border-border"
-                    onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
-                    }}
-                  />
-                  <div className="text-xs text-muted-foreground">
-                    <p className="font-semibold text-foreground">Prévia da imagem</p>
-                    <p className="text-[11px]">Verifique se a imagem carrega corretamente.</p>
-                  </div>
-                </div>
-              )}
-            </div>
+            {/* Imagem do Produto (Upload do dispositivo + URL) */}
+            <ProductImageUpload
+              value={formData.image_url}
+              onChange={(url) => setFormData((prev) => ({ ...prev, image_url: url }))}
+              productId={editingProduct?.id}
+              disabled={saving}
+              onUploadStateChange={setIsUploadingImage}
+            />
 
             {/* Descrição */}
             <div className="space-y-1.5">
@@ -1375,7 +1351,7 @@ function AdminProductsPage() {
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || isUploadingImage}
               className="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-sm"
               style={{ backgroundColor: 'var(--primary)' }}
             >
@@ -1383,6 +1359,11 @@ function AdminProductsPage() {
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span>Salvando produto...</span>
+                </>
+              ) : isUploadingImage ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Enviando imagem...</span>
                 </>
               ) : (
                 <>
