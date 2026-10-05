@@ -2,7 +2,7 @@ import { createFileRoute, redirect, Link } from '@tanstack/react-router';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { ProductImageUpload } from '@/components/admin/ProductImageUpload';
+import { ProductGalleryManager, ProductImageItem } from '@/components/admin/ProductGalleryManager';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -45,6 +45,7 @@ interface Product {
   sku: string | null;
   image_url: string | null;
   images: string[] | null;
+  product_images?: ProductImageItem[] | null;
   is_active: boolean;
   is_featured: boolean;
   category_id: string;
@@ -60,6 +61,7 @@ interface ProductFormData {
   stock_quantity: string;
   sku: string;
   image_url: string;
+  gallery: ProductImageItem[];
   category_id: string;
   is_active: boolean;
   is_featured: boolean;
@@ -127,6 +129,7 @@ function AdminProductsPage() {
     stock_quantity: '0',
     sku: '',
     image_url: '',
+    gallery: [],
     category_id: '',
     is_active: true,
     is_featured: false,
@@ -145,7 +148,7 @@ function AdminProductsPage() {
       const [productsRes, categoriesRes] = await Promise.all([
         supabase
           .from('products')
-          .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, is_featured, category_id, created_at, category:categories(id, name, slug)')
+          .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, is_featured, category_id, created_at, category:categories(id, name, slug), product_images:product_images(id, image_url, storage_path, sort_order, is_primary)')
           .order('created_at', { ascending: false }),
         supabase
           .from('categories')
@@ -261,6 +264,7 @@ function AdminProductsPage() {
       stock_quantity: '0',
       sku: '',
       image_url: '',
+      gallery: [],
       category_id: categories[0]?.id || '',
       is_active: true,
       is_featured: false,
@@ -272,6 +276,22 @@ function AdminProductsPage() {
   const handleOpenEdit = (product: Product) => {
     setEditingProduct(product);
     setIsUploadingImage(false);
+
+    let initialGallery: ProductImageItem[] = [];
+    if (product.product_images && product.product_images.length > 0) {
+      initialGallery = [...product.product_images].sort((a, b) => a.sort_order - b.sort_order);
+    } else if (product.image_url) {
+      initialGallery = [
+        {
+          image_url: product.image_url,
+          sort_order: 0,
+          is_primary: true,
+        },
+      ];
+    }
+
+    const primaryImg = initialGallery.find((img) => img.is_primary) || initialGallery[0];
+
     setFormData({
       name: product.name,
       slug: product.slug,
@@ -279,7 +299,8 @@ function AdminProductsPage() {
       price: String(product.price),
       stock_quantity: String(product.stock_quantity),
       sku: product.sku || '',
-      image_url: product.image_url || '',
+      image_url: primaryImg?.image_url || product.image_url || '',
+      gallery: initialGallery,
       category_id: product.category_id,
       is_active: product.is_active,
       is_featured: product.is_featured ?? false,
@@ -301,6 +322,9 @@ function AdminProductsPage() {
       const priceNum = parseFloat(formData.price.replace(',', '.'));
       const stockNum = parseInt(formData.stock_quantity, 10);
 
+      const primaryImage = formData.gallery.find((img) => img.is_primary) || formData.gallery[0];
+      const mainImageUrl = primaryImage?.image_url || (formData.image_url.trim() ? formData.image_url.trim() : null);
+
       const payload = {
         name: formData.name.trim(),
         slug: formData.slug,
@@ -308,7 +332,7 @@ function AdminProductsPage() {
         price: priceNum,
         stock_quantity: stockNum,
         sku: formData.sku.trim() || null,
-        image_url: formData.image_url.trim() || null,
+        image_url: mainImageUrl,
         category_id: formData.category_id,
         is_active: formData.is_active,
         is_featured: formData.is_featured,
@@ -328,11 +352,30 @@ function AdminProductsPage() {
           throw updateError;
         }
 
+        // Synchronize product_images table
+        try {
+          await supabase.from('product_images').delete().eq('product_id', editingProduct.id);
+          if (formData.gallery.length > 0) {
+            const galleryPayload = formData.gallery.map((img, index) => ({
+              product_id: editingProduct.id,
+              image_url: img.image_url,
+              storage_path: img.storage_path || null,
+              sort_order: index,
+              is_primary: img.is_primary ?? (index === 0),
+            }));
+            await supabase.from('product_images').insert(galleryPayload);
+          }
+        } catch (syncErr) {
+          console.warn('[handleSave] Error syncing product_images:', syncErr);
+        }
+
         toast.success('Produto atualizado com sucesso!');
       } else {
-        const { error: insertError } = await supabase
+        const { data: createdProduct, error: insertError } = await supabase
           .from('products')
-          .insert(payload);
+          .insert(payload)
+          .select('id')
+          .single();
 
         if (insertError) {
           if (insertError.code === '23505') {
@@ -340,6 +383,22 @@ function AdminProductsPage() {
             return;
           }
           throw insertError;
+        }
+
+        // Insert gallery images for the new product
+        if (createdProduct && formData.gallery.length > 0) {
+          try {
+            const galleryPayload = formData.gallery.map((img, index) => ({
+              product_id: createdProduct.id,
+              image_url: img.image_url,
+              storage_path: img.storage_path || null,
+              sort_order: index,
+              is_primary: img.is_primary ?? (index === 0),
+            }));
+            await supabase.from('product_images').insert(galleryPayload);
+          } catch (syncErr) {
+            console.warn('[handleSave] Error inserting product_images on create:', syncErr);
+          }
         }
 
         toast.success('Produto criado com sucesso!');
@@ -1252,11 +1311,18 @@ function AdminProductsPage() {
               </div>
             </div>
 
-            {/* Imagem do Produto (Upload do dispositivo + URL) */}
-            <ProductImageUpload
-              value={formData.image_url}
-              onChange={(url) => setFormData((prev) => ({ ...prev, image_url: url }))}
+            {/* Galeria de Múltiplas Imagens do Produto */}
+            <ProductGalleryManager
               productId={editingProduct?.id}
+              images={formData.gallery}
+              onChange={(newGallery) => {
+                const primary = newGallery.find((img) => img.is_primary) || newGallery[0];
+                setFormData((prev) => ({
+                  ...prev,
+                  gallery: newGallery,
+                  image_url: primary?.image_url || '',
+                }));
+              }}
               disabled={saving}
               onUploadStateChange={setIsUploadingImage}
             />

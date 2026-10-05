@@ -4,7 +4,16 @@ import { supabase } from '@/integrations/supabase/client';
 import { useCart } from '@/hooks/useCart';
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from '@/components/customer/Header';
+import { ProductGallery } from '@/components/customer/ProductGallery';
 import { toast } from 'sonner';
+
+interface ProductImageRecord {
+  id: string;
+  image_url: string;
+  storage_path: string | null;
+  sort_order: number;
+  is_primary: boolean;
+}
 
 interface ProductDetail {
   id: string;
@@ -16,6 +25,7 @@ interface ProductDetail {
   sku: string | null;
   image_url: string | null;
   images: string[] | null;
+  product_images?: ProductImageRecord[] | null;
   is_active: boolean;
   category: { id: string; name: string; slug: string } | null;
 }
@@ -31,10 +41,8 @@ function ProductDetailPage() {
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorType, setErrorType] = useState<'not_found' | 'error' | null>(null);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [addingToCart, setAddingToCart] = useState(false);
-  const [imageError, setImageError] = useState(false);
 
   const { user } = useAuth();
   const { addToCart } = useCart();
@@ -42,12 +50,11 @@ function ProductDetailPage() {
   const fetchProduct = useCallback(async () => {
     setLoading(true);
     setErrorType(null);
-    setImageError(false);
 
     try {
       const { data, error: fetchError } = await supabase
         .from('products')
-        .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, category:categories(id, name, slug)')
+        .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, category:categories(id, name, slug), product_images:product_images(id, image_url, storage_path, sort_order, is_primary)')
         .eq('slug', productSlug)
         .eq('is_active', true)
         .single();
@@ -72,7 +79,6 @@ function ProductDetailPage() {
 
       const productData = data as unknown as ProductDetail;
       setProduct(productData);
-      setSelectedImage(productData.image_url);
       setQuantity(1);
     } catch (err) {
       console.error('[PRODUCT-DETAIL] Error:', err);
@@ -118,11 +124,23 @@ function ProductDetailPage() {
     setQuantity(clamped);
   };
 
-  const allImages = product?.images?.length
-    ? product.images
-    : product?.image_url
-    ? [product.image_url]
-    : [];
+  const galleryImages = (() => {
+    if (product?.product_images && product.product_images.length > 0) {
+      const sorted = [...product.product_images].sort((a, b) => {
+        if (a.is_primary && !b.is_primary) return -1;
+        if (!a.is_primary && b.is_primary) return 1;
+        return a.sort_order - b.sort_order;
+      });
+      return sorted.map((item) => item.image_url);
+    }
+    if (product?.images && product.images.length > 0) {
+      return product.images;
+    }
+    if (product?.image_url) {
+      return [product.image_url];
+    }
+    return [];
+  })();
 
   const isAvailable = (product?.stock_quantity ?? 0) > 0;
   const isLowStock = isAvailable && (product?.stock_quantity ?? 0) <= 5;
@@ -328,54 +346,12 @@ function ProductDetailPage() {
           </nav>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 lg:gap-12">
-            {/* Images Gallery */}
-            <div className="space-y-3">
-              <div
-                className="rounded-2xl overflow-hidden flex items-center justify-center min-h-[260px] sm:min-h-[380px] border relative"
-                style={{ 
-                  backgroundColor: 'var(--card)',
-                  borderColor: 'var(--border)'
-                }}
-              >
-                {selectedImage && !imageError ? (
-                  <img 
-                    src={selectedImage} 
-                    alt={product.name} 
-                    onError={() => setImageError(true)}
-                    className="w-full h-full object-cover transition-opacity duration-300" 
-                    style={{ maxHeight: '500px' }} 
-                  />
-                ) : (
-                  <div className="flex flex-col items-center justify-center p-8 text-center" style={{ color: 'var(--muted-foreground)' }}>
-                    <svg className="w-16 h-16 sm:w-20 sm:h-20 mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <span className="text-xs">Foto ilustrativa em breve</span>
-                  </div>
-                )}
-              </div>
-
-              {allImages.length > 1 && (
-                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-                  {allImages.map((img, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      onClick={() => { setSelectedImage(img); setImageError(false); }}
-                      className="flex-shrink-0 rounded-xl overflow-hidden border-2 transition-all cursor-pointer active:scale-95"
-                      style={{
-                        width: '68px',
-                        height: '68px',
-                        borderColor: selectedImage === img ? 'var(--primary)' : 'var(--border)',
-                        backgroundColor: 'var(--card)'
-                      }}
-                      aria-label={`Visualizar imagem ${index + 1}`}
-                    >
-                      <img src={img} alt={`${product.name} ${index + 1}`} className="w-full h-full object-cover" />
-                    </button>
-                  ))}
-                </div>
-              )}
+            {/* Product Images Gallery (Shopee style layout) */}
+            <div className="w-full">
+              <ProductGallery
+                images={galleryImages}
+                productName={product.name}
+              />
             </div>
 
             {/* Product Details & Purchase */}
