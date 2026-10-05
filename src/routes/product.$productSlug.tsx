@@ -15,6 +15,16 @@ interface ProductImageRecord {
   is_primary: boolean;
 }
 
+interface ProductVariantRecord {
+  id: string;
+  name: string;
+  sku: string | null;
+  price: number;
+  stock_quantity: number;
+  is_active: boolean;
+  sort_order: number;
+}
+
 interface ProductDetail {
   id: string;
   name: string;
@@ -26,6 +36,7 @@ interface ProductDetail {
   image_url: string | null;
   images: string[] | null;
   product_images?: ProductImageRecord[] | null;
+  product_variants?: ProductVariantRecord[] | null;
   is_active: boolean;
   category: { id: string; name: string; slug: string } | null;
 }
@@ -34,9 +45,11 @@ export interface ProductSizeVariant {
   id: string;
   label: string;
   price: number;
+  sku?: string | null;
+  stock_quantity?: number;
 }
 
-export const PRODUCT_SIZES: ProductSizeVariant[] = [
+export const DEFAULT_PRODUCT_SIZES: ProductSizeVariant[] = [
   { id: '20cm', label: '20cm', price: 20 },
   { id: '25cm', label: '25cm', price: 25 },
   { id: '30cm', label: '30cm', price: 30 },
@@ -55,7 +68,7 @@ function ProductDetailPage() {
   const [loading, setLoading] = useState(true);
   const [errorType, setErrorType] = useState<'not_found' | 'error' | null>(null);
   const [quantity, setQuantity] = useState(1);
-  const [selectedSize, setSelectedSize] = useState<ProductSizeVariant>(PRODUCT_SIZES[0]);
+  const [selectedSize, setSelectedSize] = useState<ProductSizeVariant>(DEFAULT_PRODUCT_SIZES[0]);
   const [addingToCart, setAddingToCart] = useState(false);
   const [buyingNow, setBuyingNow] = useState(false);
 
@@ -69,7 +82,7 @@ function ProductDetailPage() {
     try {
       const { data, error: fetchError } = await supabase
         .from('products')
-        .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, category:categories(id, name, slug), product_images:product_images(id, image_url, storage_path, sort_order, is_primary)')
+        .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, category:categories(id, name, slug), product_images:product_images(id, image_url, storage_path, sort_order, is_primary), product_variants:product_variants(id, name, sku, price, stock_quantity, is_active, sort_order)')
         .eq('slug', productSlug)
         .eq('is_active', true)
         .single();
@@ -96,11 +109,30 @@ function ProductDetailPage() {
       setProduct(productData);
       setQuantity(1);
 
-      // Auto-select size matching price if available, otherwise default to first
-      const matchedSize = PRODUCT_SIZES.find((s) => s.price === productData.price);
-      if (matchedSize) {
-        setSelectedSize(matchedSize);
+      // Extract variants from database if available
+      let variantsList: ProductSizeVariant[] = [];
+      if (productData.product_variants && productData.product_variants.length > 0) {
+        const activeVariants = productData.product_variants
+          .filter((v) => v.is_active !== false)
+          .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+        if (activeVariants.length > 0) {
+          variantsList = activeVariants.map((v) => ({
+            id: v.id || v.name,
+            label: v.name,
+            price: Number(v.price),
+            sku: v.sku,
+            stock_quantity: v.stock_quantity,
+          }));
+        }
       }
+
+      // If no database variants exist, use standard default sizes
+      if (variantsList.length === 0) {
+        variantsList = DEFAULT_PRODUCT_SIZES;
+      }
+
+      setSelectedSize(variantsList[0]);
     } catch (err) {
       console.error('[PRODUCT-DETAIL] Error:', err);
       setErrorType('error');
@@ -114,7 +146,28 @@ function ProductDetailPage() {
     fetchProduct();
   }, [fetchProduct]);
 
-  const unitPrice = selectedSize ? selectedSize.price : (product?.price ?? 20);
+  // Derive available variants dynamically
+  const availableVariants: ProductSizeVariant[] = (() => {
+    if (product?.product_variants && product.product_variants.length > 0) {
+      const activeVariants = product.product_variants
+        .filter((v) => v.is_active !== false)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+      if (activeVariants.length > 0) {
+        return activeVariants.map((v) => ({
+          id: v.id || v.name,
+          label: v.name,
+          price: Number(v.price),
+          sku: v.sku,
+          stock_quantity: v.stock_quantity,
+        }));
+      }
+    }
+    return DEFAULT_PRODUCT_SIZES;
+  })();
+
+  // Unit price comes EXCLUSIVELY from the selected variation
+  const unitPrice = selectedSize ? Number(selectedSize.price) : Number(product?.price ?? 20);
 
   const handleAddToCart = async () => {
     if (!user) {
@@ -463,62 +516,52 @@ function ProductDetailPage() {
                 )}
               </div>
 
-              {/* Description */}
-              {product.description && (
-                <div className="mb-6 p-4 rounded-xl border" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
-                  <h2 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--muted-foreground)' }}>
-                    Descrição do produto
-                  </h2>
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--foreground)' }}>
-                    {product.description}
-                  </p>
-                </div>
-              )}
-
-              {/* Size Selector: 20cm = R$20, 25cm = R$25, 30cm = R$30 */}
-              <div className="mb-5">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
-                    Tamanho / Medida
-                  </label>
-                  <span className="text-xs font-semibold" style={{ color: 'var(--primary)' }}>
-                    Selecionado: {selectedSize.label} ({new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedSize.price)})
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                  {PRODUCT_SIZES.map((variant) => {
-                    const isSelected = selectedSize.id === variant.id;
-                    return (
-                      <button
-                        key={variant.id}
-                        type="button"
-                        onClick={() => setSelectedSize(variant)}
-                        className={`py-2.5 px-2.5 sm:px-3 rounded-xl text-center transition-all border cursor-pointer active:scale-95 flex flex-col items-center justify-center gap-1 ${
-                          isSelected
-                            ? 'ring-2 ring-primary/40 shadow-sm'
-                            : 'hover:border-primary/40 opacity-80 hover:opacity-100'
-                        }`}
-                        style={{
-                          backgroundColor: isSelected ? 'rgba(234, 88, 12, 0.08)' : 'var(--card)',
-                          borderColor: isSelected ? 'var(--primary)' : 'var(--border)',
-                          color: isSelected ? 'var(--primary)' : 'var(--foreground)',
-                        }}
-                      >
-                        <span className="text-sm font-bold">{variant.label}</span>
-                        <span 
-                          className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-full"
+              {/* Size Selector */}
+              {availableVariants.length > 0 && (
+                <div className="mb-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
+                      Tamanho / Medida
+                    </label>
+                    <span className="text-xs font-semibold" style={{ color: 'var(--primary)' }}>
+                      Selecionado: {selectedSize.label} ({new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(unitPrice)})
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                    {availableVariants.map((variant) => {
+                      const isSelected = selectedSize.id === variant.id || selectedSize.label === variant.label;
+                      return (
+                        <button
+                          key={variant.id}
+                          type="button"
+                          onClick={() => setSelectedSize(variant)}
+                          className={`py-2.5 px-2.5 sm:px-3 rounded-xl text-center transition-all border cursor-pointer active:scale-95 flex flex-col items-center justify-center gap-1 ${
+                            isSelected
+                              ? 'ring-2 ring-primary/40 shadow-sm'
+                              : 'hover:border-primary/40 opacity-80 hover:opacity-100'
+                          }`}
                           style={{
-                            backgroundColor: isSelected ? 'var(--primary)' : 'var(--muted)',
-                            color: isSelected ? '#ffffff' : 'var(--muted-foreground)',
+                            backgroundColor: isSelected ? 'rgba(234, 88, 12, 0.08)' : 'var(--card)',
+                            borderColor: isSelected ? 'var(--primary)' : 'var(--border)',
+                            color: isSelected ? 'var(--primary)' : 'var(--foreground)',
                           }}
                         >
-                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(variant.price)}
-                        </span>
-                      </button>
-                    );
-                  })}
+                          <span className="text-sm font-bold">{variant.label}</span>
+                          <span 
+                            className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-full"
+                            style={{
+                              backgroundColor: isSelected ? 'var(--primary)' : 'var(--muted)',
+                              color: isSelected ? '#ffffff' : 'var(--muted-foreground)',
+                            }}
+                          >
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(variant.price)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Quantity Selector */}
               {isAvailable ? (
@@ -667,6 +710,27 @@ function ProductDetailPage() {
               </div>
             </div>
           </div>
+
+          {/* Product Description Section - Full width below the main product & gallery area */}
+          {product.description && (
+            <section className="w-full mt-10 sm:mt-12">
+              <div
+                className="p-6 sm:p-8 rounded-2xl border shadow-xs"
+                style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+              >
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b" style={{ borderColor: 'var(--border)' }}>
+                  <h2 className="text-base sm:text-lg font-bold tracking-wide" style={{ color: 'var(--foreground)' }}>
+                    Descrição do Produto
+                  </h2>
+                </div>
+                <div className="prose prose-sm sm:prose-base max-w-none">
+                  <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--foreground)' }}>
+                    {product.description}
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
         </div>
       </main>
 

@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ProductGalleryManager, ProductImageItem } from '@/components/admin/ProductGalleryManager';
+import { ProductVariantManager, ProductVariantItem } from '@/components/admin/ProductVariantManager';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -46,6 +47,7 @@ interface Product {
   image_url: string | null;
   images: string[] | null;
   product_images?: ProductImageItem[] | null;
+  product_variants?: ProductVariantItem[] | null;
   is_active: boolean;
   is_featured: boolean;
   category_id: string;
@@ -62,6 +64,7 @@ interface ProductFormData {
   sku: string;
   image_url: string;
   gallery: ProductImageItem[];
+  variants: ProductVariantItem[];
   category_id: string;
   is_active: boolean;
   is_featured: boolean;
@@ -130,6 +133,7 @@ function AdminProductsPage() {
     sku: '',
     image_url: '',
     gallery: [],
+    variants: [],
     category_id: '',
     is_active: true,
     is_featured: false,
@@ -148,7 +152,7 @@ function AdminProductsPage() {
       const [productsRes, categoriesRes] = await Promise.all([
         supabase
           .from('products')
-          .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, is_featured, category_id, created_at, category:categories(id, name, slug), product_images:product_images(id, image_url, storage_path, sort_order, is_primary)')
+          .select('id, name, slug, description, price, stock_quantity, sku, image_url, images, is_active, is_featured, category_id, created_at, category:categories(id, name, slug), product_images:product_images(id, image_url, storage_path, sort_order, is_primary), product_variants:product_variants(id, name, sku, price, stock_quantity, is_active, sort_order)')
           .order('created_at', { ascending: false }),
         supabase
           .from('categories')
@@ -260,11 +264,16 @@ function AdminProductsPage() {
       name: '',
       slug: '',
       description: '',
-      price: '',
-      stock_quantity: '0',
+      price: '20.00',
+      stock_quantity: '18',
       sku: '',
       image_url: '',
       gallery: [],
+      variants: [
+        { name: '20 cm', sku: 'CX-20', price: 20, stock_quantity: 18, is_active: true, sort_order: 0 },
+        { name: '25 cm', sku: 'CX-25', price: 25, stock_quantity: 15, is_active: true, sort_order: 1 },
+        { name: '30 cm', sku: 'CX-30', price: 30, stock_quantity: 10, is_active: true, sort_order: 2 },
+      ],
       category_id: categories[0]?.id || '',
       is_active: true,
       is_featured: false,
@@ -292,6 +301,19 @@ function AdminProductsPage() {
 
     const primaryImg = initialGallery.find((img) => img.is_primary) || initialGallery[0];
 
+    let initialVariants: ProductVariantItem[] = [];
+    if (product.product_variants && product.product_variants.length > 0) {
+      initialVariants = [...product.product_variants].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    } else {
+      // If no variants exist in database yet, generate default 20cm, 25cm, 30cm based on product base price/sku
+      const baseP = Number(product.price) || 20;
+      initialVariants = [
+        { name: '20 cm', sku: product.sku ? `${product.sku}-20` : 'CX-20', price: baseP, stock_quantity: product.stock_quantity || 18, is_active: true, sort_order: 0 },
+        { name: '25 cm', sku: product.sku ? `${product.sku}-25` : 'CX-25', price: baseP === 20 ? 25 : baseP + 5, stock_quantity: 15, is_active: true, sort_order: 1 },
+        { name: '30 cm', sku: product.sku ? `${product.sku}-30` : 'CX-30', price: baseP === 20 ? 30 : baseP + 10, stock_quantity: 10, is_active: true, sort_order: 2 },
+      ];
+    }
+
     setFormData({
       name: product.name,
       slug: product.slug,
@@ -301,6 +323,7 @@ function AdminProductsPage() {
       sku: product.sku || '',
       image_url: primaryImg?.image_url || product.image_url || '',
       gallery: initialGallery,
+      variants: initialVariants,
       category_id: product.category_id,
       is_active: product.is_active,
       is_featured: product.is_featured ?? false,
@@ -369,6 +392,25 @@ function AdminProductsPage() {
           console.warn('[handleSave] Error syncing product_images:', syncErr);
         }
 
+        // Synchronize product_variants table
+        try {
+          await supabase.from('product_variants').delete().eq('product_id', editingProduct.id);
+          if (formData.variants.length > 0) {
+            const variantsPayload = formData.variants.map((v, index) => ({
+              product_id: editingProduct.id,
+              name: v.name.trim(),
+              sku: v.sku?.trim() || null,
+              price: Number(v.price),
+              stock_quantity: Number(v.stock_quantity),
+              is_active: v.is_active ?? true,
+              sort_order: v.sort_order ?? index,
+            }));
+            await supabase.from('product_variants').insert(variantsPayload);
+          }
+        } catch (syncVarErr) {
+          console.warn('[handleSave] Error syncing product_variants:', syncVarErr);
+        }
+
         toast.success('Produto atualizado com sucesso!');
       } else {
         const { data: createdProduct, error: insertError } = await supabase
@@ -398,6 +440,24 @@ function AdminProductsPage() {
             await supabase.from('product_images').insert(galleryPayload);
           } catch (syncErr) {
             console.warn('[handleSave] Error inserting product_images on create:', syncErr);
+          }
+        }
+
+        // Insert variants for the new product
+        if (createdProduct && formData.variants.length > 0) {
+          try {
+            const variantsPayload = formData.variants.map((v, index) => ({
+              product_id: createdProduct.id,
+              name: v.name.trim(),
+              sku: v.sku?.trim() || null,
+              price: Number(v.price),
+              stock_quantity: Number(v.stock_quantity),
+              is_active: v.is_active ?? true,
+              sort_order: v.sort_order ?? index,
+            }));
+            await supabase.from('product_variants').insert(variantsPayload);
+          } catch (syncVarErr) {
+            console.warn('[handleSave] Error inserting product_variants on create:', syncVarErr);
           }
         }
 
@@ -1310,6 +1370,13 @@ function AdminProductsPage() {
                 )}
               </div>
             </div>
+
+            {/* Variações de Tamanho e Preço do Produto */}
+            <ProductVariantManager
+              variants={formData.variants}
+              onChange={(variants) => setFormData((prev) => ({ ...prev, variants }))}
+              basePrice={parseFloat(formData.price.replace(',', '.')) || 20}
+            />
 
             {/* Galeria de Múltiplas Imagens do Produto */}
             <ProductGalleryManager

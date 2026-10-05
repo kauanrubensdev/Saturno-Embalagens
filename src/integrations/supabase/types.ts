@@ -417,6 +417,53 @@ export type Database = {
           },
         ]
       }
+      product_variants: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          price: number
+          product_id: string
+          sku: string | null
+          sort_order: number
+          stock_quantity: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          price: number
+          product_id: string
+          sku?: string | null
+          sort_order?: number
+          stock_quantity?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          price?: number
+          product_id?: string
+          sku?: string | null
+          sort_order?: number
+          stock_quantity?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_variants_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
