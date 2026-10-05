@@ -142,8 +142,31 @@ export function ProductImageUpload({
       const folderId = productId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `prod-${Date.now()}`);
       const filePath = `${folderId}/${Date.now()}-${cleanName}`;
 
+      // Get current user and profile for diagnostics
+      const { data: authData } = await supabase.auth.getUser();
+      const currentUser = authData?.user;
+      let userRole = 'unknown';
+      if (currentUser?.id) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', currentUser.id)
+          .maybeSingle();
+        userRole = profile?.role || 'none';
+      }
+
+      console.log('[ProductImageUpload] Iniciando upload:', {
+        bucket: 'product-images',
+        filePath,
+        authenticated: Boolean(currentUser),
+        userId: currentUser?.id || null,
+        userRole,
+        fileSize: file.size,
+        fileType: file.type,
+      });
+
       // Upload directly to Supabase Storage
-      const { error: uploadError } = await supabase.storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
         .from('product-images')
         .upload(filePath, file, {
           cacheControl: '3600',
@@ -151,10 +174,31 @@ export function ProductImageUpload({
         });
 
       if (uploadError) {
-        console.error('Supabase storage upload error:', uploadError);
-        toast.error('Não foi possível enviar a imagem. Tente novamente.');
+        console.error('[ProductImageUpload] Erro completo retornado pelo Supabase Storage:', {
+          bucket: 'product-images',
+          filePath,
+          resultado: 'falha',
+          statusUsuario: {
+            autenticado: Boolean(currentUser),
+            userId: currentUser?.id || null,
+            role: userRole,
+          },
+          erroCompleto: uploadError,
+          mensagem: uploadError.message,
+          nome: uploadError.name,
+        });
+
+        const detailMsg = uploadError.message ? ` (${uploadError.message})` : '';
+        toast.error(`Não foi possível enviar a imagem${detailMsg}. Tente novamente.`);
         return;
       }
+
+      console.log('[ProductImageUpload] Upload realizado com sucesso:', {
+        bucket: 'product-images',
+        filePath,
+        resultado: 'sucesso',
+        uploadData,
+      });
 
       // Get public URL
       const { data: publicUrlData } = supabase.storage
