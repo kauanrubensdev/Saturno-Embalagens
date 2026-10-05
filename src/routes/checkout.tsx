@@ -1072,6 +1072,8 @@ export function CheckoutPage() {
           product_id: buyNowItem.productId,
           quantity: buyNowItem.quantity,
           product: buyNowItem.product,
+          selected_size: buyNowItem.selectedSize,
+          selected_price: buyNowItem.selectedPrice,
         },
       ];
     }
@@ -1817,7 +1819,10 @@ export function CheckoutPage() {
 
         const verifiedSubtotal = checkoutItems.reduce((sum, item) => {
           const liveProd = dbProducts.find((p) => p.id === item.product_id);
-          const unitPrice = liveProd ? liveProd.price : item.product.price;
+          const unitPrice =
+            typeof item.selected_price === 'number' && item.selected_price > 0
+              ? item.selected_price
+              : (item.product?.price || (liveProd ? liveProd.price : 0));
           return sum + unitPrice * item.quantity;
         }, 0);
 
@@ -1853,13 +1858,21 @@ export function CheckoutPage() {
         // 4. CREATE ORDER ITEMS (SNAPSHOT)
         const orderItemsPayload = checkoutItems.map((item) => {
           const liveProd = dbProducts.find((p) => p.id === item.product_id)!;
+          const unitPrice =
+            typeof item.selected_price === 'number' && item.selected_price > 0
+              ? item.selected_price
+              : (item.product?.price || liveProd.price);
+          const itemName = item.selected_size
+            ? `${liveProd.name} (${item.selected_size})`
+            : (item.product?.name || liveProd.name);
+
           return {
             order_id: createdOrder.id,
             product_id: item.product_id,
-            product_name: liveProd.name,
-            product_price: liveProd.price,
+            product_name: itemName,
+            product_price: unitPrice,
             quantity: item.quantity,
-            total_price: liveProd.price * item.quantity,
+            total_price: unitPrice * item.quantity,
           };
         });
 
@@ -3634,10 +3647,12 @@ export function CheckoutPage() {
                         className="font-semibold text-xs sm:text-sm truncate"
                         style={{ color: 'var(--foreground)' }}
                       >
-                        {item.product?.name || 'Produto'}
+                        {item.selected_size && !item.product?.name?.includes(`(${item.selected_size})`)
+                          ? `${item.product?.name || 'Produto'} (${item.selected_size})`
+                          : (item.product?.name || 'Produto')}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Qtd: {item.quantity} × {formatBRL(item.product?.price || 0)}
+                        Qtd: {item.quantity} × {formatBRL(typeof item.selected_price === 'number' && item.selected_price > 0 ? item.selected_price : (item.product?.price || 0))}
                       </p>
                     </div>
 
@@ -3646,7 +3661,7 @@ export function CheckoutPage() {
                       className="text-right font-semibold text-xs sm:text-sm"
                       style={{ color: 'var(--foreground)' }}
                     >
-                      {formatBRL((item.product?.price || 0) * item.quantity)}
+                      {formatBRL((typeof item.selected_price === 'number' && item.selected_price > 0 ? item.selected_price : (item.product?.price || 0)) * item.quantity)}
                     </div>
                   </div>
                 ))}

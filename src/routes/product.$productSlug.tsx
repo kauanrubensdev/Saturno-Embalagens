@@ -30,6 +30,18 @@ interface ProductDetail {
   category: { id: string; name: string; slug: string } | null;
 }
 
+export interface ProductSizeVariant {
+  id: string;
+  label: string;
+  price: number;
+}
+
+export const PRODUCT_SIZES: ProductSizeVariant[] = [
+  { id: '20cm', label: '20cm', price: 20 },
+  { id: '25cm', label: '25cm', price: 25 },
+  { id: '30cm', label: '30cm', price: 30 },
+];
+
 export const Route = createFileRoute('/product/$productSlug')({
   component: ProductDetailPage,
 });
@@ -43,6 +55,7 @@ function ProductDetailPage() {
   const [loading, setLoading] = useState(true);
   const [errorType, setErrorType] = useState<'not_found' | 'error' | null>(null);
   const [quantity, setQuantity] = useState(1);
+  const [selectedSize, setSelectedSize] = useState<ProductSizeVariant>(PRODUCT_SIZES[0]);
   const [addingToCart, setAddingToCart] = useState(false);
   const [buyingNow, setBuyingNow] = useState(false);
 
@@ -82,6 +95,12 @@ function ProductDetailPage() {
       const productData = data as unknown as ProductDetail;
       setProduct(productData);
       setQuantity(1);
+
+      // Auto-select size matching price if available, otherwise default to first
+      const matchedSize = PRODUCT_SIZES.find((s) => s.price === productData.price);
+      if (matchedSize) {
+        setSelectedSize(matchedSize);
+      }
     } catch (err) {
       console.error('[PRODUCT-DETAIL] Error:', err);
       setErrorType('error');
@@ -94,6 +113,8 @@ function ProductDetailPage() {
   useEffect(() => {
     fetchProduct();
   }, [fetchProduct]);
+
+  const unitPrice = selectedSize ? selectedSize.price : (product?.price ?? 20);
 
   const handleAddToCart = async () => {
     if (!user) {
@@ -133,7 +154,13 @@ function ProductDetailPage() {
 
     setBuyingNow(true);
     try {
-      const result = await startBuyNow(product.id, quantity, product);
+      const result = await startBuyNow(
+        product.id,
+        quantity,
+        { ...product, price: unitPrice },
+        selectedSize?.label,
+        unitPrice
+      );
       if (!result.success) {
         return;
       }
@@ -180,9 +207,10 @@ function ProductDetailPage() {
   const isAvailable = (product?.stock_quantity ?? 0) > 0;
   const isLowStock = isAvailable && (product?.stock_quantity ?? 0) <= 5;
 
-  const formattedPrice = product
-    ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.price)
-    : '';
+  const formattedPrice = new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(unitPrice);
 
   // 1. Loading Skeleton
   if (loading) {
@@ -447,12 +475,50 @@ function ProductDetailPage() {
                 </div>
               )}
 
-              {/* SKU */}
-              {product.sku && (
-                <p className="text-xs mb-5 font-mono" style={{ color: 'var(--muted-foreground)' }}>
-                  SKU: {product.sku}
-                </p>
-              )}
+              {/* Size Selector: 20cm = R$20, 25cm = R$25, 30cm = R$30 */}
+              <div className="mb-5">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--muted-foreground)' }}>
+                    Tamanho / Medida
+                  </label>
+                  <span className="text-xs font-semibold" style={{ color: 'var(--primary)' }}>
+                    Selecionado: {selectedSize.label} ({new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedSize.price)})
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                  {PRODUCT_SIZES.map((variant) => {
+                    const isSelected = selectedSize.id === variant.id;
+                    return (
+                      <button
+                        key={variant.id}
+                        type="button"
+                        onClick={() => setSelectedSize(variant)}
+                        className={`py-2.5 px-2.5 sm:px-3 rounded-xl text-center transition-all border cursor-pointer active:scale-95 flex flex-col items-center justify-center gap-1 ${
+                          isSelected
+                            ? 'ring-2 ring-primary/40 shadow-sm'
+                            : 'hover:border-primary/40 opacity-80 hover:opacity-100'
+                        }`}
+                        style={{
+                          backgroundColor: isSelected ? 'rgba(234, 88, 12, 0.08)' : 'var(--card)',
+                          borderColor: isSelected ? 'var(--primary)' : 'var(--border)',
+                          color: isSelected ? 'var(--primary)' : 'var(--foreground)',
+                        }}
+                      >
+                        <span className="text-sm font-bold">{variant.label}</span>
+                        <span 
+                          className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-full"
+                          style={{
+                            backgroundColor: isSelected ? 'var(--primary)' : 'var(--muted)',
+                            color: isSelected ? '#ffffff' : 'var(--muted-foreground)',
+                          }}
+                        >
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(variant.price)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               {/* Quantity Selector */}
               {isAvailable ? (

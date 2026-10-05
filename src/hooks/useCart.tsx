@@ -11,6 +11,8 @@ export interface CartProduct {
   image_url: string | null;
   stock_quantity: number;
   is_active: boolean;
+  selected_size?: string;
+  selected_price?: number;
 }
 
 export interface CartItemType {
@@ -18,6 +20,8 @@ export interface CartItemType {
   product_id: string;
   quantity: number;
   product: CartProduct;
+  selected_size?: string;
+  selected_price?: number;
 }
 
 export interface Cart {
@@ -30,6 +34,8 @@ export interface BuyNowItem {
   productId: string;
   quantity: number;
   product: CartProduct;
+  selectedSize?: string;
+  selectedPrice?: number;
 }
 
 export interface CartContextValue {
@@ -47,7 +53,13 @@ export interface CartContextValue {
   buyNowItem: BuyNowItem | null;
   setBuyNow: (item: BuyNowItem | null) => void;
   clearBuyNow: () => void;
-  startBuyNow: (productId: string, quantity: number, productFallback?: Partial<CartProduct>) => Promise<{ success: boolean; error?: string }>;
+  startBuyNow: (
+    productId: string,
+    quantity: number,
+    productFallback?: Partial<CartProduct>,
+    selectedSize?: string,
+    selectedPrice?: number
+  ) => Promise<{ success: boolean; error?: string }>;
 }
 
 const CartContext = createContext<CartContextValue | null>(null);
@@ -97,7 +109,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
     async (
       productId: string,
       quantity: number = 1,
-      productFallback?: Partial<CartProduct>
+      productFallback?: Partial<CartProduct>,
+      selectedSize?: string,
+      selectedPrice?: number
     ): Promise<{ success: boolean; error?: string }> => {
       try {
         // Validate product from database
@@ -117,17 +131,30 @@ export function CartProvider({ children }: { children: ReactNode }) {
           return { success: false, error: 'Quantidade indisponível em estoque.' };
         }
 
+        const effectivePrice =
+          typeof selectedPrice === 'number' && selectedPrice > 0
+            ? selectedPrice
+            : Number(product.price);
+
+        const displayName = selectedSize
+          ? `${product.name} (${selectedSize})`
+          : product.name;
+
         const item: BuyNowItem = {
           productId: product.id,
           quantity,
+          selectedSize,
+          selectedPrice: effectivePrice,
           product: {
             id: product.id,
-            name: product.name,
+            name: displayName,
             slug: product.slug,
-            price: Number(product.price),
+            price: effectivePrice,
             image_url: product.image_url,
             stock_quantity: product.stock_quantity,
             is_active: product.is_active,
+            selected_size: selectedSize,
+            selected_price: effectivePrice,
           },
         };
 
