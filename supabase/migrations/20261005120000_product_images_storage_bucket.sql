@@ -3,7 +3,7 @@
 -- Bucket: product-images
 -- ============================================================
 
--- 1. Criar ou atualizar o bucket product-images
+-- 1. Criar ou atualizar o bucket product-images na tabela storage.buckets
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
   'product-images',
@@ -17,10 +17,7 @@ ON CONFLICT (id) DO UPDATE SET
   file_size_limit = 5242880,
   allowed_mime_types = ARRAY['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 
--- 2. Garantir RLS habilitado na tabela de objetos do Storage
-ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
-
--- 3. Políticas RLS para storage.objects (bucket: product-images)
+-- 2. Políticas RLS para storage.objects (específicas para o bucket product-images)
 
 -- Leitura pública para todos (anônimo e autenticado)
 DROP POLICY IF EXISTS "Public Access product-images" ON storage.objects;
