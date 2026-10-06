@@ -496,7 +496,14 @@ function AdminPosPage() {
     setIsSubmitting(true);
 
     try {
-      // 1. Determinar dados do cliente
+      // 1. Preparar itens para a RPC (incluindo variant_id se houver)
+      const rpcItems = cart.map((item) => ({
+        product_id: item.product_id,
+        variant_id: item.variant_id || null,
+        quantity: item.quantity,
+      }));
+
+      // 2. Determinar dados do cliente
       let customerNameParam: string | null = null;
       let customerPhoneParam: string | null = null;
       let customerIdParam: string | null = null;
@@ -510,115 +517,54 @@ function AdminPosPage() {
         customerPhoneParam = manualPhone.trim() || null;
       }
 
-      // 2. Inserir pedido no banco com origin = 'pos', delivery_type = 'pickup', status = 'delivered', payment_status = 'paid'
-      const { data: orderData, error: orderErr } = await supabase
-        .from('orders')
-        .insert({
-          user_id: customerIdParam,
-          customer_name: customerNameParam,
-          customer_phone: customerPhoneParam,
-          origin: 'pos',
-          status: 'delivered',
-          payment_status: 'paid',
-          payment_method: paymentMethod,
-          delivery_type: 'pickup',
-          shipping_cost: 0,
-          subtotal: subtotal,
-          total: subtotal,
-          customer_note: customerNote.trim() || null,
-        })
-        .select()
-        .single();
+      // 3. Executar RPC segura no Supabase (SECURITY DEFINER)
+      const { data, error } = await supabase.rpc('admin_create_pos_order', {
+        p_items: rpcItems,
+        p_payment_method: paymentMethod,
+        p_customer_name: customerNameParam,
+        p_customer_phone: customerPhoneParam,
+        p_customer_id: customerIdParam,
+        p_customer_note: customerNote.trim() || null,
+      });
 
-      if (orderErr || !orderData) {
-        throw new Error(orderErr?.message || 'Falha ao registrar pedido.');
-      }
-
-      const orderId = orderData.id;
-
-      // 3. Inserir itens em public.order_items (snapshot com nome e preço da variação)
-      const orderItemsPayload = cart.map((item) => ({
-        order_id: orderId,
-        product_id: item.product_id,
-        product_name: item.name,
-        product_price: item.price,
-        quantity: item.quantity,
-        total_price: Math.round(item.price * item.quantity * 100) / 100,
-      }));
-
-      const { error: itemsErr } = await supabase.from('order_items').insert(orderItemsPayload);
-      if (itemsErr) {
-        console.error('Erro ao inserir order_items:', itemsErr);
-      }
-
-      // 4. Baixar estoque e registrar movimentações de forma segura
-      const { data: authUser } = await supabase.auth.getUser();
-      const currentAdminId = authUser?.user?.id || null;
-
-      for (const item of cart) {
-        // Decrementar estoque da variação se houver
-        if (item.variant_id) {
-          try {
-            const { data: currentVar } = await supabase
-              .from('product_variants')
-              .select('stock_quantity')
-              .eq('id', item.variant_id)
-              .single();
-
-            if (currentVar) {
-              const newVarStock = Math.max(0, (currentVar.stock_quantity || 0) - item.quantity);
-              await supabase
-                .from('product_variants')
-                .update({ stock_quantity: newVarStock, updated_at: new Date().toISOString() })
-                .eq('id', item.variant_id);
-            }
-          } catch (varStockErr) {
-            console.warn('Erro ao atualizar estoque da variação:', varStockErr);
-          }
+      if (error) {
+        console.error('Erro na RPC admin_create_pos_order:', error);
+        // Tratar erro amigável de estoque ou autorização
+        if (
+          error.message?.toLowerCase().includes('estoque') ||
+          error.message?.toLowerCase().includes('stock') ||
+          error.message?.toLowerCase().includes('inativo')
+        ) {
+          toast.error(
+            'Um dos produtos ou variações ficou sem estoque ou teve a quantidade alterada. O catálogo foi recarregado. Tente novamente.'
+          );
+        } else if (error.message?.toLowerCase().includes('autorizado') || error.message?.toLowerCase().includes('negado')) {
+          toast.error('Acesso não autorizado para emissão de vendas no PDV.');
+        } else {
+          toast.error('Não foi possível finalizar a venda: ' + (error.message || 'Erro inesperado.'));
         }
-
-        // Decrementar estoque do produto principal
-        try {
-          const { data: currentProd } = await supabase
-            .from('products')
-            .select('stock_quantity')
-            .eq('id', item.product_id)
-            .single();
-
-          if (currentProd) {
-            const newProdStock = Math.max(0, (currentProd.stock_quantity || 0) - item.quantity);
-            await supabase
-              .from('products')
-              .update({ stock_quantity: newProdStock, updated_at: new Date().toISOString() })
-              .eq('id', item.product_id);
-          }
-
-          // Registrar movimentação de estoque
-          await supabase.from('stock_movements').insert({
-            product_id: item.product_id,
-            quantity: item.quantity,
-            movement_type: 'out',
-            reason: `Venda Presencial (PDV) #${orderId.substring(0, 8).toUpperCase()}${item.variant_name ? ` - Variação: ${item.variant_name}` : ''}`,
-            reference: orderId,
-            performed_by: currentAdminId,
-          });
-        } catch (stockMoveErr) {
-          console.warn('Erro ao registrar baixa de estoque no PDV:', stockMoveErr);
-        }
+        // Recarregar catálogo em caso de falha de estoque
+        await loadCatalog();
+        return;
       }
 
-      // 5. Sucesso: Registrar comprovante e abrir modal de finalização
+      // 4. Sucesso: Registrar comprovante e abrir modal de finalização
+      const resultData = data as Record<string, unknown>;
+      const orderId = (resultData?.order_id as string) || 'PEDIDO-PDV';
+      const orderCreatedAt = (resultData?.created_at as string) || new Date().toISOString();
+      const orderSubtotal = typeof resultData?.subtotal === 'number' ? (resultData.subtotal as number) : subtotal;
+
       const receipt: OrderReceipt = {
         order_id: orderId,
-        created_at: orderData.created_at || new Date().toISOString(),
+        created_at: orderCreatedAt,
         payment_method: paymentMethod,
         customer_name: customerNameParam,
         customer_phone: customerPhoneParam,
         customer_id: customerIdParam,
         customer_note: customerNote.trim() || null,
         items: [...cart],
-        subtotal: subtotal,
-        total: subtotal,
+        subtotal: orderSubtotal,
+        total: orderSubtotal,
       };
 
       setCompletedOrder(receipt);
