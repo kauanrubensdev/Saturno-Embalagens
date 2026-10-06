@@ -92,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED' || event === 'PASSWORD_RECOVERY') {
         // Atualiza apenas o user de forma síncrona.
         // O useEffect de [user] cuidará do profile e authReady.
         setUser(sessionUser);

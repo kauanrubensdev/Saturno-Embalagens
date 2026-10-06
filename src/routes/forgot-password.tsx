@@ -18,10 +18,20 @@ function ForgotPasswordPage() {
     setError(null);
     setLoading(true);
 
-    const result = await forgotPassword(email);
+    const trimmedEmail = email.trim().toLowerCase();
+    const result = await forgotPassword(trimmedEmail);
 
     if (result.error) {
-      setError(result.error);
+      let friendlyError = result.error;
+      const lower = friendlyError.toLowerCase();
+      if (lower.includes('rate limit')) {
+        friendlyError = 'Muitas tentativas em pouco tempo. Por favor, aguarde alguns minutos antes de tentar novamente.';
+      } else if (lower.includes('security purposes') || lower.includes('seconds')) {
+        friendlyError = 'Por segurança, aguarde alguns instantes antes de solicitar um novo link.';
+      } else if (lower.includes('invalid email') || lower.includes('valid email')) {
+        friendlyError = 'Por favor, insira um endereço de e-mail válido.';
+      }
+      setError(friendlyError);
       setLoading(false);
     } else {
       setSuccess(true);

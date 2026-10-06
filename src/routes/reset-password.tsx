@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -13,7 +13,45 @@ function ResetPasswordPage() {
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isTokenInvalid, setIsTokenInvalid] = useState(false);
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    // 1. Detectar se o Supabase redirecionou com erro de link expirado/inválido
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash || '';
+      const search = window.location.search || '';
+
+      const hashParams = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : '');
+      const searchParams = new URLSearchParams(search);
+
+      const errorParam = hashParams.get('error') || searchParams.get('error');
+      const errorCode = hashParams.get('error_code') || searchParams.get('error_code');
+      const errorDesc = hashParams.get('error_description') || searchParams.get('error_description');
+
+      if (errorParam || errorCode || errorDesc) {
+        setIsTokenInvalid(true);
+        if (errorCode === 'otp_expired' || (errorDesc && errorDesc.toLowerCase().includes('expired'))) {
+          setError('O link de recuperação expirou ou já foi utilizado. Por favor, solicite um novo link.');
+        } else {
+          setError('O link de recuperação é inválido. Por favor, solicite um novo link de redefinição.');
+        }
+        return;
+      }
+    }
+
+    // 2. Monitorar evento oficial de PASSWORD_RECOVERY do Supabase
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setError(null);
+        setIsTokenInvalid(false);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,13 +75,29 @@ function ResetPasswordPage() {
       });
 
       if (updateError) {
-        setError(updateError.message);
+        const raw = updateError.message || '';
+        const lower = raw.toLowerCase();
+
+        if (lower.includes('session') || lower.includes('auth session missing')) {
+          setIsTokenInvalid(true);
+          setError('Sessão expirada ou link inválido. Por favor, solicite um novo link de recuperação.');
+        } else if (lower.includes('different from the old password')) {
+          setError('A nova senha deve ser diferente da senha anterior.');
+        } else if (lower.includes('at least 6 characters') || lower.includes('weak_password')) {
+          setError('A senha deve ter pelo menos 6 caracteres.');
+        } else {
+          setError(raw || 'Erro ao redefinir a senha.');
+        }
       } else {
         setSuccess(true);
-        toast.success('Senha redefinida com sucesso!');
+        toast.success('Senha alterada com sucesso!');
+
+        // Encerra a sessão temporária para permitir login limpo com a nova senha
+        await supabase.auth.signOut().catch(() => {});
+
         setTimeout(() => {
           navigate({ to: '/login' });
-        }, 2000);
+        }, 3000);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao redefinir senha.');
@@ -73,7 +127,7 @@ function ResetPasswordPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold mb-2" style={{ color: 'var(--foreground)' }}>Senha alterada!</h3>
+              <h3 className="text-lg font-semibold mb-2" style={{ color: 'var(--foreground)' }}>Senha alterada com sucesso!</h3>
               <p className="text-sm mb-6" style={{ color: 'var(--muted-foreground)' }}>
                 Sua senha foi redefinida com sucesso. Redirecionando para o login...
               </p>
@@ -82,14 +136,25 @@ function ResetPasswordPage() {
                 className="inline-flex items-center justify-center rounded-lg py-2.5 px-6 text-sm font-semibold text-white transition-all hover:opacity-90"
                 style={{ backgroundColor: 'var(--primary)' }}
               >
-                Ir para o login
+                Voltar para o login
               </Link>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
-                <div className="rounded-lg p-3 text-sm" style={{ backgroundColor: 'var(--muted)', color: 'var(--destructive)', border: '1px solid var(--destructive)' }}>
-                  {error}
+                <div className="rounded-lg p-3 text-sm space-y-2" style={{ backgroundColor: 'var(--muted)', color: 'var(--destructive)', border: '1px solid var(--destructive)' }}>
+                  <p>{error}</p>
+                  {isTokenInvalid && (
+                    <div className="pt-1">
+                      <Link
+                        to="/forgot-password"
+                        className="font-medium underline transition-opacity hover:opacity-80 text-xs"
+                        style={{ color: 'var(--primary)' }}
+                      >
+                        Solicitar novo link de recuperação →
+                      </Link>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -102,9 +167,12 @@ function ResetPasswordPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  disabled={isTokenInvalid || loading}
                   placeholder="Mínimo 6 caracteres"
-                  className="w-full rounded-lg border px-3 py-2.5 text-sm transition-colors focus:outline-none focus:ring-2"
+                  className="w-full rounded-lg border px-3 py-2.5 text-sm transition-colors focus:outline-none focus:ring-2 disabled:opacity-50"
                   style={{ borderColor: 'var(--border)', backgroundColor: 'var(--card)', color: 'var(--foreground)' }}
+                  onFocus={(e) => { e.target.style.borderColor = 'var(--primary)'; }}
+                  onBlur={(e) => { e.target.style.borderColor = 'var(--border)'; }}
                 />
               </div>
 
@@ -117,15 +185,18 @@ function ResetPasswordPage() {
                   value={passwordConfirm}
                   onChange={(e) => setPasswordConfirm(e.target.value)}
                   required
+                  disabled={isTokenInvalid || loading}
                   placeholder="Repita a nova senha"
-                  className="w-full rounded-lg border px-3 py-2.5 text-sm transition-colors focus:outline-none focus:ring-2"
+                  className="w-full rounded-lg border px-3 py-2.5 text-sm transition-colors focus:outline-none focus:ring-2 disabled:opacity-50"
                   style={{ borderColor: 'var(--border)', backgroundColor: 'var(--card)', color: 'var(--foreground)' }}
+                  onFocus={(e) => { e.target.style.borderColor = 'var(--primary)'; }}
+                  onBlur={(e) => { e.target.style.borderColor = 'var(--border)'; }}
                 />
               </div>
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || isTokenInvalid}
                 className="w-full rounded-lg py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 mt-2"
                 style={{ backgroundColor: 'var(--primary)' }}
               >

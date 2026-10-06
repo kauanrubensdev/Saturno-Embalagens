@@ -56,11 +56,30 @@ export async function signOut(): Promise<void> {
 }
 
 // ============================================================
+// Helper: URL de redirecionamento segura para Auth
+// ============================================================
+export function getAuthRedirectUrl(path: string = '/reset-password'): string {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    const origin = window.location.origin;
+    // Em desenvolvimento local, preserva o host e porta locais
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return `${origin}${cleanPath}`;
+    }
+  }
+
+  // Em produção ou SSR, redireciona sempre para o domínio oficial da Vercel
+  return `https://saturno-embalagens.vercel.app${cleanPath}`;
+}
+
+// ============================================================
 // Recuperação de senha
 // ============================================================
 export async function resetPassword(email: string): Promise<{ error: string | null }> {
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/reset-password`,
+  const redirectTo = getAuthRedirectUrl('/reset-password');
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+    redirectTo,
   });
   if (error) return { error: error.message };
   return { error: null };
