@@ -74,3 +74,7 @@ USING (
     WHERE id = auth.uid() AND role = 'admin'
   )
 );
+
+-- 5. Recarregar cache de esquema do PostgREST
+NOTIFY pgrst, 'reload schema';
+
