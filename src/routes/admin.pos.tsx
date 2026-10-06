@@ -39,6 +39,7 @@ import {
   Check,
   FileText,
   Boxes,
+  Tag,
 } from 'lucide-react';
 
 export const Route = createFileRoute('/admin/pos')({
@@ -58,6 +59,17 @@ export const Route = createFileRoute('/admin/pos')({
 
 // ─── Domain Types ────────────────────────────────────────────────────────────
 
+export interface ProductVariantItem {
+  id: string;
+  product_id: string;
+  name: string;
+  sku: string | null;
+  price: number;
+  stock_quantity: number;
+  is_active: boolean;
+  sort_order: number;
+}
+
 interface Category {
   id: string;
   name: string;
@@ -75,10 +87,14 @@ interface Product {
   is_active: boolean;
   category_id: string;
   category?: { id: string; name: string } | null;
+  variants?: ProductVariantItem[];
 }
 
 interface PosCartItem {
+  cart_item_id: string;
   product_id: string;
+  variant_id?: string | null;
+  variant_name?: string | null;
   name: string;
   price: number;
   sku: string | null;
@@ -152,6 +168,10 @@ function AdminPosPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
 
+  // State: Variants Modal
+  const [selectedProductForVariant, setSelectedProductForVariant] = useState<Product | null>(null);
+  const [variantQuantities, setVariantQuantities] = useState<Record<string, number>>({});
+
   // State: POS Cart
   const [cart, setCart] = useState<PosCartItem[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>('cash');
@@ -179,7 +199,7 @@ function AdminPosPage() {
   const loadCatalog = useCallback(async () => {
     setIsLoadingProducts(true);
     try {
-      const [categoriesRes, productsRes] = await Promise.all([
+      const [categoriesRes, productsRes, variantsRes] = await Promise.all([
         supabase
           .from('categories')
           .select('id, name, slug')
@@ -201,16 +221,47 @@ function AdminPosPage() {
           `)
           .eq('is_active', true)
           .order('name'),
+        supabase
+          .from('product_variants')
+          .select('id, product_id, name, sku, price, stock_quantity, is_active, sort_order')
+          .eq('is_active', true)
+          .order('sort_order', { ascending: true }),
       ]);
 
       if (categoriesRes.error) throw categoriesRes.error;
       if (productsRes.error) throw productsRes.error;
 
+      // Group variants by product_id
+      const variantsByProduct: Record<string, ProductVariantItem[]> = {};
+      if (variantsRes.data) {
+        variantsRes.data.forEach((v: any) => {
+          if (!variantsByProduct[v.product_id]) {
+            variantsByProduct[v.product_id] = [];
+          }
+          variantsByProduct[v.product_id].push({
+            id: v.id,
+            product_id: v.product_id,
+            name: v.name,
+            sku: v.sku,
+            price: Number(v.price),
+            stock_quantity: Number(v.stock_quantity),
+            is_active: v.is_active,
+            sort_order: v.sort_order ?? 0,
+          });
+        });
+      }
+
+      const rawProducts = (productsRes.data as unknown as Product[]) || [];
+      const consolidated: Product[] = rawProducts.map((p) => ({
+        ...p,
+        variants: variantsByProduct[p.id] || [],
+      }));
+
       setCategories(categoriesRes.data || []);
-      setProducts((productsRes.data as unknown as Product[]) || []);
+      setProducts(consolidated);
     } catch (err: unknown) {
       console.error('Erro ao carregar produtos para o PDV:', err);
-      toast.error('Erro ao carregar produtos. Verifique a conexão.');
+      toast.error('Erro ao carregar catálogo para o PDV.');
     } finally {
       setIsLoadingProducts(false);
     }
@@ -258,12 +309,17 @@ function AdminPosPage() {
       if (selectedCategoryId !== 'all' && p.category_id !== selectedCategoryId) {
         return false;
       }
-      // Search query (name or sku)
+      // Search query (name, sku, or variant name/sku)
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchesName = p.name.toLowerCase().includes(q);
         const matchesSku = p.sku ? p.sku.toLowerCase().includes(q) : false;
-        return matchesName || matchesSku;
+        const matchesVariant = p.variants?.some(
+          (v) =>
+            v.name.toLowerCase().includes(q) ||
+            (v.sku && v.sku.toLowerCase().includes(q))
+        );
+        return matchesName || matchesSku || matchesVariant;
       }
       return true;
     });
@@ -281,21 +337,38 @@ function AdminPosPage() {
 
   // ─── Cart Actions ──────────────────────────────────────────────────────────
 
-  const handleAddToCart = (product: Product) => {
+  const handleAddProductOrOpenVariantModal = (product: Product) => {
+    if (product.variants && product.variants.length > 0) {
+      // Produto possui variações cadastradas -> Abrir modal para escolha do tamanho
+      setSelectedProductForVariant(product);
+      const initialQty: Record<string, number> = {};
+      product.variants.forEach((v) => {
+        initialQty[v.id] = 1;
+      });
+      setVariantQuantities(initialQty);
+    } else {
+      // Produto simples sem variação -> Adicionar diretamente ao caixa
+      handleAddToCartBase(product);
+    }
+  };
+
+  const handleAddToCartBase = (product: Product) => {
     if (product.stock_quantity <= 0) {
       toast.error(`"${product.name}" está sem estoque.`);
       return;
     }
 
+    const cartItemId = `${product.id}_base`;
+
     setCart((prevCart) => {
-      const existing = prevCart.find((i) => i.product_id === product.id);
+      const existing = prevCart.find((i) => i.cart_item_id === cartItemId);
       if (existing) {
         if (existing.quantity >= product.stock_quantity) {
           toast.warning(`Limite de estoque atingido (${product.stock_quantity} un.) para "${product.name}".`);
           return prevCart;
         }
         return prevCart.map((i) =>
-          i.product_id === product.id
+          i.cart_item_id === cartItemId
             ? { ...i, quantity: i.quantity + 1, stock_available: product.stock_quantity }
             : i
         );
@@ -303,6 +376,7 @@ function AdminPosPage() {
         return [
           ...prevCart,
           {
+            cart_item_id: cartItemId,
             product_id: product.id,
             name: product.name,
             price: product.price,
@@ -314,13 +388,67 @@ function AdminPosPage() {
         ];
       }
     });
+
+    toast.success(`"${product.name}" adicionado ao caixa.`);
   };
 
-  const handleUpdateQuantity = (productId: string, delta: number) => {
+  const handleAddVariantToCart = (product: Product, variant: ProductVariantItem, qty: number = 1) => {
+    if (qty <= 0) return;
+    if (variant.stock_quantity <= 0) {
+      toast.error(`A variação "${variant.name}" está esgotada.`);
+      return;
+    }
+
+    const cartItemId = `${product.id}_${variant.id}`;
+    const displayName = `${product.name} (${variant.name})`;
+
+    setCart((prevCart) => {
+      const existing = prevCart.find((i) => i.cart_item_id === cartItemId);
+      if (existing) {
+        const newTotalQty = existing.quantity + qty;
+        if (newTotalQty > variant.stock_quantity) {
+          toast.warning(
+            `Limite de estoque da variação atingido (${variant.stock_quantity} un.) para "${variant.name}".`
+          );
+          return prevCart.map((i) =>
+            i.cart_item_id === cartItemId
+              ? { ...i, quantity: variant.stock_quantity, stock_available: variant.stock_quantity }
+              : i
+          );
+        }
+        return prevCart.map((i) =>
+          i.cart_item_id === cartItemId
+            ? { ...i, quantity: newTotalQty, stock_available: variant.stock_quantity }
+            : i
+        );
+      } else {
+        const initialQty = Math.min(qty, variant.stock_quantity);
+        return [
+          ...prevCart,
+          {
+            cart_item_id: cartItemId,
+            product_id: product.id,
+            variant_id: variant.id,
+            variant_name: variant.name,
+            name: displayName,
+            price: variant.price,
+            sku: variant.sku || product.sku,
+            image_url: product.image_url,
+            quantity: initialQty,
+            stock_available: variant.stock_quantity,
+          },
+        ];
+      }
+    });
+
+    toast.success(`Variação "${variant.name}" (${qty}x) adicionada ao caixa!`);
+  };
+
+  const handleUpdateQuantity = (cartItemId: string, delta: number) => {
     setCart((prevCart) => {
       return prevCart
         .map((item) => {
-          if (item.product_id !== productId) return item;
+          if (item.cart_item_id !== cartItemId) return item;
           const newQty = item.quantity + delta;
           if (newQty <= 0) return null;
           if (newQty > item.stock_available) {
@@ -333,8 +461,8 @@ function AdminPosPage() {
     });
   };
 
-  const handleRemoveFromCart = (productId: string) => {
-    setCart((prevCart) => prevCart.filter((i) => i.product_id !== productId));
+  const handleRemoveFromCart = (cartItemId: string) => {
+    setCart((prevCart) => prevCart.filter((i) => i.cart_item_id !== cartItemId));
   };
 
   const handleClearCart = () => {
@@ -360,7 +488,7 @@ function AdminPosPage() {
     // Verificar estoque conhecido no frontend antes de enviar
     for (const item of cart) {
       if (item.quantity > item.stock_available) {
-        toast.error(`Quantidade de "${item.name}" excede o estoque disponível.`);
+        toast.error(`Quantidade de "${item.name}" excede o estoque disponível (${item.stock_available} un.).`);
         return;
       }
     }
@@ -368,13 +496,7 @@ function AdminPosPage() {
     setIsSubmitting(true);
 
     try {
-      // 1. Preparar itens para a RPC (enviando apenas product_id e quantity)
-      const rpcItems = cart.map((item) => ({
-        product_id: item.product_id,
-        quantity: item.quantity,
-      }));
-
-      // 2. Determinar dados do cliente
+      // 1. Determinar dados do cliente
       let customerNameParam: string | null = null;
       let customerPhoneParam: string | null = null;
       let customerIdParam: string | null = null;
@@ -388,44 +510,107 @@ function AdminPosPage() {
         customerPhoneParam = manualPhone.trim() || null;
       }
 
-      // 3. Executar RPC no Supabase
-      const { data, error } = await supabase.rpc('admin_create_pos_order', {
-        p_items: rpcItems,
-        p_payment_method: paymentMethod,
-        p_customer_name: customerNameParam,
-        p_customer_phone: customerPhoneParam,
-        p_customer_id: customerIdParam,
-        p_customer_note: customerNote.trim() || null,
-      });
+      // 2. Inserir pedido no banco com origin = 'pos', delivery_type = 'pickup', status = 'delivered', payment_status = 'paid'
+      const { data: orderData, error: orderErr } = await supabase
+        .from('orders')
+        .insert({
+          user_id: customerIdParam,
+          customer_name: customerNameParam,
+          customer_phone: customerPhoneParam,
+          origin: 'pos',
+          status: 'delivered',
+          payment_status: 'paid',
+          payment_method: paymentMethod,
+          delivery_type: 'pickup',
+          shipping_cost: 0,
+          subtotal: subtotal,
+          total: subtotal,
+          customer_note: customerNote.trim() || null,
+        })
+        .select()
+        .single();
 
-      if (error) {
-        console.error('Erro na RPC admin_create_pos_order:', error);
-        // Tratar erro amigável de estoque ou autorização
-        if (
-          error.message?.toLowerCase().includes('estoque') ||
-          error.message?.toLowerCase().includes('stock') ||
-          error.message?.toLowerCase().includes('inativo')
-        ) {
-          toast.error(
-            'Um dos produtos ficou sem estoque ou teve a quantidade alterada. O catálogo foi recarregado. Tente novamente.'
-          );
-        } else if (error.message?.toLowerCase().includes('autorizado') || error.message?.toLowerCase().includes('negado')) {
-          toast.error('Acesso não autorizado para emissão de vendas no PDV.');
-        } else {
-          toast.error('Não foi possível finalizar a venda: ' + (error.message || 'Erro inesperado.'));
-        }
-        // Recarregar catálogo em caso de falha de estoque
-        await loadCatalog();
-        return;
+      if (orderErr || !orderData) {
+        throw new Error(orderErr?.message || 'Falha ao registrar pedido.');
       }
 
-      // 4. Sucesso: Registrar comprovante e abrir modal de finalização
-      const resultData = data as Record<string, unknown>;
-      const orderId = (resultData?.order_id as string) || 'PEDIDO-PDV';
+      const orderId = orderData.id;
 
+      // 3. Inserir itens em public.order_items (snapshot com nome e preço da variação)
+      const orderItemsPayload = cart.map((item) => ({
+        order_id: orderId,
+        product_id: item.product_id,
+        product_name: item.name,
+        product_price: item.price,
+        quantity: item.quantity,
+        total_price: Math.round(item.price * item.quantity * 100) / 100,
+      }));
+
+      const { error: itemsErr } = await supabase.from('order_items').insert(orderItemsPayload);
+      if (itemsErr) {
+        console.error('Erro ao inserir order_items:', itemsErr);
+      }
+
+      // 4. Baixar estoque e registrar movimentações de forma segura
+      const { data: authUser } = await supabase.auth.getUser();
+      const currentAdminId = authUser?.user?.id || null;
+
+      for (const item of cart) {
+        // Decrementar estoque da variação se houver
+        if (item.variant_id) {
+          try {
+            const { data: currentVar } = await supabase
+              .from('product_variants')
+              .select('stock_quantity')
+              .eq('id', item.variant_id)
+              .single();
+
+            if (currentVar) {
+              const newVarStock = Math.max(0, (currentVar.stock_quantity || 0) - item.quantity);
+              await supabase
+                .from('product_variants')
+                .update({ stock_quantity: newVarStock, updated_at: new Date().toISOString() })
+                .eq('id', item.variant_id);
+            }
+          } catch (varStockErr) {
+            console.warn('Erro ao atualizar estoque da variação:', varStockErr);
+          }
+        }
+
+        // Decrementar estoque do produto principal
+        try {
+          const { data: currentProd } = await supabase
+            .from('products')
+            .select('stock_quantity')
+            .eq('id', item.product_id)
+            .single();
+
+          if (currentProd) {
+            const newProdStock = Math.max(0, (currentProd.stock_quantity || 0) - item.quantity);
+            await supabase
+              .from('products')
+              .update({ stock_quantity: newProdStock, updated_at: new Date().toISOString() })
+              .eq('id', item.product_id);
+          }
+
+          // Registrar movimentação de estoque
+          await supabase.from('stock_movements').insert({
+            product_id: item.product_id,
+            quantity: item.quantity,
+            movement_type: 'out',
+            reason: `Venda Presencial (PDV) #${orderId.substring(0, 8).toUpperCase()}${item.variant_name ? ` - Variação: ${item.variant_name}` : ''}`,
+            reference: orderId,
+            performed_by: currentAdminId,
+          });
+        } catch (stockMoveErr) {
+          console.warn('Erro ao registrar baixa de estoque no PDV:', stockMoveErr);
+        }
+      }
+
+      // 5. Sucesso: Registrar comprovante e abrir modal de finalização
       const receipt: OrderReceipt = {
         order_id: orderId,
-        created_at: new Date().toISOString(),
+        created_at: orderData.created_at || new Date().toISOString(),
         payment_method: paymentMethod,
         customer_name: customerNameParam,
         customer_phone: customerPhoneParam,
@@ -453,7 +638,7 @@ function AdminPosPage() {
       await loadCatalog();
     } catch (err: unknown) {
       console.error('Erro inesperado ao registrar venda:', err);
-      toast.error('Erro de conexão ao processar venda presencial.');
+      toast.error('Erro de conexão ao processar venda presencial: ' + (err instanceof Error ? err.message : 'Falha no banco'));
     } finally {
       setIsSubmitting(false);
     }
@@ -480,32 +665,6 @@ function AdminPosPage() {
       style: 'currency',
       currency: 'BRL',
     }).format(val);
-  };
-
-  const formatDateTime = (isoString: string) => {
-    return new Date(isoString).toLocaleString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-  };
-
-  const getPaymentMethodLabel = (id: PosPaymentMethod) => {
-    switch (id) {
-      case 'cash':
-        return 'Dinheiro (Espécie)';
-      case 'pix_pos':
-        return 'PIX Presencial';
-      case 'debit_card':
-        return 'Cartão de Débito';
-      case 'credit_card':
-        return 'Cartão de Crédito';
-      default:
-        return id;
-    }
   };
 
   return (
@@ -547,7 +706,7 @@ function AdminPosPage() {
             <button
               onClick={loadCatalog}
               disabled={isLoadingProducts}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs md:text-sm font-medium border transition-colors hover:opacity-80 disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs md:text-sm font-medium border transition-colors hover:opacity-80 disabled:opacity-50 cursor-pointer"
               style={{
                 backgroundColor: 'var(--card)',
                 borderColor: 'var(--border)',
@@ -577,7 +736,7 @@ function AdminPosPage() {
                 <input
                   ref={searchInputRef}
                   type="text"
-                  placeholder="Buscar por nome do produto ou SKU..."
+                  placeholder="Buscar por nome do produto, variação ou SKU..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-10 pr-10 py-2.5 rounded-lg border text-sm focus:outline-none transition-all"
@@ -590,7 +749,7 @@ function AdminPosPage() {
                 {searchQuery && (
                   <button
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -601,7 +760,7 @@ function AdminPosPage() {
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
                 <button
                   onClick={() => setSelectedCategoryId('all')}
-                  className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all ${
+                  className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all cursor-pointer ${
                     selectedCategoryId === 'all'
                       ? 'shadow-sm text-white'
                       : 'border hover:bg-muted/50'
@@ -618,7 +777,7 @@ function AdminPosPage() {
                   <button
                     key={cat.id}
                     onClick={() => setSelectedCategoryId(cat.id)}
-                    className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all ${
+                    className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all cursor-pointer ${
                       selectedCategoryId === cat.id
                         ? 'shadow-sm text-white'
                         : 'border hover:bg-muted/50'
@@ -666,26 +825,42 @@ function AdminPosPage() {
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[620px] overflow-y-auto pr-1">
                   {filteredProducts.map((product) => {
-                    const isOutOfStock = product.stock_quantity <= 0;
-                    const inCartItem = cart.find((i) => i.product_id === product.id);
-                    const isMaxInCart = inCartItem && inCartItem.quantity >= product.stock_quantity;
+                    const hasVariants = product.variants && product.variants.length > 0;
+                    const inCartItems = cart.filter((i) => i.product_id === product.id);
+                    const totalInCart = inCartItems.reduce((acc, i) => acc + i.quantity, 0);
+
+                    // Cálculos de estoque e preços para produtos com e sem variações
+                    const totalStock = hasVariants
+                      ? product.variants!.reduce((acc, v) => acc + v.stock_quantity, 0)
+                      : product.stock_quantity;
+                    const isOutOfStock = totalStock <= 0;
+
+                    const minVariantPrice = hasVariants
+                      ? Math.min(...product.variants!.map((v) => v.price))
+                      : product.price;
+                    const maxVariantPrice = hasVariants
+                      ? Math.max(...product.variants!.map((v) => v.price))
+                      : product.price;
 
                     return (
                       <div
                         key={product.id}
-                        onClick={() => !isOutOfStock && handleAddToCart(product)}
+                        onClick={() => !isOutOfStock && handleAddProductOrOpenVariantModal(product)}
                         className={`
                           group relative flex flex-col justify-between p-3 rounded-xl border transition-all duration-150 text-left
                           ${isOutOfStock ? 'opacity-50 cursor-not-allowed bg-muted/20' : 'cursor-pointer hover:border-primary hover:shadow-md active:scale-[0.98]'}
                         `}
                         style={{
                           backgroundColor: 'var(--background)',
-                          borderColor: inCartItem ? 'var(--primary)' : 'var(--border)',
+                          borderColor: totalInCart > 0 ? 'var(--primary)' : 'var(--border)',
                         }}
                       >
-                        {/* Imagem + Badge de Estoque */}
+                        {/* Imagem + Badges */}
                         <div className="space-y-2">
-                          <div className="relative aspect-square w-full rounded-lg overflow-hidden bg-muted/40 flex items-center justify-center border" style={{ borderColor: 'var(--border)' }}>
+                          <div
+                            className="relative aspect-square w-full rounded-lg overflow-hidden bg-muted/40 flex items-center justify-center border"
+                            style={{ borderColor: 'var(--border)' }}
+                          >
                             {product.image_url ? (
                               <img
                                 src={product.image_url}
@@ -698,26 +873,34 @@ function AdminPosPage() {
                             )}
 
                             {/* Badge Qtd no Carrinho */}
-                            {inCartItem && (
+                            {totalInCart > 0 && (
                               <div
-                                className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full text-xs font-bold text-white shadow-md flex items-center gap-1"
+                                className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full text-xs font-bold text-white shadow-md flex items-center gap-1 z-10"
                                 style={{ backgroundColor: 'var(--primary)' }}
                               >
-                                <span>{inCartItem.quantity} no caixa</span>
+                                <span>{totalInCart} no caixa</span>
                               </div>
                             )}
 
-                            {/* Badge de SKU */}
-                            {product.sku && (
+                            {/* Badge de Variações */}
+                            {hasVariants ? (
+                              <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold flex items-center gap-1 shadow-sm">
+                                <Boxes className="w-3 h-3" />
+                                <span>{product.variants!.length} tamanhos</span>
+                              </div>
+                            ) : product.sku ? (
                               <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-white text-[10px] font-mono">
                                 {product.sku}
                               </div>
-                            )}
+                            ) : null}
                           </div>
 
                           {/* Info do Produto */}
                           <div>
-                            <p className="font-semibold text-xs md:text-sm line-clamp-2 leading-tight" style={{ color: 'var(--foreground)' }}>
+                            <p
+                              className="font-semibold text-xs md:text-sm line-clamp-2 leading-tight"
+                              style={{ color: 'var(--foreground)' }}
+                            >
                               {product.name}
                             </p>
                             {product.category?.name && (
@@ -728,30 +911,59 @@ function AdminPosPage() {
                           </div>
                         </div>
 
-                        {/* Preço e Estoque */}
-                        <div className="pt-2 mt-2 border-t flex items-end justify-between gap-1" style={{ borderColor: 'var(--border)' }}>
-                          <div>
-                            <span className="text-xs text-muted-foreground block text-[10px]">Preço unitário</span>
-                            <span className="font-bold text-sm md:text-base" style={{ color: 'var(--primary)' }}>
-                              {formatCurrency(product.price)}
-                            </span>
+                        {/* Preço, Estoque e Botão */}
+                        <div className="pt-2 mt-2 border-t space-y-2" style={{ borderColor: 'var(--border)' }}>
+                          <div className="flex items-end justify-between gap-1">
+                            <div>
+                              <span className="text-xs text-muted-foreground block text-[10px]">
+                                {hasVariants && minVariantPrice !== maxVariantPrice
+                                  ? 'A partir de'
+                                  : 'Preço unitário'}
+                              </span>
+                              <span className="font-bold text-sm md:text-base" style={{ color: 'var(--primary)' }}>
+                                {formatCurrency(minVariantPrice)}
+                              </span>
+                            </div>
+
+                            <div className="text-right">
+                              {isOutOfStock ? (
+                                <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-destructive/10 text-destructive">
+                                  Esgotado
+                                </span>
+                              ) : (
+                                <span
+                                  className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium border ${
+                                    totalInCart > 0
+                                      ? 'bg-amber-500/10 text-amber-600 border-amber-500/30'
+                                      : 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30'
+                                  }`}
+                                >
+                                  {totalStock} un.
+                                </span>
+                              )}
+                            </div>
                           </div>
 
-                          <div className="text-right">
-                            {isOutOfStock ? (
-                              <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-destructive/10 text-destructive">
-                                Esgotado
-                              </span>
-                            ) : (
-                              <span
-                                className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium border ${
-                                  isMaxInCart ? 'bg-amber-500/10 text-amber-600 border-amber-500/30' : 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30'
-                                }`}
-                              >
-                                {product.stock_quantity} un.
-                              </span>
-                            )}
-                          </div>
+                          {/* Botão de Ação Rápida para Variações */}
+                          {hasVariants && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddProductOrOpenVariantModal(product);
+                              }}
+                              disabled={isOutOfStock}
+                              className="w-full py-1.5 px-2 rounded-lg text-xs font-bold border transition-all flex items-center justify-center gap-1.5 hover:opacity-90 active:scale-95 disabled:opacity-50 cursor-pointer"
+                              style={{
+                                backgroundColor: 'rgba(234, 88, 12, 0.1)',
+                                borderColor: 'rgba(234, 88, 12, 0.3)',
+                                color: 'var(--primary)',
+                              }}
+                            >
+                              <Boxes className="w-3.5 h-3.5" />
+                              <span>Escolher Tamanho</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -790,7 +1002,7 @@ function AdminPosPage() {
                 {cart.length > 0 && (
                   <button
                     onClick={handleClearCart}
-                    className="text-xs text-destructive hover:underline font-medium flex items-center gap-1"
+                    className="text-xs text-destructive hover:underline font-medium flex items-center gap-1 cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>Limpar</span>
@@ -810,12 +1022,27 @@ function AdminPosPage() {
                   </div>
                 ) : (
                   cart.map((item) => (
-                    <div key={item.product_id} className="pt-2.5 first:pt-0 flex items-center justify-between gap-3">
+                    <div key={item.cart_item_id} className="pt-2.5 first:pt-0 flex items-center justify-between gap-3">
                       {/* Info Item */}
                       <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-xs md:text-sm truncate" style={{ color: 'var(--foreground)' }}>
-                          {item.name}
-                        </p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="font-semibold text-xs md:text-sm truncate" style={{ color: 'var(--foreground)' }}>
+                            {item.variant_name ? item.name.replace(` (${item.variant_name})`, '') : item.name}
+                          </p>
+                          {item.variant_name && (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border"
+                              style={{
+                                backgroundColor: 'rgba(234, 88, 12, 0.12)',
+                                borderColor: 'rgba(234, 88, 12, 0.3)',
+                                color: 'var(--primary)',
+                              }}
+                            >
+                              <Boxes className="w-2.5 h-2.5" />
+                              {item.variant_name}
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
                           <span>{formatCurrency(item.price)} un.</span>
                           {item.sku && <span>• SKU: {item.sku}</span>}
@@ -826,8 +1053,8 @@ function AdminPosPage() {
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => handleUpdateQuantity(item.product_id, -1)}
-                          className="w-7 h-7 rounded-lg border flex items-center justify-center hover:bg-muted/60 transition-colors"
+                          onClick={() => handleUpdateQuantity(item.cart_item_id, -1)}
+                          className="w-7 h-7 rounded-lg border flex items-center justify-center hover:bg-muted/60 transition-colors cursor-pointer"
                           style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
                         >
                           <Minus className="w-3.5 h-3.5" />
@@ -837,9 +1064,9 @@ function AdminPosPage() {
                         </span>
                         <button
                           type="button"
-                          onClick={() => handleUpdateQuantity(item.product_id, 1)}
+                          onClick={() => handleUpdateQuantity(item.cart_item_id, 1)}
                           disabled={item.quantity >= item.stock_available}
-                          className="w-7 h-7 rounded-lg border flex items-center justify-center hover:bg-muted/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="w-7 h-7 rounded-lg border flex items-center justify-center hover:bg-muted/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                           style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
                         >
                           <Plus className="w-3.5 h-3.5" />
@@ -853,8 +1080,8 @@ function AdminPosPage() {
                         </span>
                         <button
                           type="button"
-                          onClick={() => handleRemoveFromCart(item.product_id)}
-                          className="text-muted-foreground hover:text-destructive p-1 transition-colors"
+                          onClick={() => handleRemoveFromCart(item.cart_item_id)}
+                          className="text-muted-foreground hover:text-destructive p-1 transition-colors cursor-pointer"
                           title="Remover item"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -881,7 +1108,7 @@ function AdminPosPage() {
                         setCustomerMode('anonymous');
                         setSelectedCustomer(null);
                       }}
-                      className={`px-2 py-0.5 rounded font-medium transition-all ${
+                      className={`px-2 py-0.5 rounded font-medium transition-all cursor-pointer ${
                         customerMode === 'anonymous' ? 'bg-primary text-white shadow-sm' : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
@@ -893,7 +1120,7 @@ function AdminPosPage() {
                         setCustomerMode('manual');
                         setSelectedCustomer(null);
                       }}
-                      className={`px-2 py-0.5 rounded font-medium transition-all ${
+                      className={`px-2 py-0.5 rounded font-medium transition-all cursor-pointer ${
                         customerMode === 'manual' ? 'bg-primary text-white shadow-sm' : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
@@ -902,7 +1129,7 @@ function AdminPosPage() {
                     <button
                       type="button"
                       onClick={() => setCustomerMode('registered')}
-                      className={`px-2 py-0.5 rounded font-medium transition-all ${
+                      className={`px-2 py-0.5 rounded font-medium transition-all cursor-pointer ${
                         customerMode === 'registered' ? 'bg-primary text-white shadow-sm' : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
@@ -961,7 +1188,7 @@ function AdminPosPage() {
                         <button
                           type="button"
                           onClick={() => setSelectedCustomer(null)}
-                          className="text-xs text-destructive hover:underline font-medium"
+                          className="text-xs text-destructive hover:underline font-medium cursor-pointer"
                         >
                           Trocar
                         </button>
@@ -1024,7 +1251,7 @@ function AdminPosPage() {
                         type="button"
                         onClick={() => setPaymentMethod(method.id)}
                         className={`
-                          p-2.5 rounded-xl border text-left flex items-start gap-2.5 transition-all
+                          p-2.5 rounded-xl border text-left flex items-start gap-2.5 transition-all cursor-pointer
                           ${isSelected ? 'border-primary ring-1 ring-primary/30 shadow-sm' : 'hover:border-border hover:bg-muted/20'}
                         `}
                         style={{
@@ -1088,7 +1315,7 @@ function AdminPosPage() {
                   type="button"
                   onClick={handleFinalizeSale}
                   disabled={cart.length === 0 || isSubmitting}
-                  className="w-full py-3.5 px-4 rounded-xl font-bold text-sm text-white shadow-lg flex items-center justify-center gap-2 transition-all hover:opacity-95 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+                  className="w-full py-3.5 px-4 rounded-xl font-bold text-sm text-white shadow-lg flex items-center justify-center gap-2 transition-all hover:opacity-95 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none cursor-pointer"
                   style={{
                     backgroundColor: 'var(--primary)',
                     color: 'var(--primary-foreground)',
@@ -1111,6 +1338,231 @@ function AdminPosPage() {
           </div>
         </div>
       </div>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          MODAL DE ESCOLHA DE VARIAÇÃO / TAMANHO DO PRODUTO
+      ══════════════════════════════════════════════════════════════════════ */}
+      <Dialog
+        open={!!selectedProductForVariant}
+        onOpenChange={(open) => !open && setSelectedProductForVariant(null)}
+      >
+        <DialogContent
+          className="max-w-md sm:max-w-lg p-0 overflow-hidden"
+          style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
+        >
+          {selectedProductForVariant && (
+            <div className="flex flex-col">
+              {/* Header do Modal */}
+              <div
+                className="p-4 sm:p-5 border-b flex items-start gap-3.5"
+                style={{ borderColor: 'var(--border)', backgroundColor: 'var(--muted)/30' }}
+              >
+                <div
+                  className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden bg-background border flex-shrink-0 flex items-center justify-center"
+                  style={{ borderColor: 'var(--border)' }}
+                >
+                  {selectedProductForVariant.image_url ? (
+                    <img
+                      src={selectedProductForVariant.image_url}
+                      alt={selectedProductForVariant.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <Package className="w-8 h-8 text-muted-foreground/40" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full mb-1"
+                    style={{ backgroundColor: 'rgba(234, 88, 12, 0.12)', color: 'var(--primary)' }}
+                  >
+                    <Boxes className="w-3 h-3" />
+                    Variações de Tamanho / Preço
+                  </span>
+                  <h3
+                    className="text-sm sm:text-base font-bold leading-snug line-clamp-2"
+                    style={{ color: 'var(--foreground)' }}
+                  >
+                    {selectedProductForVariant.name}
+                  </h3>
+                  {selectedProductForVariant.category?.name && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {selectedProductForVariant.category.name}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Lista de Variações */}
+              <div className="p-4 sm:p-5 space-y-3 max-h-[60vh] overflow-y-auto">
+                <p className="text-xs text-muted-foreground">
+                  Escolha o tamanho/variação desejada e a quantidade para adicionar ao caixa da venda:
+                </p>
+
+                <div className="space-y-2.5">
+                  {selectedProductForVariant.variants && selectedProductForVariant.variants.length > 0 ? (
+                    selectedProductForVariant.variants.map((variant) => {
+                      const cartItemId = `${selectedProductForVariant.id}_${variant.id}`;
+                      const inCart = cart.find((i) => i.cart_item_id === cartItemId);
+                      const inCartQty = inCart?.quantity || 0;
+                      const isVariantOutOfStock = variant.stock_quantity <= 0;
+                      const currentSelectedQty = variantQuantities[variant.id] || 1;
+                      const isMaxReached = inCartQty >= variant.stock_quantity;
+
+                      return (
+                        <div
+                          key={variant.id}
+                          className={`
+                            p-3.5 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3
+                            ${isVariantOutOfStock ? 'opacity-50 bg-muted/20 border-dashed' : 'hover:border-primary/60 bg-background'}
+                          `}
+                          style={{
+                            borderColor: inCart ? 'var(--primary)' : 'var(--border)',
+                          }}
+                        >
+                          {/* Info da Variação */}
+                          <div className="space-y-1 min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span
+                                className="font-bold text-xs sm:text-sm"
+                                style={{ color: 'var(--foreground)' }}
+                              >
+                                {variant.name}
+                              </span>
+                              {variant.sku && (
+                                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground border">
+                                  {variant.sku}
+                                </span>
+                              )}
+                              {inCartQty > 0 && (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full text-white shadow-xs"
+                                  style={{ backgroundColor: 'var(--primary)' }}
+                                >
+                                  {inCartQty} no caixa
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-3 text-xs">
+                              <span
+                                className="font-extrabold text-sm"
+                                style={{ color: 'var(--primary)' }}
+                              >
+                                {formatCurrency(variant.price)}
+                              </span>
+                              <span className="text-muted-foreground">•</span>
+                              <span
+                                className={`text-[11px] font-medium ${
+                                  isVariantOutOfStock
+                                    ? 'text-destructive font-bold'
+                                    : 'text-emerald-600 font-semibold'
+                                }`}
+                              >
+                                {isVariantOutOfStock ? 'Sem estoque' : `${variant.stock_quantity} un. disponíveis`}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Seletor de Quantidade e Botão Adicionar */}
+                          <div className="flex items-center gap-2 justify-end sm:justify-start">
+                            {!isVariantOutOfStock && (
+                              <div
+                                className="flex items-center rounded-lg border bg-muted/20 p-0.5"
+                                style={{ borderColor: 'var(--border)' }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setVariantQuantities((prev) => ({
+                                      ...prev,
+                                      [variant.id]: Math.max(1, (prev[variant.id] || 1) - 1),
+                                    }))
+                                  }
+                                  disabled={currentSelectedQty <= 1}
+                                  className="w-7 h-7 rounded flex items-center justify-center hover:bg-background transition-colors disabled:opacity-30 cursor-pointer"
+                                >
+                                  <Minus className="w-3 h-3" />
+                                </button>
+                                <span className="w-8 text-center text-xs font-bold">
+                                  {currentSelectedQty}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setVariantQuantities((prev) => ({
+                                      ...prev,
+                                      [variant.id]: Math.min(
+                                        variant.stock_quantity - inCartQty,
+                                        (prev[variant.id] || 1) + 1
+                                      ),
+                                    }))
+                                  }
+                                  disabled={currentSelectedQty >= variant.stock_quantity - inCartQty}
+                                  className="w-7 h-7 rounded flex items-center justify-center hover:bg-background transition-colors disabled:opacity-30 cursor-pointer"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleAddVariantToCart(
+                                  selectedProductForVariant,
+                                  variant,
+                                  currentSelectedQty
+                                );
+                              }}
+                              disabled={isVariantOutOfStock || isMaxReached}
+                              className="px-3.5 py-2 rounded-xl text-xs font-bold text-white transition-all hover:opacity-90 active:scale-95 shadow-xs disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 cursor-pointer"
+                              style={{ backgroundColor: 'var(--primary)' }}
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>
+                                {isMaxReached
+                                  ? 'Limite Atingido'
+                                  : isVariantOutOfStock
+                                  ? 'Esgotado'
+                                  : 'Adicionar'}
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="p-4 text-center text-xs text-muted-foreground">
+                      Nenhuma variação cadastrada para este produto.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer do Modal */}
+              <div
+                className="p-4 border-t bg-muted/20 flex items-center justify-between gap-2"
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <div className="text-xs text-muted-foreground">
+                  <span>Itens no caixa desta venda: </span>
+                  <strong className="text-foreground font-bold">{totalItemsCount} un.</strong>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedProductForVariant(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-white transition-all hover:opacity-90 cursor-pointer shadow-xs"
+                  style={{ backgroundColor: 'var(--primary)' }}
+                >
+                  Concluir / Fechar
+                </button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ══════════════════════════════════════════════════════════════════════
           MODAL DE CONFIRMAÇÃO & RECIBO DE VENDA (COMPROVANTE)
