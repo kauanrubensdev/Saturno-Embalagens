@@ -10,10 +10,21 @@ export async function getProfile(userId: string): Promise<Profile | null> {
     .from('profiles')
     .select('*')
     .eq('id', userId)
-    .single();
+    .maybeSingle();
 
-  if (error || !data) return null;
-  return data as Profile;
+  if (!error && data) return data as Profile;
+
+  // Se for nulo logo após cadastro ou OAuth, aguarda 500ms e tenta mais uma vez
+  // para permitir que o trigger de criação do profile finalize a execução
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const retry = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (retry.error || !retry.data) return null;
+  return retry.data as Profile;
 }
 
 // ============================================================
@@ -74,6 +85,136 @@ export function getAuthRedirectUrl(path: string = '/reset-password'): string {
 }
 
 // ============================================================
+// Helper: Formata mensagens de erro de autenticação em português
+// ============================================================
+export function formatAuthErrorMessage(error: string, errorDescription?: string): string {
+  const combined = `${error} ${errorDescription || ''}`.toLowerCase();
+
+  if (
+    combined.includes('access_denied') ||
+    combined.includes('user denied') ||
+    combined.includes('consent') ||
+    combined.includes('cancelled') ||
+    combined.includes('canceled')
+  ) {
+    return 'O login com o Google foi cancelado.';
+  }
+
+  if (
+    combined.includes('identity_already_exists') ||
+    combined.includes('user already registered') ||
+    combined.includes('email address already in use')
+  ) {
+    return 'Este e-mail já está cadastrado. Faça login com sua senha ou redefina-a.';
+  }
+
+  if (
+    combined.includes('exchange_code') ||
+    combined.includes('invalid_grant') ||
+    combined.includes('pkce') ||
+    combined.includes('bad_code_verifier')
+  ) {
+    return 'A sessão de autenticação expirou. Por favor, tente entrar com o Google novamente.';
+  }
+
+  if (combined.includes('popup_closed') || combined.includes('closed by user')) {
+    return 'A janela de autenticação foi fechada antes de concluir.';
+  }
+
+  if (combined.includes('provider_disabled') || combined.includes('not enabled')) {
+    return 'O provedor Google não está habilitado nas configurações do Supabase.';
+  }
+
+  if (combined.includes('network') || combined.includes('failed to fetch')) {
+    return 'Erro de conexão com os servidores. Verifique sua internet e tente novamente.';
+  }
+
+  if (errorDescription && errorDescription.trim() !== '') {
+    return errorDescription;
+  }
+
+  return error || 'Não foi possível concluir o login com o Google. Tente novamente.';
+}
+
+// ============================================================
+// Login com Google (OAuth)
+// ============================================================
+export async function signInWithGoogle(redirectTo?: string): Promise<{ error: string | null }> {
+  try {
+    const targetRedirectUrl = redirectTo || getAuthRedirectUrl('/login');
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: targetRedirectUrl,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'select_account',
+        },
+      },
+    });
+
+    if (error) {
+      return { error: formatAuthErrorMessage(error.message) };
+    }
+    return { error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Falha ao conectar com o Google';
+    return { error: formatAuthErrorMessage(message) };
+  }
+}
+
+// ============================================================
+// Helper: Extrai erros de OAuth da URL (search e hash)
+// ============================================================
+export function extractAuthErrorFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const searchParams = new URLSearchParams(window.location.search);
+    const hashString = window.location.hash.startsWith('#')
+      ? window.location.hash.substring(1)
+      : window.location.hash;
+    const hashParams = new URLSearchParams(hashString);
+
+    const error =
+      searchParams.get('error') ||
+      hashParams.get('error') ||
+      searchParams.get('error_code') ||
+      hashParams.get('error_code');
+
+    const errorDescription =
+      searchParams.get('error_description') ||
+      hashParams.get('error_description');
+
+    if (!error && !errorDescription) return null;
+
+    return formatAuthErrorMessage(error || '', errorDescription || '');
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================
+// Helper: Limpa parâmetros de erro de OAuth da URL sem reload
+// ============================================================
+export function clearAuthUrlParams(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('error');
+    url.searchParams.delete('error_code');
+    url.searchParams.delete('error_description');
+    if (url.hash.includes('error')) {
+      url.hash = '';
+    }
+    const cleanSearch = url.searchParams.toString() ? `?${url.searchParams.toString()}` : '';
+    window.history.replaceState({}, document.title, url.pathname + cleanSearch + (url.hash || ''));
+  } catch {
+    // Silencioso em caso de restrição do navegador
+  }
+}
+
+// ============================================================
 // Recuperação de senha
 // ============================================================
 export async function resetPassword(email: string): Promise<{ error: string | null }> {
@@ -105,4 +246,3 @@ export async function updateProfile(updates: { name?: string; phone?: string }):
   if (error) return { error: error.message };
   return { error: null };
 }
-

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { getProfile, signIn, signOut, signUp, resetPassword, updateProfile } from '@/lib/auth';
+import { getProfile, signIn, signOut, signUp, resetPassword, updateProfile, signInWithGoogle } from '@/lib/auth';
 import type { Profile, LoginData, RegisterData } from '@/types/auth';
 import type { Session, User } from '@supabase/supabase-js';
 
@@ -13,6 +13,7 @@ export interface AuthState {
   profile: Profile | null;
   loading: boolean;
   login: (data: LoginData) => Promise<{ error: string | null; user: User | null; session: Session | null }>;
+  loginWithGoogle: (redirectTo?: string) => Promise<{ error: string | null }>;
   logout: () => Promise<void>;
   register: (data: RegisterData) => Promise<{ error: string | null }>;
   forgotPassword: (email: string) => Promise<{ error: string | null }>;
@@ -58,8 +59,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthReady(false);
     setLoading(true);
 
-    getProfile(user.id).then((profileData) => {
+    getProfile(user.id).then(async (profileData) => {
       if (syncId !== activeSync.current) return;
+
+      // Se o usuário entrou via Google OAuth e o perfil está com nome em branco,
+      // aproveita o nome disponível nos metadados do Google
+      const metaName = (user.user_metadata?.full_name || user.user_metadata?.name || '').trim();
+      if (profileData && (!profileData.name || profileData.name.trim() === '') && metaName) {
+        await updateProfile({ name: metaName });
+        profileData.name = metaName;
+      }
+
       setProfile(profileData);
       setAuthReady(true);
       setLoading(false);
@@ -102,13 +112,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Login — atualiza estado central via setUser (onAuthStateChange também dispara)
+  // Login tradicional por e-mail e senha
   const login = useCallback(async (data: LoginData) => {
     const result = await signIn(data);
-    // Não duplicamos a sincronização da sessão aqui.
-    // O onAuthStateChange (SIGNED_IN) já atualiza user via setUser,
-    // e o useEffect de [user] carrega o profile.
     return result;
+  }, []);
+
+  // Login com Google
+  const loginWithGoogle = useCallback(async (redirectTo?: string) => {
+    return await signInWithGoogle(redirectTo);
   }, []);
 
   // Logout — limpa estado central
@@ -142,6 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     profile,
     loading,
     login,
+    loginWithGoogle,
     logout,
     register,
     forgotPassword,

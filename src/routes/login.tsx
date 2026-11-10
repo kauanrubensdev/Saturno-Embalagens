@@ -1,18 +1,18 @@
 import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { GoogleButton } from '@/components/auth/GoogleButton';
+import { getAuthRedirectUrl, extractAuthErrorFromUrl, clearAuthUrlParams } from '@/lib/auth';
 import { toast } from 'sonner';
 
 export const Route = createFileRoute('/login')({
   beforeLoad: async ({ context }) => {
-    if (context.auth?.authReady) {
-      if (context.auth?.user) {
-        if (context.auth?.profile?.role === 'admin') {
-          throw redirect({ to: '/admin' });
-        } else {
-          throw redirect({ to: '/' });
-        }
+    if (context.auth?.authReady && context.auth?.user) {
+      if (context.auth?.profile?.role === 'admin') {
+        throw redirect({ to: '/admin' });
+      } else {
+        throw redirect({ to: '/' });
       }
     }
   },
@@ -20,15 +20,56 @@ export const Route = createFileRoute('/login')({
 });
 
 function LoginPage() {
-  const { login } = useAuth();
+  const { login, loginWithGoogle, authReady, user, profile } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  // Trata erros de OAuth ou cancelamentos retornados na URL
+  useEffect(() => {
+    const errorMsg = extractAuthErrorFromUrl();
+    if (errorMsg) {
+      toast.error(errorMsg);
+      clearAuthUrlParams();
+    }
+  }, []);
+
+  // Redireciona usuário autenticado (incluindo retorno do OAuth)
+  useEffect(() => {
+    if (authReady && user) {
+      const pendingBuyNow = typeof window !== 'undefined' ? sessionStorage.getItem('saturno_buy_now') : null;
+      if (pendingBuyNow) {
+        void navigate({ to: '/checkout', replace: true });
+      } else if (profile?.role === 'admin') {
+        void navigate({ to: '/admin', replace: true });
+      } else {
+        void navigate({ to: '/', replace: true });
+      }
+    }
+  }, [authReady, user, profile?.role, navigate]);
+
+  const handleGoogleLogin = async () => {
+    if (loading || googleLoading) return;
+    setGoogleLoading(true);
+    try {
+      const result = await loginWithGoogle(getAuthRedirectUrl('/login'));
+      if (result.error) {
+        toast.error(result.error);
+        setGoogleLoading(false);
+      }
+      // Se não houver erro, a Supabase redireciona o browser para o Google
+    } catch {
+      toast.error('Não foi possível conectar ao Google. Tente novamente.');
+      setGoogleLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || googleLoading) return;
     setLoading(true);
     try {
       const result = await login({ email, password });
@@ -76,12 +117,31 @@ function LoginPage() {
           </div>
 
           <h2 className="text-2xl font-bold mb-1" style={{ color: 'var(--foreground)' }}>Entrar</h2>
-          <p className="text-sm mb-8" style={{ color: 'var(--muted-foreground)' }}>
+          <p className="text-sm mb-6" style={{ color: 'var(--muted-foreground)' }}>
             Não tem conta?{' '}
             <Link to="/register" className="font-medium no-underline transition-colors" style={{ color: 'var(--primary)' }}>
               Cadastre-se
             </Link>
           </p>
+
+          {/* Botão Google */}
+          <GoogleButton
+            onClick={handleGoogleLogin}
+            loading={googleLoading}
+            disabled={loading || googleLoading}
+          />
+
+          {/* Divisor visual */}
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t" style={{ borderColor: 'var(--border)' }} />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase tracking-wider">
+              <span className="px-3" style={{ backgroundColor: 'var(--background)', color: 'var(--muted-foreground)' }}>
+                ou entre com e-mail
+              </span>
+            </div>
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -93,8 +153,9 @@ function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                disabled={loading || googleLoading}
                 placeholder="seu@email.com"
-                className="w-full h-11 px-4 rounded-xl border text-sm transition-colors focus:outline-none focus:ring-2"
+                className="w-full h-11 px-4 rounded-xl border text-sm transition-colors focus:outline-none focus:ring-2 disabled:opacity-50"
                 style={{ borderColor: 'var(--border)', backgroundColor: 'var(--card)', color: 'var(--foreground)' }}
               />
             </div>
@@ -109,16 +170,18 @@ function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  disabled={loading || googleLoading}
                   placeholder="••••••••"
-                  className="w-full h-11 px-4 pr-11 rounded-xl border text-sm transition-colors focus:outline-none focus:ring-2"
+                  className="w-full h-11 px-4 pr-11 rounded-xl border text-sm transition-colors focus:outline-none focus:ring-2 disabled:opacity-50"
                   style={{ borderColor: 'var(--border)', backgroundColor: 'var(--card)', color: 'var(--foreground)' }}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
+                  disabled={loading || googleLoading}
                   aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
                   title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-                  className="absolute inset-y-0 right-0 flex items-center justify-center w-11 transition-opacity hover:opacity-70"
+                  className="absolute inset-y-0 right-0 flex items-center justify-center w-11 transition-opacity hover:opacity-70 disabled:opacity-50"
                   style={{ color: 'var(--muted-foreground)' }}
                   tabIndex={-1}
                 >
@@ -140,8 +203,8 @@ function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full h-11 rounded-xl font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50"
+              disabled={loading || googleLoading}
+              className="w-full h-11 rounded-xl font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
               style={{ backgroundColor: 'var(--primary)' }}
             >
               {loading ? 'Entrando...' : 'Entrar'}
