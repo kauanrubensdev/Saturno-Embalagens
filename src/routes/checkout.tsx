@@ -34,8 +34,9 @@ import { loadStripe, StripeElementsOptions } from '@stripe/stripe-js';
 import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
 // ── Stripe public key — safe to expose in the frontend ──────────────────────
-const STRIPE_PUBLISHABLE_KEY =
+const rawStripePublishableKey =
   (import.meta.env['VITE_STRIPE_PUBLISHABLE_KEY'] as string) || '';
+const STRIPE_PUBLISHABLE_KEY = rawStripePublishableKey.trim().replace(/^["']|["']$/g, '');
 
 // Lazy-initialize Stripe to avoid loading the SDK on every page
 let stripePromise: ReturnType<typeof loadStripe> | null = null;
@@ -1828,6 +1829,18 @@ export function CheckoutPage() {
 
         verifiedTotal = verifiedSubtotal + verifiedShipping;
 
+        // Minimum amount validation for online payment methods
+        if (
+          (paymentMethod === 'card' || paymentMethod === 'apple_pay' || paymentMethod === 'google_pay') &&
+          verifiedTotal < 0.50
+        ) {
+          throw new Error('O valor total do pedido deve ser de pelo menos R$ 0,50 para pagamento com cartão.');
+        }
+
+        if (paymentMethod === 'boleto' && verifiedTotal < 5.00) {
+          throw new Error('O valor total do pedido deve ser de pelo menos R$ 5,00 para pagamento com boleto.');
+        }
+
         // 3. CREATE ORDER IN public.orders
         const orderPayload = {
           user_id: user.id,
@@ -1942,6 +1955,18 @@ export function CheckoutPage() {
         };
         setPendingOrderData(completedOrderData);
         verifiedTotal = completedOrderData.total;
+
+        // Minimum amount validation for online payment methods
+        if (
+          (paymentMethod === 'card' || paymentMethod === 'apple_pay' || paymentMethod === 'google_pay') &&
+          verifiedTotal < 0.50
+        ) {
+          throw new Error('O valor total do pedido deve ser de pelo menos R$ 0,50 para pagamento com cartão.');
+        }
+
+        if (paymentMethod === 'boleto' && verifiedTotal < 5.00) {
+          throw new Error('O valor total do pedido deve ser de pelo menos R$ 5,00 para pagamento com boleto.');
+        }
       }
 
       // 6. BRANCH: AbacatePay PIX vs Stripe vs cash_on_delivery
@@ -1961,9 +1986,26 @@ export function CheckoutPage() {
 
         if (pixErr || !pixRes?.success || !pixRes?.data?.brCode) {
           console.error('[CHECKOUT] Erro na Edge Function create-abacate-pix:', pixErr || pixRes?.error);
-          throw new Error(
-            'Não foi possível gerar a cobrança PIX. Tente novamente ou escolha outra forma de pagamento.'
-          );
+          let pixErrorMsg = 'Não foi possível gerar a cobrança PIX. Tente novamente ou escolha outra forma de pagamento.';
+          if (pixErr) {
+            try {
+              if ((pixErr as any).context && typeof (pixErr as any).context.json === 'function') {
+                const errBody = await (pixErr as any).context.json();
+                if (errBody?.error && typeof errBody.error === 'string') {
+                  pixErrorMsg = errBody.error;
+                }
+              } else if (pixErr.message) {
+                pixErrorMsg = pixErr.message;
+              }
+            } catch {
+              if (pixErr.message) {
+                pixErrorMsg = pixErr.message;
+              }
+            }
+          } else if (pixRes?.error && typeof pixRes.error === 'string') {
+            pixErrorMsg = pixRes.error;
+          }
+          throw new Error(pixErrorMsg);
         }
 
         const pixData = pixRes.data;
@@ -1995,9 +2037,27 @@ export function CheckoutPage() {
 
         if (paymentErr || !paymentRes?.client_secret) {
           console.error('[CHECKOUT] Erro na Edge Function create-stripe-payment:', paymentErr);
-          throw new Error(
-            'Não foi possível inicializar o ambiente de pagamento. Tente novamente em instantes.'
-          );
+          let stripeErrorMessage = 'Não foi possível inicializar o ambiente de pagamento. Tente novamente em instantes.';
+          if (paymentErr) {
+            try {
+              if ((paymentErr as any).context && typeof (paymentErr as any).context.json === 'function') {
+                const errBody = await (paymentErr as any).context.json();
+                if (errBody?.error && typeof errBody.error === 'string') {
+                  stripeErrorMessage = errBody.error;
+                }
+              } else if (paymentErr.message) {
+                stripeErrorMessage = paymentErr.message;
+              }
+            } catch {
+              if (paymentErr.message) {
+                stripeErrorMessage = paymentErr.message;
+              }
+            }
+          } else if (paymentRes?.error && typeof paymentRes.error === 'string') {
+            stripeErrorMessage = paymentRes.error;
+          }
+
+          throw new Error(stripeErrorMessage);
         }
 
         setStripePaymentState({
