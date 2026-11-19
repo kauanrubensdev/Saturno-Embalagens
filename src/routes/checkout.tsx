@@ -1678,7 +1678,28 @@ export function CheckoutPage() {
 
     if (pixErr || !pixRes?.success || !pixRes?.data?.brCode) {
       console.error('[CHECKOUT] Erro ao regenerar PIX:', pixErr || pixRes?.error);
-      toast.error('Não foi possível gerar novo PIX. Tente novamente.');
+      let errMsg = 'Não foi possível gerar novo PIX. Tente novamente.';
+      if (pixErr) {
+        try {
+          if ((pixErr as any).context && typeof (pixErr as any).context.json === 'function') {
+            const errBody = await (pixErr as any).context.json();
+            if (errBody?.error && typeof errBody.error === 'string') {
+              errMsg = errBody.error;
+            } else if (errBody?.details && typeof errBody.details === 'string') {
+              errMsg = `Erro PIX: ${errBody.details}`;
+            }
+          } else if (pixErr.message) {
+            errMsg = pixErr.message;
+          }
+        } catch {
+          if (pixErr.message) {
+            errMsg = pixErr.message;
+          }
+        }
+      } else if (pixRes?.error && typeof pixRes.error === 'string') {
+        errMsg = pixRes.error;
+      }
+      toast.error(errMsg);
       return;
     }
 
@@ -2074,6 +2095,8 @@ export function CheckoutPage() {
                 const errBody = await (pixErr as any).context.json();
                 if (errBody?.error && typeof errBody.error === 'string') {
                   pixErrorMsg = errBody.error;
+                } else if (errBody?.details && typeof errBody.details === 'string') {
+                  pixErrorMsg = `Erro na AbacatePay: ${errBody.details}`;
                 }
               } else if (pixErr.message) {
                 pixErrorMsg = pixErr.message;
