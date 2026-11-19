@@ -2,6 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { CartItem } from '@/components/customer/CartItem';
 import { CartSummary } from '@/components/customer/CartSummary';
 import { Header } from '@/components/customer/Header';
+import { Footer } from '@/components/customer/Footer';
 import { useCart } from '@/hooks/useCart';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -312,22 +313,6 @@ function CartPage() {
 
       <Footer />
     </div>
-  );
-}
-
-// Local Footer Component
-function Footer() {
-  return (
-    <footer
-      className="border-t mt-12"
-      style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-    >
-      <div className="max-w-5xl mx-auto px-4 py-8 text-center">
-        <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-          © 2026 SaturnoEmbalagens. Todos os direitos reservados.
-        </p>
-      </div>
-    </footer>
   );
 }
 

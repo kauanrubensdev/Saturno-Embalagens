@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useCart } from '@/hooks/useCart';
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from '@/components/customer/Header';
+import { Footer } from '@/components/customer/Footer';
 import { ProductGallery } from '@/components/customer/ProductGallery';
 import { toast } from 'sonner';
 
@@ -779,35 +780,6 @@ function ProductDetailPage() {
 
       <Footer />
     </div>
-  );
-}
-
-// Local Footer Component
-function Footer() {
-  return (
-    <footer className="border-t mt-auto" style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}>
-      <div className="max-w-5xl mx-auto px-4 py-8">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <img
-              src="/favicon.png"
-              alt="Saturno Embalagens"
-              className="w-8 h-8 object-contain"
-            />
-            <span className="font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
-              <span style={{ color: 'var(--primary)' }}>Saturno</span>Embalagens
-            </span>
-          </div>
-          <Link to="/catalog" className="inline-flex items-center gap-2 text-xs sm:text-sm font-medium no-underline transition-colors hover:opacity-80" style={{ color: 'var(--primary)' }}>
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Voltar ao catálogo
-          </Link>
-          <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>© 2026 SaturnoEmbalagens. Todos os direitos reservados.</p>
-        </div>
-      </div>
-    </footer>
   );
 }
 
