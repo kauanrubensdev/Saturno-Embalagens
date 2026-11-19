@@ -35,8 +35,9 @@ import { loadStripe, StripeElementsOptions } from '@stripe/stripe-js';
 import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
 // ── Stripe public key — safe to expose in the frontend ──────────────────────
-const STRIPE_PUBLISHABLE_KEY =
+const rawStripePublishableKey =
   (import.meta.env['VITE_STRIPE_PUBLISHABLE_KEY'] as string) || '';
+const STRIPE_PUBLISHABLE_KEY = rawStripePublishableKey.trim().replace(/^["']|["']$/g, '');
 
 // Lazy-initialize Stripe to avoid loading the SDK on every page
 let stripePromise: ReturnType<typeof loadStripe> | null = null;
@@ -274,6 +275,82 @@ interface StripePaymentFormProps {
   formatBRL: (val: number) => string;
 }
 
+/**
+ * Maps technical Stripe.js errors and decline codes into secure, user-friendly messages
+ * and logs non-sensitive diagnostics without logging full card numbers, CVC or secrets.
+ */
+function formatStripeError(error: any): string {
+  // Safe diagnostic log without sensitive data
+  console.error('[STRIPE-CONFIRM-ERROR]', {
+    type: error?.type,
+    code: error?.code,
+    decline_code: error?.decline_code,
+    param: error?.param,
+    message: error?.message,
+  });
+
+  const rawMessage = error?.message || '';
+  const lowerMsg = rawMessage.toLowerCase();
+  const declineCode = error?.decline_code || '';
+  const code = error?.code || '';
+
+  // 1. Boleto specific CNPJ validation
+  if (
+    lowerMsg.includes('the boleto tax id cannot match your legal entity tax id') ||
+    lowerMsg.includes('tax id cannot match')
+  ) {
+    return 'O CPF/CNPJ informado pertence à loja emissora. Informe seu próprio CPF ou CNPJ de comprador.';
+  }
+
+  // 2. Test card used in live production environment
+  if (
+    declineCode === 'testmode_charges_only' ||
+    lowerMsg.includes('testmode_charges_only') ||
+    lowerMsg.includes('test card')
+  ) {
+    return 'O ambiente atual está configurado em modo de produção (chaves ativas). Cartões de teste não são aceitos; utilize um cartão de crédito real.';
+  }
+
+  // 3. Card decline codes
+  switch (declineCode) {
+    case 'insufficient_funds':
+      return 'Saldo ou limite insuficiente no cartão.';
+    case 'lost_card':
+    case 'stolen_card':
+    case 'pickup_card':
+      return 'Cartão bloqueado pelo banco emissor. Entre em contato com seu banco.';
+    case 'expired_card':
+      return 'Cartão vencido. Por favor, confira a data de validade.';
+    case 'incorrect_cvc':
+      return 'Código de segurança (CVC) incorreto. Confira os dígitos no verso do cartão.';
+    case 'processing_error':
+      return 'Erro temporário de comunicação com a operadora do cartão. Tente novamente em instantes.';
+    case 'do_not_honor':
+    case 'generic_decline':
+      return 'O banco emissor não autorizou a transação. Verifique se o cartão está liberado para compras online ou tente outro cartão.';
+    case 'fraudulent':
+      return 'Transação não autorizada pelas regras de segurança do banco emissor.';
+    case 'transaction_not_allowed':
+      return 'Operação não permitida pelo emissor para este cartão. Verifique com seu banco se a função crédito está ativa.';
+  }
+
+  // 4. Stripe error codes
+  switch (code) {
+    case 'expired_card':
+      return 'Cartão vencido. Por favor, confira a data de validade.';
+    case 'incorrect_cvc':
+      return 'Código de segurança (CVC) incorreto.';
+    case 'incorrect_number':
+      return 'Número de cartão inválido. Confira os dados digitados.';
+    case 'card_not_supported':
+      return 'Bandeira ou tipo de cartão não suportado. Tente outro cartão.';
+    case 'card_declined':
+      return 'Seu cartão foi recusado pelo banco emissor. Verifique com seu banco ou tente outro cartão.';
+  }
+
+  return rawMessage || 'Erro ao processar o pagamento. Verifique os dados do cartão ou tente outro cartão.';
+}
+
 function StripePaymentForm({
   stripePaymentState,
   customerProfile,
@@ -293,6 +370,51 @@ function StripePaymentForm({
   const selectedMethod = stripePaymentState.selectedMethod;
   const isExpressWallet = selectedMethod === 'apple_pay' || selectedMethod === 'google_pay';
 
+  const buildBillingDetails = useCallback(() => {
+    const shippingAddress = stripePaymentState.orderData?.shipping_address;
+    const details: Record<string, any> = {};
+
+    if (customerProfile?.name) {
+      details['name'] = customerProfile.name;
+    }
+    if (customerUser?.email) {
+      details['email'] = customerUser.email;
+    }
+    if (customerProfile?.phone) {
+      details['phone'] = customerProfile.phone;
+    }
+    if (shippingAddress) {
+      const addressObj: Record<string, string> = {
+        country: 'BR',
+      };
+      if (shippingAddress.street) {
+        addressObj['line1'] = `${shippingAddress.street}${shippingAddress.number ? `, ${shippingAddress.number}` : ''}`;
+      }
+      const line2 = [shippingAddress.complement, shippingAddress.neighborhood]
+        .filter(Boolean)
+        .join(' - ');
+      if (line2) {
+        addressObj['line2'] = line2;
+      }
+      if (shippingAddress.city) {
+        addressObj['city'] = shippingAddress.city;
+      }
+      if (shippingAddress.state) {
+        addressObj['state'] = shippingAddress.state;
+      }
+      if (shippingAddress.zip_code) {
+        addressObj['postal_code'] = shippingAddress.zip_code;
+      }
+      details['address'] = addressObj;
+    }
+    return details;
+  }, [
+    customerProfile?.name,
+    customerProfile?.phone,
+    customerUser?.email,
+    stripePaymentState.orderData?.shipping_address,
+  ]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!stripe || !elements) return;
@@ -301,24 +423,25 @@ function StripePaymentForm({
     setPaymentError(null);
 
     try {
+      const billingDetails = buildBillingDetails();
+      const confirmParams: any = {
+        return_url: window.location.href,
+      };
+
+      if (Object.keys(billingDetails).length > 0) {
+        confirmParams.payment_method_data = {
+          billing_details: billingDetails,
+        };
+      }
+
       const { error, paymentIntent } = await stripe.confirmPayment({
         elements,
-        confirmParams: {
-          return_url: window.location.href,
-        },
+        confirmParams,
         redirect: 'if_required',
       });
 
       if (error) {
-        let errorMsg = error.message || 'Erro ao processar o pagamento.';
-        const lowerMsg = errorMsg.toLowerCase();
-        if (
-          lowerMsg.includes('the boleto tax id cannot match your legal entity tax id') ||
-          lowerMsg.includes('tax id cannot match')
-        ) {
-          errorMsg =
-            'O CPF/CNPJ informado pertence à loja emissora. Informe seu próprio CPF ou CNPJ de comprador.';
-        }
+        const errorMsg = formatStripeError(error);
         setPaymentError(errorMsg);
         toast.error(errorMsg);
         return;
@@ -350,16 +473,7 @@ function StripePaymentForm({
         }
       }
     } catch (err: any) {
-      console.error('[STRIPE-PAYMENT-FORM] Falha na confirmação do pagamento.');
-      let errorMsg = err?.message || 'Erro inesperado ao processar pagamento.';
-      if (
-        typeof errorMsg === 'string' &&
-        (errorMsg.toLowerCase().includes('the boleto tax id cannot match your legal entity tax id') ||
-          errorMsg.toLowerCase().includes('tax id cannot match'))
-      ) {
-        errorMsg =
-          'O CPF/CNPJ informado pertence à loja emissora. Informe seu próprio CPF ou CNPJ de comprador.';
-      }
+      const errorMsg = formatStripeError(err);
       setPaymentError(errorMsg);
       toast.error(errorMsg);
     } finally {
@@ -374,17 +488,26 @@ function StripePaymentForm({
     setPaymentError(null);
 
     try {
+      const billingDetails = buildBillingDetails();
+      const confirmParams: any = {
+        return_url: window.location.href,
+      };
+
+      if (Object.keys(billingDetails).length > 0) {
+        confirmParams.payment_method_data = {
+          billing_details: billingDetails,
+        };
+      }
+
       const { error, paymentIntent } = await stripe.confirmPayment({
         elements,
         clientSecret: stripePaymentState.clientSecret,
-        confirmParams: {
-          return_url: window.location.href,
-        },
+        confirmParams,
         redirect: 'if_required',
       });
 
       if (error) {
-        const errorMsg = error.message || 'Erro ao processar o pagamento com carteira digital.';
+        const errorMsg = formatStripeError(error);
         setPaymentError(errorMsg);
         toast.error(errorMsg);
         return;
@@ -399,8 +522,7 @@ function StripePaymentForm({
         }
       }
     } catch (err: any) {
-      console.error('[STRIPE-EXPRESS-CONFIRM] Erro ao confirmar pagamento:', err);
-      const errorMsg = err?.message || 'Erro inesperado ao processar pagamento.';
+      const errorMsg = formatStripeError(err);
       setPaymentError(errorMsg);
       toast.error(errorMsg);
     } finally {
@@ -442,54 +564,26 @@ function StripePaymentForm({
 
   // Tailored PaymentElement options based on the chosen individual method (Card or Boleto)
   const paymentElementOptions = useMemo(() => {
+    const billingDetails = buildBillingDetails();
+
     if (selectedMethod === 'card') {
-      return {
-        layout: 'tabs' as const,
+      const options: any = {
+        layout: 'tabs',
         paymentMethodOrder: ['card'],
         wallets: {
-          applePay: 'never' as const,
-          googlePay: 'never' as const,
+          applePay: 'never',
+          googlePay: 'never',
         },
       };
+
+      if (Object.keys(billingDetails).length > 0) {
+        options.defaultValues = { billingDetails };
+      }
+
+      return options;
     }
+
     if (selectedMethod === 'boleto') {
-      const shippingAddress = stripePaymentState.orderData?.shipping_address;
-      const billingDetails: Record<string, any> = {};
-
-      if (customerProfile?.name) {
-        billingDetails['name'] = customerProfile.name;
-      }
-      if (customerUser?.email) {
-        billingDetails['email'] = customerUser.email;
-      }
-      if (customerProfile?.phone) {
-        billingDetails['phone'] = customerProfile.phone;
-      }
-      if (shippingAddress) {
-        const addressObj: Record<string, string> = {
-          country: 'BR',
-        };
-        if (shippingAddress.street) {
-          addressObj['line1'] = `${shippingAddress.street}${shippingAddress.number ? `, ${shippingAddress.number}` : ''}`;
-        }
-        const line2 = [shippingAddress.complement, shippingAddress.neighborhood]
-          .filter(Boolean)
-          .join(' - ');
-        if (line2) {
-          addressObj['line2'] = line2;
-        }
-        if (shippingAddress.city) {
-          addressObj['city'] = shippingAddress.city;
-        }
-        if (shippingAddress.state) {
-          addressObj['state'] = shippingAddress.state;
-        }
-        if (shippingAddress.zip_code) {
-          addressObj['postal_code'] = shippingAddress.zip_code;
-        }
-        billingDetails['address'] = addressObj;
-      }
-
       const options: any = {
         layout: 'tabs',
         paymentMethodOrder: ['boleto'],
@@ -505,15 +599,11 @@ function StripePaymentForm({
 
       return options;
     }
+
     return {
       layout: 'tabs' as const,
     };
-  }, [
-    selectedMethod,
-    customerProfile?.name,
-    customerUser?.email,
-    stripePaymentState.orderData?.shipping_address,
-  ]);
+  }, [selectedMethod, buildBillingDetails]);
 
   const buttonLabel = useMemo(() => {
     if (selectedMethod === 'boleto') {
@@ -1820,6 +1910,18 @@ export function CheckoutPage() {
 
         verifiedTotal = verifiedSubtotal + verifiedShipping;
 
+        // Minimum amount validation for online payment methods
+        if (
+          (paymentMethod === 'card' || paymentMethod === 'apple_pay' || paymentMethod === 'google_pay') &&
+          verifiedTotal < 0.50
+        ) {
+          throw new Error('O valor total do pedido deve ser de pelo menos R$ 0,50 para pagamento com cartão.');
+        }
+
+        if (paymentMethod === 'boleto' && verifiedTotal < 5.00) {
+          throw new Error('O valor total do pedido deve ser de pelo menos R$ 5,00 para pagamento com boleto.');
+        }
+
         // 3. CREATE ORDER IN public.orders
         const orderPayload = {
           user_id: user.id,
@@ -1934,6 +2036,18 @@ export function CheckoutPage() {
         };
         setPendingOrderData(completedOrderData);
         verifiedTotal = completedOrderData.total;
+
+        // Minimum amount validation for online payment methods
+        if (
+          (paymentMethod === 'card' || paymentMethod === 'apple_pay' || paymentMethod === 'google_pay') &&
+          verifiedTotal < 0.50
+        ) {
+          throw new Error('O valor total do pedido deve ser de pelo menos R$ 0,50 para pagamento com cartão.');
+        }
+
+        if (paymentMethod === 'boleto' && verifiedTotal < 5.00) {
+          throw new Error('O valor total do pedido deve ser de pelo menos R$ 5,00 para pagamento com boleto.');
+        }
       }
 
       // 6. BRANCH: AbacatePay PIX vs Stripe vs cash_on_delivery
@@ -1953,9 +2067,26 @@ export function CheckoutPage() {
 
         if (pixErr || !pixRes?.success || !pixRes?.data?.brCode) {
           console.error('[CHECKOUT] Erro na Edge Function create-abacate-pix:', pixErr || pixRes?.error);
-          throw new Error(
-            'Não foi possível gerar a cobrança PIX. Tente novamente ou escolha outra forma de pagamento.'
-          );
+          let pixErrorMsg = 'Não foi possível gerar a cobrança PIX. Tente novamente ou escolha outra forma de pagamento.';
+          if (pixErr) {
+            try {
+              if ((pixErr as any).context && typeof (pixErr as any).context.json === 'function') {
+                const errBody = await (pixErr as any).context.json();
+                if (errBody?.error && typeof errBody.error === 'string') {
+                  pixErrorMsg = errBody.error;
+                }
+              } else if (pixErr.message) {
+                pixErrorMsg = pixErr.message;
+              }
+            } catch {
+              if (pixErr.message) {
+                pixErrorMsg = pixErr.message;
+              }
+            }
+          } else if (pixRes?.error && typeof pixRes.error === 'string') {
+            pixErrorMsg = pixRes.error;
+          }
+          throw new Error(pixErrorMsg);
         }
 
         const pixData = pixRes.data;
@@ -1987,9 +2118,27 @@ export function CheckoutPage() {
 
         if (paymentErr || !paymentRes?.client_secret) {
           console.error('[CHECKOUT] Erro na Edge Function create-stripe-payment:', paymentErr);
-          throw new Error(
-            'Não foi possível inicializar o ambiente de pagamento. Tente novamente em instantes.'
-          );
+          let stripeErrorMessage = 'Não foi possível inicializar o ambiente de pagamento. Tente novamente em instantes.';
+          if (paymentErr) {
+            try {
+              if ((paymentErr as any).context && typeof (paymentErr as any).context.json === 'function') {
+                const errBody = await (paymentErr as any).context.json();
+                if (errBody?.error && typeof errBody.error === 'string') {
+                  stripeErrorMessage = errBody.error;
+                }
+              } else if (paymentErr.message) {
+                stripeErrorMessage = paymentErr.message;
+              }
+            } catch {
+              if (paymentErr.message) {
+                stripeErrorMessage = paymentErr.message;
+              }
+            }
+          } else if (paymentRes?.error && typeof paymentRes.error === 'string') {
+            stripeErrorMessage = paymentRes.error;
+          }
+
+          throw new Error(stripeErrorMessage);
         }
 
         setStripePaymentState({
