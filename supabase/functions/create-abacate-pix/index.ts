@@ -278,12 +278,16 @@ serve(async (req: Request) => {
     // Se o objeto "customer" for enviado sem taxId (CPF) ou cellphone completo, a AbacatePay
     // rejeita a requisição com HTTP 422 ("Property 'data.customer.taxId' is missing").
     // Portanto, enviamos os campos oficiais e validados sem campos incompletos.
+    //
+    // externalId = UUID do pedido no Supabase. É devolvido no payload do webhook
+    // transparent.completed como data.externalId, permitindo lookup direto do pedido.
     const abacatePayload: Record<string, unknown> = {
       method: 'PIX',
       data: {
         amount: amountInCents,
         description: `Pedido #${order.id.slice(0, 8).toUpperCase()} - Saturno Embalagens`,
         expiresIn: PIX_EXPIRATION_SECONDS,
+        externalId: order.id,
       },
     };
 

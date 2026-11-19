@@ -112,6 +112,8 @@ export interface AbacatePixPaymentState {
   qrCodeBase64: string | null;
   expiresAt: string | null;
   orderData: CompletedOrderData;
+  /** Whether payment was confirmed via webhook (realtime or polling) */
+  isPaid: boolean;
 }
 
 /** State for orders that require online payment via Stripe */
@@ -819,6 +821,67 @@ function AbacatePixPaymentScreen({
     }
     return `data:image/png;base64,${pixState.qrCodeBase64}`;
   }, [pixState.qrCodeBase64]);
+
+  // ── Paid confirmation screen ─────────────────────────────────────────────
+  if (pixState.isPaid) {
+    return (
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+        <Header showNav />
+        <main className="flex-1 max-w-2xl mx-auto px-4 py-6 sm:py-10 w-full">
+          <div
+            className="rounded-2xl p-8 text-center border"
+            style={{
+              backgroundColor: 'var(--card)',
+              borderColor: 'var(--border)',
+              boxShadow: 'var(--shadow-sm)',
+            }}
+          >
+            <div
+              className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+              style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)' }}
+            >
+              <Check className="w-9 h-9 text-green-500" strokeWidth={3} />
+            </div>
+            <span
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider mb-3"
+              style={{ backgroundColor: 'rgba(34, 197, 94, 0.12)', color: '#16a34a' }}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Pagamento Confirmado
+            </span>
+            <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>
+              PIX recebido com sucesso!
+            </h1>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-6">
+              Seu pagamento de <strong>{formatBRL(pixState.total)}</strong> foi confirmado. Seu pedido está sendo preparado.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Link
+                to="/account"
+                className="inline-flex items-center justify-center py-3 px-6 rounded-xl font-semibold text-white transition-all hover:opacity-90"
+                style={{ backgroundColor: 'var(--primary)' }}
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                Ver meus pedidos
+              </Link>
+              <Link
+                to="/"
+                className="inline-flex items-center justify-center py-3 px-6 rounded-xl font-medium transition-all hover:opacity-80 border"
+                style={{
+                  backgroundColor: 'var(--card)',
+                  borderColor: 'var(--border)',
+                  color: 'var(--foreground)',
+                }}
+              >
+                Voltar para o início
+              </Link>
+            </div>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
