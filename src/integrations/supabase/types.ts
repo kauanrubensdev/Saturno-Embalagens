@@ -233,9 +233,66 @@ export type Database = {
           },
         ]
       }
+      order_email_queue: {
+        Row: {
+          attempts: number
+          created_at: string
+          email_type: string
+          error_message: string | null
+          id: string
+          max_attempts: number
+          order_id: string
+          payload: Json
+          recipient_email: string
+          resend_id: string | null
+          sent_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          email_type: string
+          error_message?: string | null
+          id?: string
+          max_attempts?: number
+          order_id: string
+          payload?: Json
+          recipient_email: string
+          resend_id?: string | null
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          email_type?: string
+          error_message?: string | null
+          id?: string
+          max_attempts?: number
+          order_id?: string
+          payload?: Json
+          recipient_email?: string
+          resend_id?: string | null
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_email_queue_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       orders: {
         Row: {
           created_at: string
+          customer_email: string | null
           customer_name: string | null
           customer_note: string | null
           customer_phone: string | null
@@ -259,6 +316,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          customer_email?: string | null
           customer_name?: string | null
           customer_note?: string | null
           customer_phone?: string | null
@@ -282,6 +340,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          customer_email?: string | null
           customer_name?: string | null
           customer_note?: string | null
           customer_phone?: string | null
@@ -784,3 +843,20 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
+export type EmailType =
+  | 'order_created'
+  | 'payment_approved'
+  | 'preparing'
+  | 'ready_for_pickup'
+  | 'shipped'
+  | 'delivered'
+  | 'cancelled'
+
+export type EmailQueueStatus =
+  | 'pending'
+  | 'processing'
+  | 'sent'
+  | 'failed'
+  | 'skipped'
+
