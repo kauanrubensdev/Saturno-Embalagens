@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { ProductCard } from '@/components/customer/ProductCard';
 import { CategoryMenu } from '@/components/customer/CategoryMenu';
 import { Header } from '@/components/customer/Header';
+import { Footer } from '@/components/customer/Footer';
 import { HeroOrbitVisual } from '@/components/customer/HeroOrbitVisual';
 import {
   RotateCcw,
@@ -425,98 +426,7 @@ function Index() {
       </section>
 
       {/* Footer */}
-      <footer style={{ backgroundColor: 'var(--card)', borderTop: '1px solid var(--border)' }}>
-        <div className="max-w-7xl mx-auto px-4 py-14 md:py-16">
-          {/* Main Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-12">
-            {/* Brand Column */}
-            <div className="md:col-span-1">
-              <Link to="/" className="inline-flex items-center gap-2.5 mb-5 no-underline group">
-                <img
-                  src="/favicon.png"
-                  alt="Saturno Embalagens"
-                  className="w-10 h-10 object-contain transition-transform group-hover:scale-105"
-                />
-                <span className="font-bold text-lg" style={{ color: 'var(--foreground)' }}>SaturnoEmbalagens</span>
-              </Link>
-              <p className="text-sm leading-relaxed mb-6" style={{ color: 'var(--muted-foreground)' }}>
-                Embalagens de qualidade para delivery. Qualidade e preço justo para seu negócio.
-              </p>
-              {/* Accent line */}
-              <div className="w-12 h-1 rounded-full" style={{ backgroundColor: 'var(--primary)' }} />
-            </div>
-
-            {/* Navigation Column */}
-            <div>
-              <h3 className="font-semibold text-sm mb-5 flex items-center gap-2" style={{ color: 'var(--foreground)' }}>
-                <span className="w-1 h-4 rounded-full" style={{ backgroundColor: 'var(--primary)' }} />
-                Navegação
-              </h3>
-              <ul className="space-y-3">
-                <li>
-                  <Link to="/" className="text-sm no-underline transition-colors inline-flex items-center gap-1.5 group" style={{ color: 'var(--muted-foreground)' }}>
-                    <span className="w-1 h-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" style={{ backgroundColor: 'var(--primary)' }} />
-                    <span className="group-hover:opacity-80">Início</span>
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/catalog" className="text-sm no-underline transition-colors inline-flex items-center gap-1.5 group" style={{ color: 'var(--muted-foreground)' }}>
-                    <span className="w-1 h-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" style={{ backgroundColor: 'var(--primary)' }} />
-                    <span className="group-hover:opacity-80">Catálogo</span>
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/cart" className="text-sm no-underline transition-colors inline-flex items-center gap-1.5 group" style={{ color: 'var(--muted-foreground)' }}>
-                    <span className="w-1 h-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" style={{ backgroundColor: 'var(--primary)' }} />
-                    <span className="group-hover:opacity-80">Carrinho</span>
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/login" className="text-sm no-underline transition-colors inline-flex items-center gap-1.5 group" style={{ color: 'var(--muted-foreground)' }}>
-                    <span className="w-1 h-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" style={{ backgroundColor: 'var(--primary)' }} />
-                    <span className="group-hover:opacity-80">Minha conta</span>
-                  </Link>
-                </li>
-              </ul>
-            </div>
-
-            {/* Pickup Location Column */}
-            <div>
-              <h3 className="font-semibold text-sm mb-5 flex items-center gap-2" style={{ color: 'var(--foreground)' }}>
-                <span className="w-1 h-4 rounded-full" style={{ backgroundColor: 'var(--primary)' }} />
-                Retirada
-              </h3>
-              <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: 'var(--accent)' }}>
-                  <svg className="w-4 h-4" style={{ color: 'var(--primary)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </div>
-                <div>
-                  <p className="text-sm font-medium mb-0.5" style={{ color: 'var(--foreground)' }}>R. Urupema, nº 150</p>
-                  <p className="text-sm mb-0.5" style={{ color: 'var(--muted-foreground)' }}>São Cosme de Baixo</p>
-                  <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>Santa Luzia - MG, 33130-140</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="mt-12 pt-8 border-t flex flex-col sm:flex-row items-center justify-between gap-4" style={{ borderColor: 'var(--border)' }}>
-            <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-              © 2026 SaturnoEmbalagens. Todos os direitos reservados.
-            </p>
-            <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--muted-foreground)' }}>
-              Feito com
-              <svg className="w-3.5 h-3.5" style={{ color: 'var(--primary)' }} fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-              </svg>
-              para seu negócio
-            </p>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

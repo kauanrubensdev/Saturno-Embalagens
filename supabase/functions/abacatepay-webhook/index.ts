@@ -7,9 +7,12 @@ interface AbacateWebhookData {
   id?: string;
   status?: string;
   amount?: number;
+  externalId?: string;
+  external_id?: string;
   metadata?: {
     orderId?: string;
     order_id?: string;
+    pedidoId?: string;
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -22,6 +25,8 @@ interface AbacateWebhookPayload {
   event?: string;
   event_type?: string;
   type?: string;
+  apiVersion?: number;
+  devMode?: boolean;
   data?: AbacateWebhookData;
   metadata?: {
     orderId?: string;
@@ -31,9 +36,11 @@ interface AbacateWebhookPayload {
   [key: string]: unknown;
 }
 
-// ── Helper: Constant-time HMAC-SHA256 verification ───────────────────────────
-
-async function verifyHmacSha256(
+// ── Helper: Constant-time HMAC-SHA256 verification (Base64 output) ───────────
+// IMPORTANT: AbacatePay signs webhooks with HMAC-SHA256 and encodes the result
+// as Base64 (not hex). The header is X-Webhook-Signature.
+//
+async function verifyHmacSha256Base64(
   rawBody: string,
   signature: string,
   secret: string
@@ -49,23 +56,24 @@ async function verifyHmacSha256(
     );
 
     const sigBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(rawBody));
-    const sigArray = Array.from(new Uint8Array(sigBuffer));
-    const computedHex = sigArray.map((b) => b.toString(16).padStart(2, '0')).join('').toLowerCase();
-    const normalizedSignature = signature.trim().toLowerCase();
 
-    if (computedHex.length !== normalizedSignature.length) {
+    // Encode as Base64 (AbacatePay format)
+    const base64Sig = btoa(String.fromCharCode(...new Uint8Array(sigBuffer)));
+    const normalizedSignature = signature.trim();
+
+    if (base64Sig.length !== normalizedSignature.length) {
       return false;
     }
 
     // Constant-time equality comparison to prevent timing attacks
     let diff = 0;
-    for (let i = 0; i < computedHex.length; i++) {
-      diff |= computedHex.charCodeAt(i) ^ normalizedSignature.charCodeAt(i);
+    for (let i = 0; i < base64Sig.length; i++) {
+      diff |= base64Sig.charCodeAt(i) ^ normalizedSignature.charCodeAt(i);
     }
 
     return diff === 0;
   } catch (err) {
-    console.error('[ABACATEPAY-WEBHOOK] Erro no cálculo HMAC:', err instanceof Error ? err.message : String(err));
+    console.error('[ABACATEPAY-WEBHOOK] Erro no cálculo HMAC-SHA256/Base64:', err instanceof Error ? err.message : String(err));
     return false;
   }
 }
@@ -101,29 +109,61 @@ serve(async (req: Request) => {
     );
   }
 
-  // ── 2. Read raw body and signature header ──────────────────────────────────
+  // ── 2. Read raw body ──────────────────────────────────────────────────────
   const rawBody = await req.text();
+
+  // ── 3. Authentication: dual layer (HMAC header + optional query param) ────
+  //
+  // The AbacatePay can authenticate webhooks in two ways:
+  //   a) HMAC-SHA256 (Base64) in the X-Webhook-Signature header
+  //   b) Plain secret appended as ?webhookSecret=<SECRET> in the URL query string
+  //
+  // We validate whichever is present. The header HMAC is preferred and more secure.
+
   const signature =
     req.headers.get('X-Webhook-Signature') ||
     req.headers.get('x-webhook-signature');
 
-  if (!signature) {
-    console.warn('[ABACATEPAY-WEBHOOK] Requisição rejeitada: cabeçalho X-Webhook-Signature ausente.');
-    return new Response(
-      JSON.stringify({ error: 'Assinatura do webhook ausente.' }),
-      { status: 401, headers: { 'Content-Type': 'application/json' } }
-    );
+  const reqUrl = new URL(req.url);
+  const querySecret = reqUrl.searchParams.get('webhookSecret');
+
+  let authenticated = false;
+  let authMethod = 'none';
+
+  if (signature) {
+    // Validate HMAC-SHA256 (Base64)
+    const isValidHmac = await verifyHmacSha256Base64(rawBody, signature, webhookSecret);
+    if (isValidHmac) {
+      authenticated = true;
+      authMethod = 'hmac-sha256-base64';
+    } else {
+      console.warn('[ABACATEPAY-WEBHOOK] Assinatura HMAC inválida. Header recebido (truncado):', signature.slice(0, 20) + '...');
+    }
   }
 
-  // ── 3. Verify HMAC-SHA256 signature on raw body ───────────────────────────
-  const isValidSignature = await verifyHmacSha256(rawBody, signature, webhookSecret);
-  if (!isValidSignature) {
-    console.warn('[ABACATEPAY-WEBHOOK] Requisição rejeitada: assinatura HMAC inválida.');
+  if (!authenticated && querySecret) {
+    // Fallback: plain secret in query string
+    if (querySecret === webhookSecret) {
+      authenticated = true;
+      authMethod = 'query-secret';
+    } else {
+      console.warn('[ABACATEPAY-WEBHOOK] webhookSecret na query string não corresponde ao segredo configurado.');
+    }
+  }
+
+  if (!authenticated) {
+    if (!signature && !querySecret) {
+      console.warn('[ABACATEPAY-WEBHOOK] Requisição rejeitada: nenhum método de autenticação fornecido (X-Webhook-Signature header ou ?webhookSecret query param).');
+    } else {
+      console.warn('[ABACATEPAY-WEBHOOK] Requisição rejeitada: autenticação falhou. Signature header presente:', Boolean(signature), '/ Query secret presente:', Boolean(querySecret));
+    }
     return new Response(
-      JSON.stringify({ error: 'Assinatura inválida.' }),
+      JSON.stringify({ error: 'Autenticação do webhook falhou.' }),
       { status: 403, headers: { 'Content-Type': 'application/json' } }
     );
   }
+
+  console.log(`[ABACATEPAY-WEBHOOK] Autenticado via: ${authMethod}`);
 
   // ── 4. Parse JSON payload ─────────────────────────────────────────────────
   let payload: AbacateWebhookPayload;
@@ -141,6 +181,9 @@ serve(async (req: Request) => {
   const eventType = payload.event || payload.event_type || payload.type || 'unknown';
   const rawEventId = payload.id || payload.event_id || payload.eventId;
   const pixId = payload.data?.id;
+  const devMode = payload.devMode ?? payload.data?.devMode ?? false;
+
+  console.log(`[ABACATEPAY-WEBHOOK] Evento recebido: type="${eventType}", pixId="${pixId || 'N/A'}", devMode=${devMode}, rawBody_len=${rawBody.length}`);
 
   // Determine a unique and deterministic event ID for idempotency tracking
   let eventId = rawEventId;
@@ -152,14 +195,20 @@ serve(async (req: Request) => {
     eventId = `evt_${Array.from(new Uint8Array(hashBuffer)).map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32)}`;
   }
 
-  // Extract order identifier (prioritize metadata.orderId)
-  const orderIdFromMetadata =
+  // Extract order identifier – covers all known field positions:
+  // 1. data.externalId (sent by create-abacate-pix as the order UUID)
+  // 2. data.metadata.orderId / order_id / pedidoId
+  // 3. top-level metadata.*
+  const orderIdFromPayload =
+    payload.data?.externalId ||
+    payload.data?.external_id ||
     payload.data?.metadata?.orderId ||
     payload.data?.metadata?.order_id ||
+    payload.data?.metadata?.pedidoId ||
     payload.metadata?.orderId ||
     payload.metadata?.order_id;
 
-  console.log(`[ABACATEPAY-WEBHOOK] Processando evento: ${eventType} (ID: ${eventId})`);
+  console.log(`[ABACATEPAY-WEBHOOK] Processando evento: ${eventType} (ID: ${eventId}, orderIdFromPayload: ${orderIdFromPayload || 'N/A'})`);
 
   const supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -173,31 +222,37 @@ serve(async (req: Request) => {
       abacate_pix_id: string | null;
     } | null = null;
 
-    if (orderIdFromMetadata && typeof orderIdFromMetadata === 'string') {
-      const { data: orderById } = await supabaseClient
+    // Strategy 1: look up by order UUID from payload
+    if (orderIdFromPayload && typeof orderIdFromPayload === 'string') {
+      const { data: orderById, error: orderByIdErr } = await supabaseClient
         .from('orders')
         .select('id, payment_method, payment_status, status, abacate_pix_id')
-        .eq('id', orderIdFromMetadata)
+        .eq('id', orderIdFromPayload)
         .maybeSingle();
 
-      if (orderById) {
+      if (orderByIdErr) {
+        console.error('[ABACATEPAY-WEBHOOK] Erro ao buscar pedido por ID:', orderByIdErr.message);
+      } else if (orderById) {
         targetOrder = orderById;
+        console.log(`[ABACATEPAY-WEBHOOK] Pedido localizado via orderIdFromPayload: ${targetOrder.id}`);
       }
     }
 
+    // Strategy 2: look up by abacate_pix_id (data.id from API response)
     if (!targetOrder && pixId && typeof pixId === 'string') {
-      const { data: orderByPixId } = await supabaseClient
+      const { data: orderByPixId, error: orderByPixErr } = await supabaseClient
         .from('orders')
         .select('id, payment_method, payment_status, status, abacate_pix_id')
         .eq('abacate_pix_id', pixId)
         .maybeSingle();
 
-      if (orderByPixId) {
+      if (orderByPixErr) {
+        console.error('[ABACATEPAY-WEBHOOK] Erro ao buscar pedido por abacate_pix_id:', orderByPixErr.message);
+      } else if (orderByPixId) {
         targetOrder = orderByPixId;
+        console.log(`[ABACATEPAY-WEBHOOK] Pedido localizado via abacate_pix_id (${pixId}): ${targetOrder.id}`);
       }
     }
-
-    const resolvedOrderId = targetOrder?.id || (orderIdFromMetadata ? String(orderIdFromMetadata) : null);
 
     // ── 6. Idempotency: Register event in public.abacatepay_webhook_events ────
     // Using PRIMARY KEY constraint on `id` to handle concurrent duplicate webhooks cleanly
@@ -226,7 +281,7 @@ serve(async (req: Request) => {
 
     // ── 7. Process Order Status based on Event Type ──────────────────────────
     if (!targetOrder) {
-      console.warn(`[ABACATEPAY-WEBHOOK] Nenhum pedido encontrado correspondente ao evento ${eventId} (orderId: ${orderIdFromMetadata || 'N/A'}, pixId: ${pixId || 'N/A'}).`);
+      console.warn(`[ABACATEPAY-WEBHOOK] Nenhum pedido encontrado para o evento ${eventId}. orderIdFromPayload="${orderIdFromPayload || 'N/A'}", pixId="${pixId || 'N/A'}". Verifique se o campo externalId está sendo enviado na criação do PIX.`);
       return new Response(
         JSON.stringify({ received: true, order_found: false }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
@@ -265,7 +320,7 @@ serve(async (req: Request) => {
         throw updateOrderErr;
       }
 
-      console.log(`[ABACATEPAY-WEBHOOK] Pedido ${targetOrder.id} marcado como 'paid' com sucesso.`);
+      console.log(`[ABACATEPAY-WEBHOOK] ✓ Pedido ${targetOrder.id} marcado como PAID com sucesso (evento: ${eventType}, devMode: ${devMode}).`);
     } else {
       console.log(`[ABACATEPAY-WEBHOOK] Evento '${eventType}' registrado para o pedido ${targetOrder.id}. Nenhuma alteração de status necessária.`);
     }

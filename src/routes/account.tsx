@@ -5,6 +5,7 @@ import { updateProfile } from '@/lib/auth';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Header } from '@/components/customer/Header';
+import { Footer } from '@/components/customer/Footer';
 import {
   User,
   ShoppingBag,
@@ -2128,16 +2129,7 @@ function AccountPage() {
         </div>
       </main>
 
-      <footer
-        className="border-t mt-12"
-        style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-      >
-        <div className="max-w-5xl mx-auto px-4 py-8 text-center">
-          <p className="text-xs text-muted-foreground">
-            © 2026 Saturno Embalagens. Todos os direitos reservados.
-          </p>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-router';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Header } from '@/components/customer/Header';
+import { Footer } from '@/components/customer/Footer';
 import { useAuth } from '@/hooks/useAuth';
 import { useCart, type CartItemType } from '@/hooks/useCart';
 import { supabase } from '@/integrations/supabase/client';
@@ -111,6 +112,8 @@ export interface AbacatePixPaymentState {
   qrCodeBase64: string | null;
   expiresAt: string | null;
   orderData: CompletedOrderData;
+  /** Whether payment was confirmed via webhook (realtime or polling) */
+  isPaid: boolean;
 }
 
 /** State for orders that require online payment via Stripe */
@@ -819,6 +822,67 @@ function AbacatePixPaymentScreen({
     return `data:image/png;base64,${pixState.qrCodeBase64}`;
   }, [pixState.qrCodeBase64]);
 
+  // ── Paid confirmation screen ─────────────────────────────────────────────
+  if (pixState.isPaid) {
+    return (
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
+        <Header showNav />
+        <main className="flex-1 max-w-2xl mx-auto px-4 py-6 sm:py-10 w-full">
+          <div
+            className="rounded-2xl p-8 text-center border"
+            style={{
+              backgroundColor: 'var(--card)',
+              borderColor: 'var(--border)',
+              boxShadow: 'var(--shadow-sm)',
+            }}
+          >
+            <div
+              className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+              style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)' }}
+            >
+              <Check className="w-9 h-9 text-green-500" strokeWidth={3} />
+            </div>
+            <span
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider mb-3"
+              style={{ backgroundColor: 'rgba(34, 197, 94, 0.12)', color: '#16a34a' }}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Pagamento Confirmado
+            </span>
+            <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--foreground)' }}>
+              PIX recebido com sucesso!
+            </h1>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-6">
+              Seu pagamento de <strong>{formatBRL(pixState.total)}</strong> foi confirmado. Seu pedido está sendo preparado.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Link
+                to="/account"
+                className="inline-flex items-center justify-center py-3 px-6 rounded-xl font-semibold text-white transition-all hover:opacity-90"
+                style={{ backgroundColor: 'var(--primary)' }}
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                Ver meus pedidos
+              </Link>
+              <Link
+                to="/"
+                className="inline-flex items-center justify-center py-3 px-6 rounded-xl font-medium transition-all hover:opacity-80 border"
+                style={{
+                  backgroundColor: 'var(--card)',
+                  borderColor: 'var(--border)',
+                  color: 'var(--foreground)',
+                }}
+              >
+                Voltar para o início
+              </Link>
+            </div>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
       <Header showNav />
@@ -1131,16 +1195,7 @@ function AbacatePixPaymentScreen({
         </div>
       </main>
 
-      <footer
-        className="border-t mt-12"
-        style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-      >
-        <div className="max-w-5xl mx-auto px-4 py-8 text-center">
-          <p className="text-xs text-muted-foreground">
-            © 2026 Saturno Embalagens. Todos os direitos reservados.
-          </p>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }
@@ -1513,6 +1568,61 @@ export function CheckoutPage() {
     };
   }, [stripePaymentState?.orderId, stripePaymentState?.isPaid, stripePaymentState?.boletoPdfUrl]);
 
+  // ── Realtime + polling for AbacatePay PIX payment confirmation ────────────
+  useEffect(() => {
+    if (!abacatePixState || abacatePixState.isPaid) return;
+
+    const orderId = abacatePixState.orderId;
+
+    // Realtime subscription: fires as soon as the webhook updates the order
+    const channel = supabase
+      .channel(`abacate-pix-payment-${orderId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+          filter: `id=eq.${orderId}`,
+        },
+        (payload) => {
+          const updated = payload.new as Record<string, unknown>;
+          if (updated && updated['payment_status'] === 'paid') {
+            toast.success('Pagamento PIX confirmado com sucesso!');
+            setAbacatePixState((prev) => (prev ? { ...prev, isPaid: true } : null));
+          }
+        }
+      )
+      .subscribe();
+
+    // Polling fallback every 8s — catches cases where realtime is unavailable
+    const checkPixStatus = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('payment_status')
+          .eq('id', orderId)
+          .single();
+
+        if (!error && data && data.payment_status === 'paid') {
+          toast.success('Pagamento PIX confirmado!');
+          setAbacatePixState((prev) => (prev ? { ...prev, isPaid: true } : null));
+        }
+      } catch (err) {
+        console.warn('[CHECKOUT-PIX-POLLING] Erro ao checar status do pedido:', err);
+      }
+    };
+
+    // Run immediately once, then every 8s
+    void checkPixStatus();
+    const interval = setInterval(checkPixStatus, 8000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [abacatePixState?.orderId, abacatePixState?.isPaid]);
+
   // ── CEP auto-fill ──────────────────────────────────────────────────────────
   const handleCepBlur = async () => {
     const rawCep = addressForm.zip_code.replace(/\D/g, '');
@@ -1686,7 +1796,28 @@ export function CheckoutPage() {
 
     if (pixErr || !pixRes?.success || !pixRes?.data?.brCode) {
       console.error('[CHECKOUT] Erro ao regenerar PIX:', pixErr || pixRes?.error);
-      toast.error('Não foi possível gerar novo PIX. Tente novamente.');
+      let errMsg = 'Não foi possível gerar novo PIX. Tente novamente.';
+      if (pixErr) {
+        try {
+          if ((pixErr as any).context && typeof (pixErr as any).context.json === 'function') {
+            const errBody = await (pixErr as any).context.json();
+            if (errBody?.error && typeof errBody.error === 'string') {
+              errMsg = errBody.error;
+            } else if (errBody?.details && typeof errBody.details === 'string') {
+              errMsg = `Erro PIX: ${errBody.details}`;
+            }
+          } else if (pixErr.message) {
+            errMsg = pixErr.message;
+          }
+        } catch {
+          if (pixErr.message) {
+            errMsg = pixErr.message;
+          }
+        }
+      } else if (pixRes?.error && typeof pixRes.error === 'string') {
+        errMsg = pixRes.error;
+      }
+      toast.error(errMsg);
       return;
     }
 
@@ -2082,6 +2213,8 @@ export function CheckoutPage() {
                 const errBody = await (pixErr as any).context.json();
                 if (errBody?.error && typeof errBody.error === 'string') {
                   pixErrorMsg = errBody.error;
+                } else if (errBody?.details && typeof errBody.details === 'string') {
+                  pixErrorMsg = `Erro na AbacatePay: ${errBody.details}`;
                 }
               } else if (pixErr.message) {
                 pixErrorMsg = pixErr.message;
@@ -2106,6 +2239,7 @@ export function CheckoutPage() {
           qrCodeBase64: pixData.brCodeBase64 || null,
           expiresAt: pixData.expiresAt || null,
           orderData: completedOrderData,
+          isPaid: false,
         });
 
         toast.success('Cobrança PIX gerada com sucesso!');
@@ -2809,16 +2943,7 @@ export function CheckoutPage() {
           </div>
         </main>
 
-        <footer
-          className="border-t mt-12"
-          style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-        >
-          <div className="max-w-5xl mx-auto px-4 py-8 text-center">
-            <p className="text-xs text-muted-foreground">
-              © 2026 Saturno Embalagens. Todos os direitos reservados.
-            </p>
-          </div>
-        </footer>
+        <Footer />
       </div>
     );
   }
@@ -3027,16 +3152,7 @@ export function CheckoutPage() {
           </div>
         </main>
 
-        <footer
-          className="border-t mt-12"
-          style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-        >
-          <div className="max-w-5xl mx-auto px-4 py-8 text-center">
-            <p className="text-xs text-muted-foreground">
-              © 2026 Saturno Embalagens. Todos os direitos reservados.
-            </p>
-          </div>
-        </footer>
+        <Footer />
       </div>
     );
   }
@@ -3079,16 +3195,7 @@ export function CheckoutPage() {
           </div>
         </main>
 
-        <footer
-          className="border-t"
-          style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-        >
-          <div className="max-w-5xl mx-auto px-4 py-8 text-center">
-            <p className="text-xs text-muted-foreground">
-              © 2026 Saturno Embalagens. Todos os direitos reservados.
-            </p>
-          </div>
-        </footer>
+        <Footer />
       </div>
     );
   }
@@ -4173,16 +4280,7 @@ export function CheckoutPage() {
       </Dialog>
 
       {/* Footer */}
-      <footer
-        className="border-t mt-12"
-        style={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)' }}
-      >
-        <div className="max-w-5xl mx-auto px-4 py-8 text-center">
-          <p className="text-xs text-muted-foreground">
-            © 2026 Saturno Embalagens. Todos os direitos reservados.
-          </p>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

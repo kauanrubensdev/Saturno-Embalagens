@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { ProductCard } from '@/components/customer/ProductCard';
 import { Header } from '@/components/customer/Header';
+import { Footer } from '@/components/customer/Footer';
 
 interface CatalogProduct {
   id: string;
@@ -396,29 +397,7 @@ function CatalogPage() {
       </main>
 
       {/* Footer */}
-      <footer 
-        className="border-t mt-12" 
-        style={{ 
-          backgroundColor: 'var(--card)', 
-          borderColor: 'var(--border)' 
-        }}
-      >
-        <div className="max-w-7xl mx-auto px-4 py-8 text-center">
-          <Link to="/" className="inline-flex items-center gap-2 no-underline mb-3">
-            <img
-              src="/favicon.png"
-              alt="Saturno Embalagens"
-              className="w-8 h-8 object-contain"
-            />
-            <span className="font-bold text-sm" style={{ color: 'var(--foreground)' }}>
-              <span style={{ color: 'var(--primary)' }}>Saturno</span>Embalagens
-            </span>
-          </Link>
-          <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-            © 2026 SaturnoEmbalagens. Todos os direitos reservados.
-          </p>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

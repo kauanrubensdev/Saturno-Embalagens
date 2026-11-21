@@ -69,14 +69,20 @@ serve(async (req: Request) => {
 
   try {
     // ── 1. Validate environment & secrets ────────────────────────────────────
-    const abacateApiKey = Deno.env.get('ABACATEPAY_API_KEY');
-    if (!abacateApiKey) {
+    const rawApiKey = Deno.env.get('ABACATEPAY_API_KEY');
+    if (!rawApiKey) {
       console.error('[CREATE-ABACATE-PIX] ABACATEPAY_API_KEY não configurada no servidor.');
       return new Response(
-        JSON.stringify({ error: 'Configuração do servidor incompleta (ABACATEPAY_API_KEY).' }),
+        JSON.stringify({ error: 'Configuração do servidor incompleta (ABACATEPAY_API_KEY ausente).' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    const cleanApiKey = rawApiKey.trim().replace(/^["']|["']$/g, '');
+    const isProdKey = cleanApiKey.startsWith('abc_prod_');
+    const isDevKey = cleanApiKey.startsWith('abc_dev_');
+    const keyEnvType = isProdKey ? 'PROD (abc_prod_***)' : isDevKey ? 'DEV (abc_dev_***)' : 'PREFIXO_DESCONHECIDO';
+    console.log(`[CREATE-ABACATE-PIX] Chave AbacatePay carregada: ambiente=${keyEnvType}, tamanho=${cleanApiKey.length} caracteres.`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -268,44 +274,62 @@ serve(async (req: Request) => {
     }
 
     // ── 11. Build AbacatePay request payload (POST /v2/transparents/create) ───
-    const abacatePayload: AbacateCreateTransparentRequest = {
+    // Observação importante: Para o método PIX, os dados de "customer" são opcionais.
+    // Se o objeto "customer" for enviado sem taxId (CPF) ou cellphone completo, a AbacatePay
+    // rejeita a requisição com HTTP 422 ("Property 'data.customer.taxId' is missing").
+    // Portanto, enviamos os campos oficiais e validados sem campos incompletos.
+    //
+    // externalId = UUID do pedido no Supabase. É devolvido no payload do webhook
+    // transparent.completed como data.externalId, permitindo lookup direto do pedido.
+    const abacatePayload: Record<string, unknown> = {
       method: 'PIX',
       data: {
         amount: amountInCents,
+        description: `Pedido #${order.id.slice(0, 8).toUpperCase()} - Saturno Embalagens`,
+        expiresIn: PIX_EXPIRATION_SECONDS,
+        externalId: order.id,
       },
     };
 
-    // Temporarily disabled optional fields to isolate 422 error:
-    // description: `Pedido Saturno Embalagens #${order.id.slice(0, 8).toUpperCase()}`,
-    // expiresIn: PIX_EXPIRATION_SECONDS,
-    // metadata: { pedidoId: order.id },
-    // if (customerPayload) abacatePayload.data.customer = customerPayload;
-
     // ── 12. Call AbacatePay API ──────────────────────────────────────────────
-    console.log(`[CREATE-ABACATE-PIX] Criando cobrança PIX na AbacatePay para o pedido ${order.id} (valor: ${amountInCents} centavos).`);
+    console.log(`[CREATE-ABACATE-PIX] Criando cobrança PIX na AbacatePay para o pedido ${order.id} (valor: ${amountInCents} centavos, ambiente: ${keyEnvType}).`);
     console.log(`[CREATE-ABACATE-PIX] Payload enviado: ${JSON.stringify(abacatePayload, null, 2)}`);
 
     const abacateRes = await fetch('https://api.abacatepay.com/v2/transparents/create', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${abacateApiKey}`,
+        'Authorization': `Bearer ${cleanApiKey}`,
         'Content-Type': 'application/json',
+        'User-Agent': 'SaturnoEmbalagens/1.0',
       },
       body: JSON.stringify(abacatePayload),
     });
 
-    const abacateJson: AbacateApiResponse = await abacateRes.json().catch(() => ({}));
+    const responseText = await abacateRes.text();
+    let abacateJson: AbacateApiResponse = {};
+    try {
+      abacateJson = JSON.parse(responseText);
+    } catch {
+      // Resposta não é JSON válido
+    }
 
     if (!abacateRes.ok || !abacateJson.success || !abacateJson.data?.id || !abacateJson.data?.brCode) {
+      const errorDetail = abacateJson.error
+        ? (typeof abacateJson.error === 'string' ? abacateJson.error : JSON.stringify(abacateJson.error))
+        : (responseText ? responseText.slice(0, 300) : `HTTP ${abacateRes.status} ${abacateRes.statusText}`);
+
       console.error('[CREATE-ABACATE-PIX] Erro retornado pela AbacatePay:', {
         httpStatus: abacateRes.status,
-        error: abacateJson.error || 'Resposta inválida da API',
+        errorDetail,
+        ambienteChave: keyEnvType,
       });
 
       return new Response(
         JSON.stringify({
-          error: 'Não foi possível gerar a cobrança PIX no momento. Tente novamente em instantes.',
-          details: abacateJson.error || `HTTP ${abacateRes.status}`,
+          error: `AbacatePay (HTTP ${abacateRes.status}): ${errorDetail}`,
+          details: errorDetail,
+          httpStatus: abacateRes.status,
+          keyEnvType,
         }),
         { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
