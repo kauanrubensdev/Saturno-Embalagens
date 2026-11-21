@@ -1568,6 +1568,61 @@ export function CheckoutPage() {
     };
   }, [stripePaymentState?.orderId, stripePaymentState?.isPaid, stripePaymentState?.boletoPdfUrl]);
 
+  // ── Realtime + polling for AbacatePay PIX payment confirmation ────────────
+  useEffect(() => {
+    if (!abacatePixState || abacatePixState.isPaid) return;
+
+    const orderId = abacatePixState.orderId;
+
+    // Realtime subscription: fires as soon as the webhook updates the order
+    const channel = supabase
+      .channel(`abacate-pix-payment-${orderId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+          filter: `id=eq.${orderId}`,
+        },
+        (payload) => {
+          const updated = payload.new as Record<string, unknown>;
+          if (updated && updated['payment_status'] === 'paid') {
+            toast.success('Pagamento PIX confirmado com sucesso!');
+            setAbacatePixState((prev) => (prev ? { ...prev, isPaid: true } : null));
+          }
+        }
+      )
+      .subscribe();
+
+    // Polling fallback every 8s — catches cases where realtime is unavailable
+    const checkPixStatus = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('payment_status')
+          .eq('id', orderId)
+          .single();
+
+        if (!error && data && data.payment_status === 'paid') {
+          toast.success('Pagamento PIX confirmado!');
+          setAbacatePixState((prev) => (prev ? { ...prev, isPaid: true } : null));
+        }
+      } catch (err) {
+        console.warn('[CHECKOUT-PIX-POLLING] Erro ao checar status do pedido:', err);
+      }
+    };
+
+    // Run immediately once, then every 8s
+    void checkPixStatus();
+    const interval = setInterval(checkPixStatus, 8000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [abacatePixState?.orderId, abacatePixState?.isPaid]);
+
   // ── CEP auto-fill ──────────────────────────────────────────────────────────
   const handleCepBlur = async () => {
     const rawCep = addressForm.zip_code.replace(/\D/g, '');
@@ -2184,6 +2239,7 @@ export function CheckoutPage() {
           qrCodeBase64: pixData.brCodeBase64 || null,
           expiresAt: pixData.expiresAt || null,
           orderData: completedOrderData,
+          isPaid: false,
         });
 
         toast.success('Cobrança PIX gerada com sucesso!');

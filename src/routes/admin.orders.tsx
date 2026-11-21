@@ -335,6 +335,47 @@ function AdminOrdersPage() {
     fetchOrders();
   }, [fetchOrders]);
 
+  // ── Realtime: reflect payment status changes from webhook without page reload ──
+  useEffect(() => {
+    const channel = supabase
+      .channel('admin-orders-payment-realtime')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders' },
+        (payload) => {
+          const updated = payload.new as Partial<Order> & { id: string };
+          if (!updated?.id) return;
+
+          // Patch the matching order in state — avoids a full re-fetch
+          setOrders((prev) =>
+            prev.map((o) => {
+              if (o.id !== updated.id) return o;
+              const patched = { ...o };
+              if (updated.payment_status !== undefined) patched.payment_status = updated.payment_status;
+              if (updated.status !== undefined) patched.status = updated.status;
+              if (updated.updated_at !== undefined) patched.updated_at = updated.updated_at;
+              return patched;
+            })
+          );
+
+          // If the detail modal is open for this order, patch it too
+          setSelectedOrder((prev) => {
+            if (!prev || prev.id !== updated.id) return prev;
+            const patched = { ...prev };
+            if (updated.payment_status !== undefined) patched.payment_status = updated.payment_status;
+            if (updated.status !== undefined) patched.status = updated.status;
+            if (updated.updated_at !== undefined) patched.updated_at = updated.updated_at;
+            return patched;
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   // ── Fetch order items for the detail modal ───────────────────────────────
   const openDetail = async (order: Order) => {
     setIsDetailOpen(true);
