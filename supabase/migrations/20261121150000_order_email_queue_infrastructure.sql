@@ -99,26 +99,16 @@ ALTER TABLE public.order_email_queue ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins podem visualizar toda a fila de emails" ON public.order_email_queue;
 DROP POLICY IF EXISTS "Clientes podem visualizar emails de seus proprios pedidos" ON public.order_email_queue;
 
--- Políticas de SELECT
+-- Política de leitura: exclusivamente administradores
 CREATE POLICY "Admins podem visualizar toda a fila de emails"
   ON public.order_email_queue FOR SELECT
   USING (public.is_admin());
-
-CREATE POLICY "Clientes podem visualizar emails de seus proprios pedidos"
-  ON public.order_email_queue FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.orders o
-      WHERE o.id = order_email_queue.order_id
-        AND o.user_id = auth.uid()
-    )
-  );
 
 -- Permissões explícitas:
 -- anon não tem acesso algum
 REVOKE ALL ON public.order_email_queue FROM anon;
 
--- authenticated só pode ler via políticas RLS acima (sem INSERT, UPDATE, DELETE direto)
+-- authenticated só pode ler se for admin via política RLS acima (sem INSERT, UPDATE, DELETE direto)
 REVOKE INSERT, UPDATE, DELETE ON public.order_email_queue FROM authenticated;
 GRANT SELECT ON public.order_email_queue TO authenticated;
 

@@ -5,6 +5,10 @@ import { hydrateStart } from '@tanstack/react-start/client';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { CartProvider } from '@/hooks/useCart';
 
+if (import.meta.env.DEV) {
+  import('@/lib/rpcAdminAuthDiagnostic');
+}
+
 function AuthenticatedRouter({ router }: { router: AnyRouter }) {
   const auth = useAuth();
   const previousAuthKey = useRef<string | null>(null);

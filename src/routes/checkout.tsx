@@ -2064,6 +2064,7 @@ export function CheckoutPage() {
         // 3. CREATE ORDER IN public.orders
         const orderPayload = {
           user_id: user.id,
+          customer_email: user.email?.trim() || null,
           delivery_type: deliveryType,
           shipping_address_id: deliveryType === 'delivery' ? selectedAddressId : null,
           pickup_address: deliveryType === 'pickup' ? verifiedPickupAddress : null,
@@ -2128,6 +2129,20 @@ export function CheckoutPage() {
               stockRpcErr.message
             );
           }
+        }
+
+        // 6. ENQUEUE ORDER_CREATED EMAIL SAFELY (POST-CREATION & STOCK RESERVATION)
+        // Failure to enqueue must NOT abort the checkout or cancel an otherwise valid order.
+        try {
+          const { error: enqueueErr } = await supabase.rpc('customer_enqueue_order_created', {
+            p_order_id: createdOrder.id,
+          });
+
+          if (enqueueErr) {
+            console.warn('[CHECKOUT] Aviso ao enfileirar e-mail order_created:', enqueueErr.message);
+          }
+        } catch (queueCatchErr) {
+          console.warn('[CHECKOUT] Erro inesperado ao enfileirar e-mail order_created:', queueCatchErr);
         }
 
         completedOrderData = {
